@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import { BarChart3, Bell, ChefHat, ChevronLeft, CircleDollarSign, Clock3, LayoutGrid, LogOut, Minus, Plus, Search, ShoppingBag, Sparkles, UtensilsCrossed, X } from "lucide-react";
 import { addProduct, closeTable, initialState, money, OrderItem, OrderStatus, products, recordPosSale, RestaurantState, tableTotal } from "@/lib/domain";
 import { Brand, KpiCard, MetricCard, NavItem } from "@/components/ui";
@@ -79,7 +80,27 @@ function Login({ needsSetup, onAuthenticated }: { needsSetup: boolean; onAuthent
       await onAuthenticated();
     } catch { setError("Não foi possível conectar ao servidor."); } finally { setLoading(false); }
   };
-  return <div className="login-page"><section className="login-art"><div className="art-orb orb-one"/><div className="art-orb orb-two"/><div className="art-copy"><Brand light /><h2>{needsSetup ? <>Sua operação começa<br/>bem organizada.</> : <>Seu restaurante fluindo.<br/>Do salão ao caixa.</>}</h2><p>{needsSetup ? "Crie o acesso do proprietário e prepare o primeiro estabelecimento." : "Menos complicação na rotina. Mais tempo para cuidar do que importa."}</p></div><div className="art-card"><ChefHat/><div><b>{needsSetup ? "Configuração inicial" : "Pedido #042 pronto!"}</b><span>{needsSetup ? "Leva menos de um minuto" : "Mesa 7 • há poucos segundos"}</span></div></div></section><section className="login-panel"><div className="login-box"><div className="mobile-brand"><Brand /></div><span className="eyebrow">{needsSetup ? "PRIMEIRO ACESSO" : "BEM-VINDO DE VOLTA"}</span><h1>{needsSetup ? "Vamos começar." : "Tudo sob controle."}</h1><p>{needsSetup ? "Defina o proprietário, o negócio e suas credenciais." : "Entre com seu usuário e senha."}</p><form onSubmit={submit}>{needsSetup && <><label>Seu nome<input name="ownerName" autoComplete="name" required minLength={2}/></label><label>Nome da empresa<input name="organizationName" required minLength={2}/></label><label>Nome do estabelecimento<input name="establishmentName" required minLength={2}/></label></>}<label>Usuário<input name="username" autoComplete="username" required minLength={3} maxLength={40} pattern="[A-Za-z0-9._-]+" autoFocus={!needsSetup}/></label><label>Senha<input name="password" type="password" autoComplete={needsSetup ? "new-password" : "current-password"} required minLength={needsSetup ? 8 : 1}/></label>{needsSetup && <label>Confirmar senha<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={8}/></label>}{error && <div className="auth-error" role="alert">{error}</div>}<button className="primary wide" disabled={loading}>{loading ? "Aguarde…" : needsSetup ? "Criar acesso e continuar" : "Entrar no Mordomê"}</button></form>{needsSetup && <div className="demo-note"><Sparkles/><span><b>Acesso do proprietário</b>Você poderá criar outros usuários e permissões depois.</span></div>}<small>© 2026 Mordomê <i>by JCS</i></small></div></section></div>;
+  return <div className="login-page betao-login">
+    <section className="login-art betao-login-art">
+      <div className="betao-stamp"><span>DESDE</span><b>+25</b><span>ANOS</span></div>
+      <div className="art-copy betao-art-copy">
+        <Image className="betao-login-logo" src="/clientes/betao/logo-recriada-v1.png" alt="Betão Hot Dog" width={190} height={190} priority />
+        <span className="betao-family">FAMÍLIA BETÃO · MACAÉ</span>
+        <h2>{needsSetup ? <>Quatro lojas.<br/>Uma só operação.</> : <>A casa está pronta.<br/>Pode entrar.</>}</h2>
+        <p>{needsSetup ? "Prepare o primeiro acesso para acompanhar a Família Betão pelo Mordomê." : "Salão, balcão, cozinha e caixa no mesmo ritmo."}</p>
+      </div>
+      <div className="betao-units"><span>Parque Aeroporto</span><i/><span>Cavaleiros</span><i/><span>Lagomar</span></div>
+    </section>
+    <section className="login-panel betao-login-panel"><div className="login-box betao-login-box">
+      <div className="mobile-brand"><Brand /></div>
+      <span className="eyebrow">{needsSetup ? "CONFIGURAÇÃO DA OPERAÇÃO" : "ACESSO À OPERAÇÃO"}</span>
+      <h1>{needsSetup ? "Primeiro acesso." : "Bem-vindo de volta."}</h1>
+      <p>{needsSetup ? "Cadastre o responsável e defina as credenciais iniciais." : "Use seu usuário e senha para continuar."}</p>
+      <form onSubmit={submit}>{needsSetup && <><label>Seu nome<input name="ownerName" autoComplete="name" required minLength={2}/></label><label>Nome da empresa<input name="organizationName" required minLength={2}/></label><label>Nome do estabelecimento<input name="establishmentName" required minLength={2}/></label></>}<label>Usuário<input name="username" autoComplete="username" required minLength={3} maxLength={40} pattern="[A-Za-z0-9._-]+" autoFocus={!needsSetup}/></label><label>Senha<input name="password" type="password" autoComplete={needsSetup ? "new-password" : "current-password"} required minLength={needsSetup ? 8 : 1}/></label>{needsSetup && <label>Confirmar senha<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={8}/></label>}{error && <div className="auth-error" role="alert">{error}</div>}<button className="primary wide betao-enter" disabled={loading}>{loading ? "Aguarde…" : needsSetup ? "Criar acesso" : "Entrar"}</button></form>
+      {needsSetup && <div className="demo-note"><Sparkles/><span><b>Acesso do responsável</b>Outros usuários e permissões serão configurados depois.</span></div>}
+      <div className="powered-by"><span>Operação Betão</span><i/>Mordomê <em>by JCS</em></div>
+    </div></section>
+  </div>;
 }
 
 function Salon({ state, onSelect }: { state: RestaurantState; onSelect: (id: number) => void }) {
