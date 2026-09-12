@@ -1,8 +1,8 @@
-import { timingSafeEqual } from "node:crypto";
+import { randomBytes, timingSafeEqual } from "node:crypto";
 import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 
-const LOCAL_TOKEN = "mordome-local-betao";
+const LOCAL_TOKEN = randomBytes(32).toString("base64url");
 const LOCAL_ESTABLISHMENT_COOKIE = "mordome_local_establishment";
 const localEstablishments = [
   { id: "parque-aeroporto", name: "Parque Aeroporto" },
@@ -31,9 +31,16 @@ export async function destroyLocalSession() {
   const cookieStore = await cookies(); cookieStore.delete(SESSION_COOKIE); cookieStore.delete(LOCAL_ESTABLISHMENT_COOKIE);
 }
 
+function isValidLocalToken(token: string | undefined) {
+  if (!token) return false;
+  const received = Buffer.from(token);
+  const expected = Buffer.from(LOCAL_TOKEN);
+  return received.length === expected.length && timingSafeEqual(received, expected);
+}
+
 export async function getLocalSession() {
   const cookieStore = await cookies();
-  if (cookieStore.get(SESSION_COOKIE)?.value !== LOCAL_TOKEN) return null;
+  if (!isValidLocalToken(cookieStore.get(SESSION_COOKIE)?.value)) return null;
   const selectedId = cookieStore.get(LOCAL_ESTABLISHMENT_COOKIE)?.value;
   const establishment = localEstablishments.find(item => item.id === selectedId) ?? localEstablishments[0];
   return {
