@@ -7,9 +7,9 @@ ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'TAB_ITEM_CHANGE';
 ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'ORDER_SENT';
 ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'ORDER_STATUS_CHANGE';
 
-ALTER TABLE "AuditEvent" ADD COLUMN "userAgent" TEXT;
-CREATE INDEX "AuditEvent_organizationId_actorId_createdAt_idx" ON "AuditEvent"("organizationId", "actorId", "createdAt");
-CREATE INDEX "AuditEvent_organizationId_action_createdAt_idx" ON "AuditEvent"("organizationId", "action", "createdAt");
+ALTER TABLE "AuditEvent" ADD COLUMN IF NOT EXISTS "userAgent" TEXT;
+CREATE INDEX IF NOT EXISTS "AuditEvent_organizationId_actorId_createdAt_idx" ON "AuditEvent"("organizationId", "actorId", "createdAt");
+CREATE INDEX IF NOT EXISTS "AuditEvent_organizationId_action_createdAt_idx" ON "AuditEvent"("organizationId", "action", "createdAt");
 
 INSERT INTO "Permission" ("id", "key", "module", "description")
 VALUES ('perm_audit_view', 'audit.view', 'audit', 'Visualizar o histórico completo e auditável da organização')
@@ -19,5 +19,5 @@ INSERT INTO "RolePermission" ("roleId", "permissionId")
 SELECT role."id", permission."id"
 FROM "CustomRole" role
 JOIN "Permission" permission ON permission."key" = 'audit.view'
-WHERE role."system" = TRUE AND role."name" = 'Proprietário'
+WHERE role."systemTemplate" = TRUE AND role."name" = 'Proprietário'
 ON CONFLICT DO NOTHING;
