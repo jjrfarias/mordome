@@ -1,0 +1,3 @@
+ALTER TYPE "AuditAction" ADD VALUE IF NOT EXISTS 'PRINT_REPRINT';
+INSERT INTO "Permission" ("id", "key", "module", "description") VALUES ('permission_print_reprint', 'print.reprint', 'integrations', 'Reimprimir pedidos e comprovantes') ON CONFLICT ("key") DO UPDATE SET "module" = EXCLUDED."module", "description" = EXCLUDED."description";
+INSERT INTO "RolePermission" ("roleId", "permissionId") SELECT role."id", permission."id" FROM "CustomRole" role CROSS JOIN "Permission" permission WHERE role."systemTemplate" = true AND permission."key" = 'print.reprint' ON CONFLICT ("roleId", "permissionId") DO NOTHING;

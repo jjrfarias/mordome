@@ -1,6 +1,9 @@
 import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
+import { hasPermission } from "@/lib/authorization";
+import { AUDIT_VIEW, CASH_CLOSE, CASH_HISTORY_VIEW, CASH_MOVE, CASH_OPEN, CATALOG_MANAGE, DISCOUNT_APPLY, DISCOUNT_OVERRIDE, ESTABLISHMENTS_MANAGE, FINANCE_SUMMARY_VIEW, FLOOR_OPERATE, INTEGRATIONS_MANAGE, POS_CANCEL_SALE, POS_SELL, PRINT_REPRINT, RECIPES_MANAGE, ROLES_MANAGE, SALE_REFUND, STOCK_ADJUST, STOCK_MANAGE, TABS_CANCEL_ITEM, USERS_DISABLE, USERS_INVITE, USERS_PASSWORD_RESET, USERS_VIEW } from "@/lib/permissions";
+import { getActiveIntegrationDriver } from "@/lib/integrations/catalog";
 
 export const SESSION_COOKIE = "mordome_session";
 const SESSION_DAYS = 7;
@@ -56,7 +59,12 @@ export async function getCurrentSession() {
         include: {
           memberships: {
             where: { status: "ACTIVE" },
-            include: { organization: true, accesses: { include: { establishment: true } } },
+            include: {
+              organization: true,
+              accesses: { include: { establishment: true } },
+              roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } },
+              overrides: { include: { permission: true } },
+            },
           },
         },
       },
@@ -72,6 +80,12 @@ export async function getCurrentSession() {
   const establishments = membership?.accesses.map(access => access.establishment).filter(establishment => establishment.active).sort((a, b) => a.name.localeCompare(b.name, "pt-BR")) ?? [];
   const establishment = establishments.find(item => item.id === session.activeEstablishmentId) ?? establishments[0];
   if (!membership || !membership.organization.active || !establishment?.active) return null;
+  const rolePermissions = new Set(membership.roles.flatMap(link => link.role.active ? link.role.permissions.map(item => item.permission.key) : []));
+  const overrides = new Map(membership.overrides.map(item => [item.permission.key, item.effect]));
+  const permissionContext = { organizationId: membership.organization.id, allowedEstablishmentIds: new Set(establishments.map(item => item.id)), rolePermissions, overrides };
+  const permissionKeys = new Set([...rolePermissions, ...[...overrides].filter(([, effect]) => effect === "ALLOW").map(([key]) => key)]);
+  for (const [key, effect] of overrides) if (effect === "DENY") permissionKeys.delete(key);
+  const printerDriver = await getActiveIntegrationDriver(establishment.id, "PRINTER");
 
   return {
     sessionId: session.id,
@@ -79,6 +93,54 @@ export async function getCurrentSession() {
     organization: { id: membership.organization.id, name: membership.organization.name },
     establishment: { id: establishment.id, name: establishment.name },
     establishments: establishments.map(item => ({ id: item.id, name: item.name })),
+    permissionKeys: [...permissionKeys],
+    isOwner: membership.roles.some(link => link.role.active && link.role.systemTemplate),
+    canManageEstablishments: hasPermission({
+      organizationId: membership.organization.id,
+      allowedEstablishmentIds: new Set(establishments.map(item => item.id)),
+      rolePermissions,
+      overrides,
+    }, ESTABLISHMENTS_MANAGE),
+    canManageCatalog: hasPermission({
+      organizationId: membership.organization.id,
+      allowedEstablishmentIds: new Set(establishments.map(item => item.id)),
+      rolePermissions,
+      overrides,
+    }, CATALOG_MANAGE),
+    canManageStock: hasPermission({
+      organizationId: membership.organization.id,
+      allowedEstablishmentIds: new Set(establishments.map(item => item.id)),
+      rolePermissions,
+      overrides,
+    }, STOCK_MANAGE),
+    canAdjustStock: hasPermission(permissionContext, STOCK_ADJUST),
+    canManageRecipes: hasPermission({
+      organizationId: membership.organization.id,
+      allowedEstablishmentIds: new Set(establishments.map(item => item.id)),
+      rolePermissions,
+      overrides,
+    }, RECIPES_MANAGE),
+    canSellPos: hasPermission({ organizationId: membership.organization.id, allowedEstablishmentIds: new Set(establishments.map(item => item.id)), rolePermissions, overrides }, POS_SELL),
+    canOperateFloor: hasPermission({ organizationId: membership.organization.id, allowedEstablishmentIds: new Set(establishments.map(item => item.id)), rolePermissions, overrides }, FLOOR_OPERATE),
+    canCancelSentItems: hasPermission(permissionContext, TABS_CANCEL_ITEM),
+    canCancelSales: hasPermission(permissionContext, POS_CANCEL_SALE),
+    canApplyDiscount: hasPermission(permissionContext, DISCOUNT_APPLY),
+    canOverrideDiscount: hasPermission(permissionContext, DISCOUNT_OVERRIDE),
+    canRefundSales: hasPermission(permissionContext, SALE_REFUND),
+    canOpenCash: hasPermission({ organizationId: membership.organization.id, allowedEstablishmentIds: new Set(establishments.map(item => item.id)), rolePermissions, overrides }, CASH_OPEN),
+    canMoveCash: hasPermission({ organizationId: membership.organization.id, allowedEstablishmentIds: new Set(establishments.map(item => item.id)), rolePermissions, overrides }, CASH_MOVE),
+    canCloseCash: hasPermission({ organizationId: membership.organization.id, allowedEstablishmentIds: new Set(establishments.map(item => item.id)), rolePermissions, overrides }, CASH_CLOSE),
+    canViewCashHistory: hasPermission({ organizationId: membership.organization.id, allowedEstablishmentIds: new Set(establishments.map(item => item.id)), rolePermissions, overrides }, CASH_HISTORY_VIEW),
+    canViewAudit: hasPermission({ organizationId: membership.organization.id, allowedEstablishmentIds: new Set(establishments.map(item => item.id)), rolePermissions, overrides }, AUDIT_VIEW),
+    canViewFinanceSummary: hasPermission(permissionContext, FINANCE_SUMMARY_VIEW),
+    canViewUsers: hasPermission(permissionContext, USERS_VIEW),
+    canCreateUsers: hasPermission(permissionContext, USERS_INVITE),
+    canDisableUsers: hasPermission(permissionContext, USERS_DISABLE),
+    canResetUserPassword: hasPermission(permissionContext, USERS_PASSWORD_RESET),
+    canManageRoles: hasPermission(permissionContext, ROLES_MANAGE),
+    canManageIntegrations: hasPermission(permissionContext, INTEGRATIONS_MANAGE),
+    canReprint: hasPermission(permissionContext, PRINT_REPRINT),
+    printerDriver,
   };
 }
 

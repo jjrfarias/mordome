@@ -73,7 +73,7 @@ O protótipo mantém `RestaurantState` no navegador. A migração substitui o ad
 
 ## Fundação implementada
 
-O esquema Prisma contém organização, estabelecimentos, associações, acesso a unidades, perfis, permissões, exceções, sessões, caixa, vendas, pagamentos e auditoria. O primeiro acesso cria atomicamente proprietário, organização, primeira unidade e associação ativa. O cadastro de produtos permanece explicitamente bloqueado até decisão funcional.
+O esquema Prisma contém organização, estabelecimentos, associações, acesso a unidades, perfis, permissões, exceções, sessões, catálogo, receitas, estoque, salão, cozinha, caixa, vendas, pagamentos e auditoria. O primeiro acesso cria atomicamente proprietário, organização, primeira unidade, associação ativa e o perfil de sistema Proprietário com todas as permissões vigentes. A administração de equipe combina múltiplos perfis por associação, acesso independente às unidades e exceções individuais; todas as decisões estão no ADR 0009.
 
 ### Limitações do ambiente atual
 

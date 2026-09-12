@@ -22,6 +22,8 @@ A marca provisória usa um monograma “M” editorial envolvido por um arco. O 
 
 `components/ui.tsx` concentra marca, item de navegação, KPI e métrica. Estados compartilhados (`active`, `disabled`, `hover`, vazio e sucesso) usam tokens globais de `app/globals.css`. Novos módulos devem reutilizar esses componentes e tokens antes de criar variantes locais.
 
+A barra lateral possui três zonas: marca fixa, navegação central rolável e rodapé fixo com unidade ativa e usuário. O menu principal recebe apenas áreas de trabalho de primeiro nível; páginas de estabelecimentos, usuários, perfis e demais cadastros devem ser organizadas dentro de **Configurações**, evitando crescimento indefinido da navegação lateral.
+
 ## Diretrizes de produto
 
 - Uma ação primária por região da tela.

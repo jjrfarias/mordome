@@ -1,47 +1,52 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Image from "next/image";
-import { BarChart3, Bell, ChefHat, ChevronLeft, CircleDollarSign, Clock3, LayoutGrid, LogOut, Minus, Plus, Search, ShoppingBag, Sparkles, UtensilsCrossed, X } from "lucide-react";
-import { addProduct, closeTable, initialState, money, OrderItem, OrderStatus, products, recordPosSale, RestaurantState, tableTotal } from "@/lib/domain";
-import { Brand, KpiCard, MetricCard, NavItem } from "@/components/ui";
+import { BarChart3, Bell, Check, ChefHat, ChevronDown, CircleDollarSign, FileClock, LayoutGrid, LogOut, Minus, Plus, Printer, Search, Settings, ShoppingBag, Sparkles, UtensilsCrossed, X } from "lucide-react";
+import { money, OrderItem, products } from "@/lib/domain";
+import { Brand, MetricCard, NavItem } from "@/components/ui";
+import { SettingsWorkspace } from "@/components/admin/SettingsWorkspace";
+import { CashManagement } from "@/components/operations/CashManagement";
+import { AuditHistory } from "@/components/admin/AuditHistory";
+import { FloorManagement } from "@/components/operations/FloorManagement";
+import { PaymentComposer, serializeCheckout, type SaleCheckout } from "@/components/operations/PaymentComposer";
+import { printReceipt } from "@/lib/integrations/print-client";
 
-type View = "pdv" | "salão" | "cozinha" | "resumo";
-const storageKey = (establishmentId: string) => `mordome:demo:${establishmentId}:v1`;
-type AuthSession = { user: { name: string; username: string }; organization: { name: string }; establishment: { id: string; name: string }; establishments: { id: string; name: string }[] };
+type View = "pdv" | "salão" | "cozinha" | "caixa" | "resumo" | "historico" | "config";
+type AuthSession = { user: { name: string; username: string }; organization: { name: string }; establishment: { id: string; name: string }; establishments: { id: string; name: string }[]; canManageEstablishments: boolean; canManageCatalog: boolean; canManageStock: boolean; canManageRecipes: boolean; canSellPos: boolean; canCancelSales: boolean; canRefundSales: boolean; canApplyDiscount: boolean; canOverrideDiscount: boolean; canOperateFloor: boolean; canCancelSentItems: boolean; canOpenCash: boolean; canMoveCash: boolean; canCloseCash: boolean; canViewCashHistory: boolean; canViewAudit: boolean; canViewFinanceSummary: boolean; canViewUsers: boolean; canCreateUsers: boolean; canDisableUsers: boolean; canResetUserPassword: boolean; canManageRoles: boolean; canManageIntegrations: boolean; canReprint: boolean; printerDriver: string };
 
 export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
-  const [state, setState] = useState<RestaurantState>(() => initialState());
-  const [loadedEstablishmentId, setLoadedEstablishmentId] = useState<string | null>(null);
   const [switchingUnit, setSwitchingUnit] = useState(false);
+  const [unitMenuOpen, setUnitMenuOpen] = useState(false);
   const [view, setView] = useState<View>("salão");
-  const [selectedId, setSelectedId] = useState<number | null>(null);
-  const [search, setSearch] = useState("");
   const [toast, setToast] = useState("");
+  const [cashOpen, setCashOpen] = useState(false);
 
   useEffect(() => { queueMicrotask(async () => {
     try {
       const response = await fetch("/api/auth/status", { cache: "no-store" });
       const data = await response.json();
       setNeedsSetup(data.needsSetup);
-      if (data.session) { const saved = localStorage.getItem(storageKey(data.session.establishment.id)); setState(saved ? JSON.parse(saved) : initialState()); setLoadedEstablishmentId(data.session.establishment.id); }
+      if (data.session && !data.session.canOperateFloor) setView(data.session.canSellPos ? "pdv" : data.session.canViewFinanceSummary ? "resumo" : "config");
       setSession(data.session);
     } finally { setAuthLoading(false); }
   }); }, []);
-  useEffect(() => { if (session && loadedEstablishmentId === session.establishment.id) localStorage.setItem(storageKey(session.establishment.id), JSON.stringify(state)); }, [state, session, loadedEstablishmentId]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2800); return () => clearTimeout(timer); }, [toast]);
+  useEffect(() => { if (!session) return; const controller = new AbortController(); queueMicrotask(async () => { try { const response = await fetch("/api/operations/cash", { cache: "no-store", signal: controller.signal }); if (response.ok) { const data = await response.json(); setCashOpen(Boolean(data.cash)); } } catch { /* indicador será atualizado ao abrir a tela */ } }); return () => controller.abort(); }, [session]);
 
   if (authLoading) return <div className="login-page"><section className="login-art"><div className="art-copy"><Brand light /><h2>Preparando seu ambiente…</h2></div></section><section className="login-panel"><div className="login-box"><span className="eyebrow">MORDOMÊ</span><h1>Um instante.</h1><p>Estamos verificando seu acesso com segurança.</p></div></section></div>;
-  if (!session) return <Login needsSetup={needsSetup} onAuthenticated={async () => { const response = await fetch("/api/auth/session", { cache: "no-store" }); if (response.ok) { const data = await response.json(); const saved = localStorage.getItem(storageKey(data.session.establishment.id)); setState(saved ? JSON.parse(saved) : initialState()); setLoadedEstablishmentId(data.session.establishment.id); setSession(data.session); setNeedsSetup(false); } }} />;
-  const selected = state.tables.find((table) => table.id === selectedId);
-  const ongoing = state.tables.filter((table) => table.orderStatus && table.orderStatus !== "Entregue");
-  const revenue = state.sales.reduce((sum, sale) => sum + sale.total, 0);
+  if (!session) return <Login needsSetup={needsSetup} onAuthenticated={async () => { const response = await fetch("/api/auth/session", { cache: "no-store" }); if (response.ok) { const data = await response.json(); setSession(data.session); setNeedsSetup(false); } }} />;
 
-  const updateTable = (id: number, updater: (table: RestaurantState["tables"][number]) => RestaurantState["tables"][number]) => setState(current => ({ ...current, tables: current.tables.map(table => table.id === id ? updater(table) : table) }));
   const notify = (message: string) => setToast(message);
+  const refreshSession = async () => {
+    const response = await fetch("/api/auth/session", { cache: "no-store" });
+    if (!response.ok) return;
+    const data = await response.json();
+    setSession(data.session);
+  };
   const switchEstablishment = async (establishmentId: string) => {
     if (establishmentId === session.establishment.id) return;
     setSwitchingUnit(true);
@@ -49,10 +54,16 @@ export default function Home() {
       const response = await fetch("/api/auth/establishment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ establishmentId }) });
       const data = await response.json();
       if (!response.ok) { notify(data.error ?? "Não foi possível trocar de unidade"); return; }
-      const saved = localStorage.getItem(storageKey(data.session.establishment.id));
-      setState(saved ? JSON.parse(saved) : initialState()); setLoadedEstablishmentId(data.session.establishment.id);
-      setSelectedId(null); setSession(data.session); notify(`Unidade alterada para ${data.session.establishment.name}`);
+      setSession(data.session); notify(`Unidade alterada para ${data.session.establishment.name}`);
     } catch { notify("Não foi possível conectar ao servidor"); } finally { setSwitchingUnit(false); }
+  };
+  const completeSale = async (items: { id: string; quantity: number }[], checkout: SaleCheckout, channel: "POS" | "FLOOR", table?: number, tabId?: string) => {
+    try {
+      const response = await fetch("/api/operations/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "COMPLETE", channel, items: items.map(item => ({ productId: item.id, quantity: item.quantity })), ...checkout, table, tabId, idempotencyKey: crypto.randomUUID() }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { notify(data.error ?? "Não foi possível concluir a venda"); return false; }
+      return true;
+    } catch { notify("Não foi possível conectar ao servidor"); return false; }
   };
 
   return <div className="app-shell">
@@ -60,24 +71,42 @@ export default function Home() {
       <Brand compact />
       <nav>
         <span className="nav-label">Operação</span>
-        <NavItem active={view === "pdv"} icon={<ShoppingBag />} label="PDV rápido" onClick={() => { setView("pdv"); setSelectedId(null); }} />
-        <NavItem active={view === "salão"} icon={<LayoutGrid />} label="Salão" onClick={() => { setView("salão"); setSelectedId(null); }} />
-        <NavItem active={view === "cozinha"} icon={<ChefHat />} label="Cozinha" badge={ongoing.length} onClick={() => { setView("cozinha"); setSelectedId(null); }} />
-        <span className="nav-label nav-label-spaced">Análise</span>
-        <NavItem active={view === "resumo"} icon={<BarChart3 />} label="Resumo" onClick={() => { setView("resumo"); setSelectedId(null); }} />
+        {session.canSellPos && <NavItem active={view === "pdv"} icon={<ShoppingBag />} label="PDV rápido" onClick={() => { setView("pdv"); }} />}
+        {session.canOperateFloor && <NavItem active={view === "salão"} icon={<LayoutGrid />} label="Salão" onClick={() => { setView("salão"); }} />}
+        {session.canOperateFloor && <NavItem active={view === "cozinha"} icon={<ChefHat />} label="Cozinha" onClick={() => { setView("cozinha"); }} />}
+        {(session.canOpenCash || session.canMoveCash || session.canCloseCash || session.canViewCashHistory) && <NavItem active={view === "caixa"} icon={<CircleDollarSign />} label="Caixa" onClick={() => { setView("caixa"); }} />}
+        {(session.canViewFinanceSummary || session.canViewAudit) && <span className="nav-label nav-label-spaced">Análise</span>}
+        {session.canViewFinanceSummary && <NavItem active={view === "resumo"} icon={<BarChart3 />} label="Resumo" onClick={() => { setView("resumo"); }} />}
+        {session.canViewAudit && <NavItem active={view === "historico"} icon={<FileClock />} label="Histórico" onClick={() => { setView("historico"); }} />}
+        {(session.canManageEstablishments || session.canManageCatalog || session.canManageStock || session.canManageRecipes || session.canViewUsers || session.canManageRoles || session.canManageIntegrations) && <><span className="nav-label nav-label-spaced">Administração</span><NavItem active={view === "config"} icon={<Settings />} label="Configurações" onClick={() => { setView("config"); }} /></>}
       </nav>
-      <div className="shift-card"><span>Turno atual</span><b>Almoço</b><small>Aberto às 10:42</small><i /></div>
-      <div className="user-card"><div className="avatar">{session.user.name.split(" ").slice(0, 2).map(part => part[0]).join("").toUpperCase()}</div><div><b>{session.user.name}</b><span>@{session.user.username}</span></div><button aria-label="Sair" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); setLoadedEstablishmentId(null); setSession(null); }}><LogOut /></button></div>
+      <div className="sidebar-footer">
+        <div className="unit-switcher-card">
+          <div className="unit-switcher-heading"><span>Unidade ativa</span><i /></div>
+          <div className="unit-dropdown" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setUnitMenuOpen(false); }} onKeyDown={event => { if (event.key === "Escape") setUnitMenuOpen(false); }}>
+            <button type="button" className="unit-dropdown-trigger" aria-haspopup="listbox" aria-expanded={unitMenuOpen} disabled={switchingUnit} onClick={() => setUnitMenuOpen(open => !open)}>
+              <b>{session.establishment.name}</b><ChevronDown />
+            </button>
+            {unitMenuOpen && <div className="unit-dropdown-menu" role="listbox" aria-label="Trocar unidade">
+              {session.establishments.map(establishment => <button type="button" role="option" aria-selected={establishment.id === session.establishment.id} className={establishment.id === session.establishment.id ? "active" : ""} key={establishment.id} onClick={() => { setUnitMenuOpen(false); void switchEstablishment(establishment.id); }}><span>{establishment.name}</span>{establishment.id === session.establishment.id && <Check />}</button>)}
+            </div>}
+          </div>
+          <small>{switchingUnit ? "Trocando unidade…" : session.establishments.length > 1 ? `${session.establishments.length} unidades disponíveis` : "Unidade principal"}</small>
+        </div>
+        <div className="user-card"><div className="avatar">{session.user.name.split(" ").slice(0, 2).map(part => part[0]).join("").toUpperCase()}</div><div><b>{session.user.name}</b><span>@{session.user.username}</span></div><button aria-label="Sair" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); setSession(null); }}><LogOut /></button></div>
+      </div>
     </aside>
     <main>
-      <header><div><div className="establishment-line"><label><span>Unidade</span><select aria-label="Unidade ativa" value={session.establishment.id} disabled={switchingUnit} onChange={event => switchEstablishment(event.target.value)}>{session.establishments.map(establishment => <option key={establishment.id} value={establishment.id}>{establishment.name}</option>)}</select></label><i>•</i><span>{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span></div><h1>{view === "pdv" ? "PDV rápido" : view === "salão" ? selected ? `Mesa ${selected.id}` : "Gestão do salão" : view === "cozinha" ? "Cozinha" : "Resumo do dia"}</h1></div><div className="header-actions"><span className="sync-state"><i /> Sincronizado agora</span><button className="icon-button" aria-label="Notificações"><Bell /></button><div className="open-pill"><span /> Caixa aberto</div></div></header>
-      {view === "pdv" && <Pos onFinish={(items, payment) => { setState(current => recordPosSale(current, items, payment)); notify("Venda realizada com sucesso"); }} />}
-      {view === "salão" && !selected && <Salon state={state} onSelect={setSelectedId} />}
-      {view === "salão" && selected && <Command table={selected} search={search} setSearch={setSearch} onBack={() => setSelectedId(null)} onAdd={product => { updateTable(selected.id, table => addProduct(table, product)); notify(`${product.name} adicionado`); }} onQuantity={(productId, delta) => updateTable(selected.id, table => ({ ...table, items: table.items.map(item => item.id === productId ? { ...item, quantity: item.quantity + delta } : item).filter(item => item.quantity > 0) }))} onSend={() => { updateTable(selected.id, table => ({ ...table, orderStatus: "Recebido" })); notify("Pedido enviado para a cozinha"); }} onClose={payment => { setState(current => closeTable(current, selected.id, payment)); setSelectedId(null); notify("Conta fechada com sucesso"); }} />}
-      {view === "cozinha" && <Kitchen tables={state.tables} onStatus={(id, status) => { updateTable(id, table => ({ ...table, orderStatus: status })); notify(`Mesa ${id}: ${status}`); }} />}
-      {view === "resumo" && <Summary state={state} revenue={revenue} ongoing={ongoing.length} />}
+      <header><div><span className="header-date">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span><h1>{view === "pdv" ? "PDV rápido" : view === "salão" ? "Gestão do salão" : view === "cozinha" ? "Cozinha" : view === "caixa" ? "Caixa" : view === "historico" ? "Histórico" : view === "config" ? "Configurações" : "Resumo do dia"}</h1></div><div className="header-actions"><span className="sync-state"><i /> Sincronizado agora</span><button className="icon-button" aria-label="Notificações"><Bell /></button><button className={`open-pill ${cashOpen ? "" : "closed"}`} onClick={() => setView("caixa")}><span /> {cashOpen ? "Caixa aberto" : "Caixa fechado"}</button></div></header>
+      {view === "pdv" && <Pos establishmentId={session.establishment.id} onFinish={async (items, checkout) => { if (!await completeSale(items, checkout, "POS")) return false; if (session.printerDriver === "browser_print") printReceipt({ establishmentName: session.establishment.name, items: items.map(item => ({ name: item.name, quantity: item.quantity, unitPrice: item.price })), total: items.reduce((sum, item) => sum + item.price * item.quantity, 0) - checkout.discount, payment: checkout.payments.map(p => p.method).join(" + "), channel: "POS" }); notify("Venda realizada e estoque atualizado"); return true; }} />}
+      {view === "salão" && <FloorManagement establishmentId={session.establishment.id} establishmentName={session.establishment.name} printerDriver={session.printerDriver} mode="salon" canCancelSentItems={session.canCancelSentItems} canReprint={session.canReprint} onToast={notify} onFinishSale={(items, payment, table, tabId) => completeSale(items, payment, "FLOOR", table, tabId)} />}
+      {view === "cozinha" && <FloorManagement establishmentId={session.establishment.id} establishmentName={session.establishment.name} printerDriver={session.printerDriver} mode="kitchen" canCancelSentItems={session.canCancelSentItems} canReprint={session.canReprint} onToast={notify} onFinishSale={(items, payment, table, tabId) => completeSale(items, payment, "FLOOR", table, tabId)} />}
+      {view === "caixa" && <CashManagement establishmentId={session.establishment.id} establishmentName={session.establishment.name} canOpen={session.canOpenCash} canMove={session.canMoveCash} canClose={session.canCloseCash} onCashChanged={setCashOpen} />}
+      {view === "resumo" && session.canViewFinanceSummary && <Summary establishmentId={session.establishment.id} establishmentName={session.establishment.name} printerDriver={session.printerDriver} canReprint={session.canReprint} canCancelSales={session.canCancelSales} canRefundSales={session.canRefundSales} onToast={notify} />}
+      {view === "historico" && session.canViewAudit && <AuditHistory establishments={session.establishments} />}
+      {view === "config" && (session.canManageEstablishments || session.canManageCatalog || session.canManageStock || session.canManageRecipes || session.canViewUsers || session.canManageRoles || session.canManageIntegrations) && <SettingsWorkspace activeEstablishmentId={session.establishment.id} activeEstablishmentName={session.establishment.name} canManageEstablishments={session.canManageEstablishments} canManageCatalog={session.canManageCatalog} canManageStock={session.canManageStock} canManageRecipes={session.canManageRecipes} canViewUsers={session.canViewUsers} canCreateUsers={session.canCreateUsers} canDisableUsers={session.canDisableUsers} canResetUserPassword={session.canResetUserPassword} canManageRoles={session.canManageRoles} canManageIntegrations={session.canManageIntegrations} onChanged={refreshSession} />}
     </main>
-    <MobileNav view={view} setView={setView} />
+    <MobileNav view={view} setView={setView} canSellPos={session.canSellPos} canOperateFloor={session.canOperateFloor} canViewFinanceSummary={session.canViewFinanceSummary} canManageEstablishments={session.canManageEstablishments || session.canManageCatalog || session.canManageStock || session.canManageRecipes || session.canViewUsers || session.canManageRoles || session.canManageIntegrations} />
     {toast && <div className="toast"><Sparkles />{toast}</div>}
   </div>;
 }
@@ -117,40 +146,87 @@ function Login({ needsSetup, onAuthenticated }: { needsSetup: boolean; onAuthent
   </div>;
 }
 
-function Salon({ state, onSelect }: { state: RestaurantState; onSelect: (id: number) => void }) {
-  const [filter, setFilter] = useState<"Todas" | "Livres" | "Ocupadas">("Todas");
-  const occupied = state.tables.filter(t => t.status !== "Livre").length;
-  const visible = state.tables.filter(table => filter === "Todas" || (filter === "Livres" ? table.status === "Livre" : table.status !== "Livre"));
-  return <div className="page-content"><div className="hero-row"><div><span className="section-kicker">Mapa operacional</span><p>Acompanhe mesas e comandas em tempo real.</p></div><button className="primary" onClick={() => onSelect(state.tables.find(t => t.status === "Livre")?.id ?? 1)}><Plus/> Nova comanda</button></div><div className="stats-row"><KpiCard icon={<LayoutGrid/>} value={state.tables.length} label="mesas no salão"/><KpiCard icon={<UtensilsCrossed/>} value={occupied} label="mesas ocupadas"/><KpiCard icon={<Clock3/>} value={state.tables.filter(t => t.status === "Fechamento").length} label="aguardando conta"/></div><div className="section-title section-title-rich"><div><span className="room-label">Ambiente 01</span><h2>Salão principal</h2></div><div className="table-filters">{(["Todas", "Livres", "Ocupadas"] as const).map(item => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}<span>{item === "Todas" ? state.tables.length : item === "Livres" ? state.tables.length - occupied : occupied}</span></button>)}</div></div><div className="tables-grid">{visible.map(table => <button key={table.id} className={`table-card ${table.status.toLowerCase()}`} onClick={() => onSelect(table.id)}><div className="table-top"><span>Mesa</span><b>{table.id.toString().padStart(2, "0")}</b><em>{table.seats} lugares</em></div><div className="table-icon"><UtensilsCrossed/></div><div className="table-meta"><span><i />{table.status}</span><small>{table.status === "Livre" ? "Disponível agora" : `${table.items.reduce((s, i) => s + i.quantity, 0)} itens • ${money(tableTotal(table))}`}</small></div></button>)}</div></div>;
+function useOperationalCatalog(channel: "POS" | "FLOOR", establishmentId: string) {
+  const [items, setItems] = useState<typeof products>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState("");
+  useEffect(() => { const controller = new AbortController(); queueMicrotask(async () => { setLoading(true); setError(""); try { const response = await fetch(`/api/operations/catalog?channel=${channel}`, { cache: "no-store", signal: controller.signal }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar o catálogo."); setItems(data.products.map((product: Omit<typeof products[number], "emoji">) => ({ ...product, emoji: product.category.toLocaleLowerCase("pt-BR").includes("bebida") ? "🥤" : "🌭" }))); } catch (cause) { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Não foi possível carregar o catálogo."); } finally { if (!controller.signal.aborted) setLoading(false); } }); return () => controller.abort(); }, [channel, establishmentId]);
+  return { products: items, loading, error };
 }
 
-function Pos({ onFinish }: { onFinish: (items: OrderItem[], payment: string) => void }) {
-  const [cart, setCart] = useState<OrderItem[]>([]); const [query, setQuery] = useState(""); const [payment, setPayment] = useState("Pix"); const [category, setCategory] = useState("Todos");
+function Pos({ establishmentId, onFinish }: { establishmentId: string; onFinish: (items: OrderItem[], checkout: SaleCheckout) => Promise<boolean> }) {
+  const operational = useOperationalCatalog("POS", establishmentId);
+  const [cart, setCart] = useState<OrderItem[]>([]); const [query, setQuery] = useState(""); const [payments, setPayments] = useState([{ method: "Pix", amount: "", receivedAmount: "" }]); const [discount, setDiscount] = useState(""); const [discountReason, setDiscountReason] = useState(""); const [category, setCategory] = useState("Todos"); const [finishing, setFinishing] = useState(false);
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
   const add = (product: typeof products[number]) => setCart(current => { const found = current.find(item => item.id === product.id); return found ? current.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item) : [...current, { ...product, quantity: 1 }]; });
   const change = (id: string, delta: number) => setCart(current => current.map(item => item.id === id ? { ...item, quantity: item.quantity + delta } : item).filter(item => item.quantity > 0));
-  const categories = ["Todos", ...new Set(products.map(product => product.category))];
-  const visibleProducts = products.filter(p => (category === "Todos" || p.category === category) && p.name.toLowerCase().includes(query.toLowerCase()));
-  return <div className="pos-layout"><section className="pos-products"><div className="pos-intro"><div><span className="section-kicker">Balcão</span><h2>Venda direta</h2><p>Escolha os produtos e receba. Sem mesa, sem comanda.</p></div><div className="search"><Search/><input placeholder="Buscar produto..." value={query} onChange={e => setQuery(e.target.value)}/><kbd>F2</kbd></div></div><div className="pos-category-bar">{categories.map(item => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div><div className="pos-product-grid">{visibleProducts.map(product => <button key={product.id} className="pos-product" onClick={() => add(product)}><span>{product.emoji}</span><div><small>{product.category}</small><b>{product.name}</b><strong>{money(product.price)}</strong></div><Plus/></button>)}</div></section><aside className="pos-cart"><div className="pos-cart-head"><div><span>VENDA ATUAL</span><h2>{cart.reduce((sum, item) => sum + item.quantity, 0)} {cart.length === 1 && cart[0].quantity === 1 ? "item" : "itens"}</h2></div>{cart.length > 0 && <button onClick={() => setCart([])}>Limpar</button>}</div><div className="pos-cart-items">{cart.length === 0 ? <div className="empty"><ShoppingBag/><b>Nenhum produto</b><span>Toque em um produto para começar a venda.</span></div> : cart.map(item => <div className="pos-cart-row" key={item.id}><span className="food">{item.emoji}</span><div><b>{item.name}</b><small>{money(item.price * item.quantity)}</small></div><div className="stepper"><button onClick={() => change(item.id, -1)}><Minus/></button><b>{item.quantity}</b><button onClick={() => change(item.id, 1)}><Plus/></button></div></div>)}</div><div className="pos-payment"><label>Receber com<select value={payment} onChange={e => setPayment(e.target.value)}><option>Pix</option><option>Cartão de crédito</option><option>Cartão de débito</option><option>Dinheiro</option></select></label><div className="pos-total"><span>Total da venda</span><b>{money(total)}</b></div><button className="primary wide" disabled={!cart.length} onClick={() => { onFinish(cart, payment); setCart([]); }}><CircleDollarSign/> Finalizar venda</button><small className="shortcut-hint">Atalho: pressione <kbd>F8</kbd> para finalizar</small></div></aside></div>;
+  const categories = ["Todos", ...new Set(operational.products.map(product => product.category))];
+  const visibleProducts = operational.products.filter(p => (category === "Todos" || p.category === category) && p.name.toLowerCase().includes(query.toLowerCase()));
+  return <div className="pos-layout">
+    <section className="pos-products"><div className="pos-intro"><div><span className="section-kicker">Balcão</span><h2>Venda direta</h2><p>Produtos habilitados no PDV desta unidade.</p></div><div className="search"><Search/><input placeholder="Buscar produto..." value={query} onChange={e => setQuery(e.target.value)}/><kbd>F2</kbd></div></div><div className="pos-category-bar">{categories.map(item => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div>{operational.error && <div className="auth-error">{operational.error}</div>}{operational.loading ? <div className="empty"><span>Carregando catálogo…</span></div> : visibleProducts.length === 0 ? <div className="big-empty"><ShoppingBag/><h2>Nenhum produto no PDV</h2><p>Habilite produtos no canal PDV do Cardápio.</p></div> : <div className="pos-product-grid">{visibleProducts.map(product => <button key={product.id} className="pos-product" onClick={() => add(product)}><span>{product.emoji}</span><div><small>{product.category}</small><b>{product.name}</b><strong>{money(product.price)}</strong></div><Plus/></button>)}</div>}</section>
+    <aside className="pos-cart"><div className="pos-cart-head"><div><span>VENDA ATUAL</span><h2>{cart.reduce((sum, item) => sum + item.quantity, 0)} itens</h2></div>{cart.length > 0 && <button onClick={() => setCart([])}>Limpar</button>}</div><div className="pos-cart-items">{cart.length === 0 ? <div className="empty"><ShoppingBag/><b>Nenhum produto</b><span>Toque em um produto para começar a venda.</span></div> : cart.map(item => <div className="pos-cart-row" key={item.id}><span className="food">{item.emoji}</span><div><b>{item.name}</b><small>{money(item.price * item.quantity)}</small></div><div className="stepper"><button onClick={() => change(item.id, -1)}><Minus/></button><b>{item.quantity}</b><button onClick={() => change(item.id, 1)}><Plus/></button></div></div>)}</div><div className="pos-payment"><PaymentComposer grossTotal={total} discount={discount} setDiscount={setDiscount} discountReason={discountReason} setDiscountReason={setDiscountReason} payments={payments} setPayments={setPayments}/><button className="primary wide" disabled={!cart.length || finishing} onClick={async () => { setFinishing(true); const completed = await onFinish(cart, serializeCheckout(payments, discount, discountReason, total)); setFinishing(false); if (completed) { setCart([]); setDiscount(""); setDiscountReason(""); setPayments([{ method: "Pix", amount: "", receivedAmount: "" }]); } }}><CircleDollarSign/> {finishing ? "Finalizando…" : "Finalizar venda"}</button><small className="shortcut-hint">Atalho: pressione <kbd>F8</kbd> para finalizar</small></div></aside>
+  </div>;
 }
 
-function Command({ table, search, setSearch, onBack, onAdd, onQuantity, onSend, onClose }: { table: RestaurantState["tables"][number]; search: string; setSearch: (v: string) => void; onBack: () => void; onAdd: (p: typeof products[number]) => void; onQuantity: (id: string, delta: number) => void; onSend: () => void; onClose: (payment: string) => void }) {
-  const [category, setCategory] = useState("Todos"); const [checkout, setCheckout] = useState(false);
-  const categories = ["Todos", ...new Set(products.map(p => p.category))];
-  const visible = products.filter(p => (category === "Todos" || p.category === category) && p.name.toLowerCase().includes(search.toLowerCase()));
-  const total = tableTotal(table); const service = total * .1;
-  return <div className="command-layout"><section className="catalog"><button className="back" onClick={onBack}><ChevronLeft/> Voltar ao salão</button><div className="search"><Search/><input placeholder="Buscar produto..." value={search} onChange={e => setSearch(e.target.value)}/></div><div className="chips">{categories.map(c => <button key={c} className={category === c ? "active" : ""} onClick={() => setCategory(c)}>{c}</button>)}</div><div className="product-grid">{visible.map(product => <button className="product-card" key={product.id} onClick={() => onAdd(product)}><span>{product.emoji}</span><div><small>{product.category}</small><b>{product.name}</b><strong>{money(product.price)}</strong></div><Plus/></button>)}</div></section><aside className="ticket"><div className="ticket-title"><div><span>COMANDA</span><h2>Mesa {table.id.toString().padStart(2, "0")}</h2></div><span className="status-badge">{table.orderStatus ?? "Aberta"}</span></div><div className="ticket-items">{table.items.length === 0 ? <div className="empty"><ShoppingBag/><b>Comanda vazia</b><span>Toque em um produto para adicionar.</span></div> : table.items.map(item => <div className="ticket-item" key={item.id}><span className="food">{item.emoji}</span><div><b>{item.name}</b><small>{money(item.price)}</small></div><div className="stepper"><button onClick={() => onQuantity(item.id, -1)}>{item.quantity === 1 ? <X/> : <Minus/>}</button><b>{item.quantity}</b><button onClick={() => onQuantity(item.id, 1)}><Plus/></button></div></div>)}</div><div className="ticket-footer"><div><span>Subtotal</span><b>{money(total)}</b></div><div><span>Serviço (10%)</span><b>{money(service)}</b></div><div className="grand"><span>Total</span><b>{money(total + service)}</b></div>{table.orderStatus ? <button className="secondary wide" onClick={() => setCheckout(true)}><CircleDollarSign/> Fechar conta</button> : <button className="primary wide" disabled={!table.items.length} onClick={onSend}><ChefHat/> Enviar para cozinha</button>}</div></aside>{checkout && <Checkout total={total + service} onCancel={() => setCheckout(false)} onConfirm={onClose}/>}</div>;
-}
-function Checkout({ total, onCancel, onConfirm }: { total: number; onCancel: () => void; onConfirm: (p: string) => void }) { const [payment, setPayment] = useState("Pix"); return <div className="modal-bg"><div className="modal"><button className="modal-close" onClick={onCancel}><X/></button><span className="modal-icon"><CircleDollarSign/></span><h2>Fechar conta</h2><p>Confirme o recebimento de <b>{money(total)}</b>.</p><label>Forma de pagamento<select value={payment} onChange={e => setPayment(e.target.value)}><option>Pix</option><option>Cartão de crédito</option><option>Cartão de débito</option><option>Dinheiro</option></select></label><button className="primary wide" onClick={() => onConfirm(payment)}>Confirmar pagamento</button></div></div>; }
+type SummarySale = { id: string; channel: string; table: number | null; payment: string; total: number; refunded?: number; status?: string; completedAt: string; items: { productName: string; quantity: number; unitPrice: number }[] };
+type SummaryData = { revenueToday: number; salesCountToday: number; averageTicket: number; ongoingOrders: number; recentSales: SummarySale[]; ranking: { productName: string; quantity: number }[] };
 
-function Kitchen({ tables, onStatus }: { tables: RestaurantState["tables"]; onStatus: (id: number, status: OrderStatus) => void }) {
-  const orders = tables.filter(t => t.orderStatus && t.orderStatus !== "Entregue");
-  const next: Record<string, OrderStatus> = { "Recebido": "Em preparo", "Em preparo": "Pronto", "Pronto": "Entregue" };
-  return <div className="page-content"><div className="hero-row"><p>Pedidos organizados por etapa de preparo.</p><span className="live"><i/> Atualização ao vivo</span></div>{orders.length === 0 ? <div className="big-empty"><ChefHat/><h2>Tudo em dia por aqui</h2><p>Novos pedidos enviados pelo salão aparecerão nesta tela.</p></div> : <div className="kds-grid">{orders.map(order => <article className={`kds-card ${order.orderStatus?.replace(" ", "-").toLowerCase()}`} key={order.id}><div className="kds-head"><div><span>MESA</span><b>{order.id.toString().padStart(2, "0")}</b></div><span><Clock3/> agora</span></div><div className="kds-items">{order.items.map(item => <div key={item.id}><b>{item.quantity}×</b><span>{item.name}</span></div>)}</div><div className="kds-foot"><span>{order.orderStatus}</span><button onClick={() => onStatus(order.id, next[order.orderStatus!])}>{order.orderStatus === "Pronto" ? "Entregar" : order.orderStatus === "Em preparo" ? "Marcar pronto" : "Iniciar preparo"}</button></div></article>)}</div>}</div>;
+function Summary({ establishmentId, establishmentName, printerDriver, canReprint, canCancelSales, canRefundSales, onToast }: { establishmentId: string; establishmentName: string; printerDriver: string; canReprint: boolean; canCancelSales: boolean; canRefundSales: boolean; onToast: (message: string) => void }) {
+  const [data, setData] = useState<SummaryData | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [cancelTarget, setCancelTarget] = useState<SummarySale | null>(null);
+  const [reason, setReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState("");
+  const [refundTarget, setRefundTarget] = useState<SummarySale | null>(null);
+  const [refundAmount, setRefundAmount] = useState(""); const [refundReason, setRefundReason] = useState(""); const [refundMethod, setRefundMethod] = useState("Pix"); const [restoreStock, setRestoreStock] = useState(false); const [refunding, setRefunding] = useState(false);
+
+  const load = async () => { setLoading(true); setError(""); try { const response = await fetch("/api/operations/summary", { cache: "no-store" }); const json = await response.json().catch(() => ({})); if (!response.ok) throw new Error(json.error ?? "Não foi possível carregar o resumo."); setData(json); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar o resumo."); } finally { setLoading(false); } };
+  useEffect(() => { queueMicrotask(() => { void load(); }); }, [establishmentId]);
+
+  const reprintSale = async (sale: SummarySale) => {
+    try {
+      const response = await fetch("/api/operations/prints", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entityType: "Sale", entityId: sale.id, reason: "Reimpressão do comprovante de venda" }) });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.error ?? "Não foi possível registrar a reimpressão.");
+      printReceipt({ establishmentName, items: sale.items.map(item => ({ name: item.productName, quantity: item.quantity, unitPrice: item.unitPrice })), total: sale.total, payment: sale.payment, channel: sale.channel === "POS" ? "POS" : "FLOOR", table: sale.table ?? undefined });
+      onToast("Reimpressão registrada no histórico");
+    } catch (cause) { onToast(cause instanceof Error ? cause.message : "Não foi possível reimprimir."); }
+  };
+
+  const confirmCancel = async () => {
+    if (!cancelTarget || reason.trim().length < 3) return;
+    setCancelling(true); setCancelError("");
+    try {
+      const response = await fetch("/api/operations/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "CANCEL", saleId: cancelTarget.id, reason: reason.trim(), idempotencyKey: crypto.randomUUID() }) });
+      const json = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(json.error ?? "Não foi possível cancelar a venda.");
+      setCancelTarget(null); setReason(""); onToast("Venda cancelada e estoque estornado"); await load();
+    } catch (cause) { setCancelError(cause instanceof Error ? cause.message : "Não foi possível cancelar a venda."); } finally { setCancelling(false); }
+  };
+
+  const confirmRefund = async () => {
+    if (!refundTarget) return; const amount = Number(refundAmount.replace(",", ".")); if (!Number.isFinite(amount) || amount <= 0 || refundReason.trim().length < 3) return;
+    setRefunding(true); setCancelError("");
+    try { const response = await fetch("/api/operations/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "REFUND", saleId: refundTarget.id, amount, payments: [{ method: refundMethod, amount }], restoreStock, reason: refundReason.trim(), idempotencyKey: crypto.randomUUID() }) }); const json = await response.json().catch(() => ({})); if (!response.ok) throw new Error(json.error ?? "Não foi possível registrar o reembolso."); setRefundTarget(null); onToast("Reembolso registrado no caixa atual"); await load(); }
+    catch (cause) { setCancelError(cause instanceof Error ? cause.message : "Não foi possível registrar o reembolso."); } finally { setRefunding(false); }
+  };
+
+  if (loading) return <div className="page-content"><div className="empty"><span>Carregando resumo…</span></div></div>;
+  if (error) return <div className="page-content"><div className="auth-error">{error}</div></div>;
+  if (!data) return null;
+
+  return <div className="page-content"><div className="hero-row"><div><span className="section-kicker">Pulso do negócio</span><p>Uma visão clara do desempenho de hoje.</p></div><button className="date-button">Hoje, {new Date().toLocaleDateString("pt-BR")}</button></div><div className="metric-grid"><MetricCard label="Vendas do dia" value={money(data.revenueToday)} note={`${data.salesCountToday} vendas finalizadas`} icon={<CircleDollarSign/>}/><MetricCard label="Pedidos em andamento" value={data.ongoingOrders.toString()} note="no salão e cozinha" icon={<ChefHat/>}/><MetricCard label="Ticket médio" value={money(data.averageTicket)} note="por venda finalizada" icon={<BarChart3/>}/></div><div className="summary-grid"><section className="panel"><h2>Vendas recentes</h2>{data.recentSales.length === 0 ? <div className="empty small"><CircleDollarSign/><b>Nenhuma venda ainda</b><span>Finalize uma venda para vê-la aqui.</span></div> : data.recentSales.map(sale => <div className="sale-row" key={sale.id}><div className="sale-icon">{sale.channel === "POS" ? <ShoppingBag/> : <UtensilsCrossed/>}</div><div><b>{sale.channel === "POS" ? "Venda rápida" : sale.table ? `Mesa ${sale.table.toString().padStart(2, "0")}` : "Salão"}</b><span>{new Date(sale.completedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} • {sale.payment} • {sale.channel}</span></div><strong>{money(sale.total - (sale.refunded ?? 0))}</strong>{canRefundSales && sale.status !== "REFUNDED" && <button className="sale-cancel" title="Reembolsar venda" onClick={() => { setRefundTarget(sale); setRefundAmount((sale.total - (sale.refunded ?? 0)).toFixed(2)); setRefundReason(""); setRestoreStock(false); setCancelError(""); }}><CircleDollarSign/></button>}{canCancelSales && !sale.refunded && <button className="sale-cancel" title="Cancelar venda" onClick={() => { setCancelTarget(sale); setReason(""); setCancelError(""); }}><X/></button>}</div>)}</section><section className="panel"><h2>Mais pedidos</h2>{data.ranking.length === 0 ? <div className="empty small"><BarChart3/><b>Sem vendas suficientes</b><span>O ranking aparece após as primeiras vendas do dia.</span></div> : data.ranking.map((item, index) => <div className="rank" key={item.productName}><em>{index + 1}</em><span className="food"><UtensilsCrossed/></span><div><b>{item.productName}</b><span>{item.quantity} vendidos</span></div></div>)}</section></div>
+    {canReprint && printerDriver === "browser_print" && data.recentSales.length > 0 && <section className="panel reprint-panel"><div><span className="section-kicker">Impressão</span><h2>Reimprimir comprovante</h2><p>A solicitação fica registrada no histórico do sistema.</p></div><div className="reprint-actions">{data.recentSales.slice(0, 5).map(sale => <button className="secondary" key={sale.id} onClick={() => void reprintSale(sale)}><Printer/> {sale.channel === "POS" ? "Venda rápida" : sale.table ? `Mesa ${sale.table}` : "Salão"} · {new Date(sale.completedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</button>)}</div></section>}
+    {refundTarget && <div className="modal-bg"><div className="modal"><button className="modal-close" onClick={() => setRefundTarget(null)}><X/></button><span className="modal-icon"><CircleDollarSign/></span><h2>Registrar reembolso</h2><p>O lançamento sairá do caixa aberto agora, mesmo que a venda pertença a um caixa anterior.</p><label>Valor<input inputMode="decimal" value={refundAmount} onChange={event => setRefundAmount(event.target.value)} /></label><label>Forma de devolução<select value={refundMethod} onChange={event => setRefundMethod(event.target.value)}><option>Pix</option><option>Cartão de crédito</option><option>Cartão de débito</option><option>Dinheiro</option></select></label><label>Motivo<input value={refundReason} onChange={event => setRefundReason(event.target.value)} placeholder="Obrigatório" /></label><label className="check-line"><input type="checkbox" checked={restoreStock} onChange={event => setRestoreStock(event.target.checked)} />Repor estoque (somente no reembolso total)</label>{cancelError && <div className="auth-error">{cancelError}</div>}<button className="primary wide" disabled={refunding || refundReason.trim().length < 3} onClick={() => void confirmRefund()}>{refunding ? "Registrando…" : "Confirmar reembolso"}</button></div></div>}
+    {cancelTarget && <div className="modal-bg"><div className="modal">
+      <button className="modal-close" onClick={() => setCancelTarget(null)}><X/></button>
+      <span className="modal-icon"><CircleDollarSign/></span>
+      <h2>Cancelar venda</h2>
+      <p>Confirme o cancelamento de <b>{money(cancelTarget.total)}</b>. O estoque consumido será estornado.</p>
+      <label>Motivo do cancelamento<input autoFocus value={reason} onChange={e => setReason(e.target.value)} placeholder="Ex.: pedido em duplicidade" minLength={3} maxLength={200} /></label>
+      {cancelError && <div className="auth-error">{cancelError}</div>}
+      <button className="primary wide" disabled={cancelling || reason.trim().length < 3} onClick={confirmCancel}>{cancelling ? "Cancelando…" : "Confirmar cancelamento"}</button>
+    </div></div>}
+  </div>;
 }
-function Summary({ state, revenue, ongoing }: { state: RestaurantState; revenue: number; ongoing: number }) {
-  const average = state.sales.length ? revenue / state.sales.length : 0;
-  const ranking = useMemo(() => products.slice(0, 3).map((p, i) => ({ ...p, count: Math.max(0, state.sales.length * (3 - i)) })), [state.sales.length]);
-  return <div className="page-content"><div className="hero-row"><div><span className="section-kicker">Pulso do negócio</span><p>Uma visão clara do desempenho de hoje.</p></div><button className="date-button">Hoje, {new Date().toLocaleDateString("pt-BR")}</button></div><div className="metric-grid"><MetricCard label="Vendas do dia" value={money(revenue)} note={`${state.sales.length} vendas finalizadas`} icon={<CircleDollarSign/>}/><MetricCard label="Pedidos em andamento" value={ongoing.toString()} note="no salão e cozinha" icon={<ChefHat/>}/><MetricCard label="Ticket médio" value={money(average)} note="por venda finalizada" icon={<BarChart3/>}/></div><div className="summary-grid"><section className="panel"><h2>Vendas recentes</h2>{state.sales.length === 0 ? <div className="empty small"><CircleDollarSign/><b>Nenhuma venda ainda</b><span>Finalize uma venda para vê-la aqui.</span></div> : state.sales.slice().reverse().map(sale => <div className="sale-row" key={sale.id}><div className="sale-icon">{sale.channel === "PDV" ? <ShoppingBag/> : <UtensilsCrossed/>}</div><div><b>{sale.channel === "PDV" ? "Venda rápida" : `Mesa ${sale.table?.toString().padStart(2, "0")}`}</b><span>{new Date(sale.closedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })} • {sale.payment} • {sale.channel}</span></div><strong>{money(sale.total)}</strong></div>)}</section><section className="panel"><h2>Mais pedidos</h2>{ranking.map((item, index) => <div className="rank" key={item.id}><em>{index + 1}</em><span className="food">{item.emoji}</span><div><b>{item.name}</b><span>{item.count} vendidos</span></div></div>)}</section></div></div>;
-}
-function MobileNav({ view, setView }: { view: View; setView: (v: View) => void }) { return <nav className="mobile-nav"><button className={view === "pdv" ? "active" : ""} onClick={() => setView("pdv")}><ShoppingBag/>PDV</button><button className={view === "salão" ? "active" : ""} onClick={() => setView("salão")}><LayoutGrid/>Salão</button><button className={view === "cozinha" ? "active" : ""} onClick={() => setView("cozinha")}><ChefHat/>Cozinha</button><button className={view === "resumo" ? "active" : ""} onClick={() => setView("resumo")}><BarChart3/>Resumo</button></nav>; }
+function MobileNav({ view, setView, canSellPos, canOperateFloor, canViewFinanceSummary, canManageEstablishments }: { view: View; setView: (v: View) => void; canSellPos: boolean; canOperateFloor: boolean; canViewFinanceSummary: boolean; canManageEstablishments: boolean }) { return <nav className="mobile-nav">{canSellPos && <button className={view === "pdv" ? "active" : ""} onClick={() => setView("pdv")}><ShoppingBag/>PDV</button>}{canOperateFloor && <button className={view === "salão" ? "active" : ""} onClick={() => setView("salão")}><LayoutGrid/>Salão</button>}{canOperateFloor && <button className={view === "cozinha" ? "active" : ""} onClick={() => setView("cozinha")}><ChefHat/>Cozinha</button>}{canViewFinanceSummary && <button className={view === "resumo" ? "active" : ""} onClick={() => setView("resumo")}><BarChart3/>Resumo</button>}{canManageEstablishments && <button className={view === "config" ? "active" : ""} onClick={() => setView("config")}><Settings/>Ajustes</button>}</nav>; }

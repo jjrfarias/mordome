@@ -24,12 +24,14 @@ Um atendente pode, por exemplo, receber apenas `finance.reports.view` para ajuda
 | Módulo | Exemplos de permissões |
 | --- | --- |
 | Organização | `organization.view`, `organization.update`, `establishment.manage` |
-| Pessoas | `users.view`, `users.invite`, `users.disable`, `roles.manage` |
-| Salão | `floor.view`, `tabs.open`, `tabs.update`, `tabs.transfer`, `tabs.merge` |
+| Pessoas | `users.view`, `users.invite`, `users.disable`, `users.password.reset`, `roles.manage` |
+| Salão | `floor.view`, `tabs.open`, `tabs.update`, `tabs.cancel_item`, `tabs.transfer`, `tabs.merge` |
 | Pedidos | `orders.create`, `orders.update`, `orders.cancel` |
 | Descontos | `discounts.apply`, `discounts.apply_above_limit` |
 | PDV | `pos.sell`, `pos.cancel_sale` |
+| Operação do salão | `floor.operate` |
 | Caixa | `cash.open`, `cash.move`, `cash.close`, `cash.history.view` |
+| Histórico | `audit.view` |
 | Financeiro | `finance.summary.view`, `finance.reports.view`, `finance.export` |
 | Produtos | `catalog.view`, `catalog.manage`, `prices.manage`, `availability.manage` |
 | Estoque | `stock.view`, `stock.move`, `stock.adjust` |
@@ -40,6 +42,8 @@ Os nomes são contratos internos e só devem mudar por migração explícita.
 ## Perfis modelo
 
 Administrador, gerente, atendente, caixa e cozinha são modelos clonáveis, não regras rígidas. O proprietário pode criar “Atendente + resumo financeiro” selecionando capacidades específicas.
+
+O perfil de sistema **Proprietário** é criado no primeiro acesso e recebe as permissões administrativas e operacionais, incluindo `establishments.manage`, `pos.sell` e `floor.operate`. A API repete as verificações; ocultar o menu não é considerado autorização.
 
 ## Avaliação no servidor
 

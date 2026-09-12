@@ -4,6 +4,8 @@ import { db } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { createLocalSession, isLocalAuthEnabled, localCredentialsAreValid } from "@/lib/local-auth";
 import { rateLimit, resetRateLimit } from "@/lib/rate-limit";
+import { requestAuditMetadata } from "@/lib/audit";
+import { recordLocalAudit } from "@/lib/local-audit";
 
 const dummyHash = hashPassword("invalid-password-0");
 const LOGIN_ATTEMPT_LIMIT = 5;
@@ -29,7 +31,8 @@ export async function POST(request: Request) {
   if (isLocalAuthEnabled()) {
     if (!localCredentialsAreValid(username, parsed.data.password)) return Response.json({ error: "Usuário ou senha inválidos." }, { status: 401 });
     resetRateLimit(rateLimitKey);
-    await createLocalSession();
+    await createLocalSession(username);
+    recordLocalAudit({ organizationId: "local-betao", establishmentId: null, actorId: "local-admin", actorName: "Administrador Betão", actorUsername: username, action: "LOGIN", entityType: "Session", entityId: "local", reason: "Login realizado", ...requestAuditMetadata(request) });
     return Response.json({ ok: true });
   }
 
@@ -48,7 +51,7 @@ export async function POST(request: Request) {
 
   await createSession(user.id, request);
   await db.auditEvent.create({
-    data: { organizationId: membership.organizationId, actorId: user.id, action: "LOGIN", entityType: "Session", entityId: user.id, ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() },
+    data: { organizationId: membership.organizationId, actorId: user.id, action: "LOGIN", entityType: "Session", entityId: user.id, reason: "Login realizado", ...requestAuditMetadata(request) },
   });
   return Response.json({ ok: true });
 }
