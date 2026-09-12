@@ -1,0 +1,311 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+}
+
+enum PermissionEffect {
+  ALLOW
+  DENY
+}
+
+enum CashSessionStatus {
+  OPEN
+  CLOSED
+}
+
+enum SaleChannel {
+  POS
+  FLOOR
+}
+
+enum SaleStatus {
+  COMPLETED
+  CANCELLED
+  REFUNDED
+}
+
+enum PaymentMethod {
+  PIX
+  CREDIT_CARD
+  DEBIT_CARD
+  CASH
+  OTHER
+}
+
+enum AuditAction {
+  CREATE
+  UPDATE
+  DELETE
+  LOGIN
+  PERMISSION_CHANGE
+  CASH_OPEN
+  CASH_CLOSE
+  CASH_MOVEMENT
+  SALE_COMPLETE
+  SALE_CANCEL
+  DISCOUNT_APPLY
+}
+
+model User {
+  id           String                   @id @default(cuid())
+  name         String
+  username     String                   @unique
+  passwordHash String
+  active       Boolean                  @default(true)
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  memberships  OrganizationMembership[]
+  auditEvents  AuditEvent[]             @relation("AuditActor")
+  cashSessions CashSession[]
+  sales        Sale[]
+  sessions     Session[]
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  tokenHash  String   @unique
+  expiresAt  DateTime
+  createdAt  DateTime @default(now())
+  lastSeenAt DateTime @default(now())
+  ipAddress  String?
+  userAgent  String?
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+  @@index([expiresAt])
+}
+
+model Organization {
+  id             String                   @id @default(cuid())
+  name           String
+  slug           String                   @unique
+  active         Boolean                  @default(true)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  establishments Establishment[]
+  memberships    OrganizationMembership[]
+  roles          CustomRole[]
+  overrides      UserPermissionOverride[]
+  auditEvents    AuditEvent[]
+  sales          Sale[]
+}
+
+model Establishment {
+  id             String                @id @default(cuid())
+  organizationId String
+  name           String
+  slug           String
+  document       String?
+  phone          String?
+  timezone       String                @default("America/Sao_Paulo")
+  serviceRate    Decimal               @default(10) @db.Decimal(5, 2)
+  active         Boolean               @default(true)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  accesses       EstablishmentAccess[]
+  cashSessions   CashSession[]
+  sales          Sale[]
+  products       Product[]
+  auditEvents    AuditEvent[]
+
+  @@unique([organizationId, slug])
+  @@index([organizationId, active])
+}
+
+model OrganizationMembership {
+  id             String                   @id @default(cuid())
+  organizationId String
+  userId         String
+  status         MembershipStatus         @default(INVITED)
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User                     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  roles          MembershipRole[]
+  accesses       EstablishmentAccess[]
+  overrides      UserPermissionOverride[]
+
+  @@unique([organizationId, userId])
+  @@index([userId, status])
+}
+
+model EstablishmentAccess {
+  id              String                 @id @default(cuid())
+  membershipId    String
+  establishmentId String
+  createdAt       DateTime               @default(now())
+  membership      OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  establishment   Establishment          @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, establishmentId])
+  @@index([establishmentId])
+}
+
+model Permission {
+  id          String                   @id @default(cuid())
+  key         String                   @unique
+  module      String
+  description String
+  roleLinks   RolePermission[]
+  overrides   UserPermissionOverride[]
+}
+
+model CustomRole {
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  description    String?
+  systemTemplate Boolean          @default(false)
+  active         Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions    RolePermission[]
+  memberships    MembershipRole[]
+
+  @@unique([organizationId, name])
+}
+
+model RolePermission {
+  roleId       String
+  permissionId String
+  role         CustomRole @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+}
+
+model MembershipRole {
+  membershipId String
+  roleId       String
+  membership   OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  role         CustomRole             @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([membershipId, roleId])
+}
+
+model UserPermissionOverride {
+  id             String                 @id @default(cuid())
+  organizationId String
+  membershipId   String
+  permissionId   String
+  effect         PermissionEffect
+  reason         String
+  createdAt      DateTime               @default(now())
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership     OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+  permission     Permission             @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, permissionId])
+  @@index([organizationId])
+}
+
+model CashSession {
+  id              String            @id @default(cuid())
+  establishmentId String
+  openedById      String
+  status          CashSessionStatus @default(OPEN)
+  openingAmount   Decimal           @db.Decimal(12, 2)
+  closingAmount   Decimal?          @db.Decimal(12, 2)
+  openedAt        DateTime          @default(now())
+  closedAt        DateTime?
+  establishment   Establishment     @relation(fields: [establishmentId], references: [id])
+  openedBy        User              @relation(fields: [openedById], references: [id])
+  sales           Sale[]
+
+  @@index([establishmentId, status])
+}
+
+model Sale {
+  id              String        @id @default(cuid())
+  organizationId  String
+  establishmentId String
+  cashSessionId   String
+  operatorId      String
+  channel         SaleChannel
+  status          SaleStatus    @default(COMPLETED)
+  subtotal        Decimal       @db.Decimal(12, 2)
+  discount        Decimal       @default(0) @db.Decimal(12, 2)
+  serviceAmount   Decimal       @default(0) @db.Decimal(12, 2)
+  total           Decimal       @db.Decimal(12, 2)
+  completedAt     DateTime      @default(now())
+  cancelledAt     DateTime?
+  establishment   Establishment @relation(fields: [establishmentId], references: [id])
+  organization    Organization  @relation(fields: [organizationId], references: [id])
+  cashSession     CashSession   @relation(fields: [cashSessionId], references: [id])
+  operator        User          @relation(fields: [operatorId], references: [id])
+  items           SaleItem[]
+  payments        Payment[]
+
+  @@index([organizationId, establishmentId, completedAt])
+  @@index([cashSessionId, status])
+}
+
+model SaleItem {
+  id          String   @id @default(cuid())
+  saleId      String
+  productId   String?
+  productName String
+  quantity    Decimal  @db.Decimal(10, 3)
+  unitPrice   Decimal  @db.Decimal(12, 2)
+  total       Decimal  @db.Decimal(12, 2)
+  sale        Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+}
+
+model Payment {
+  id        String        @id @default(cuid())
+  saleId    String
+  method    PaymentMethod
+  amount    Decimal       @db.Decimal(12, 2)
+  createdAt DateTime      @default(now())
+  sale      Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+}
+
+// Estrutura mínima para preservar itens de venda. O cadastro será definido com o usuário antes da implementação.
+model Product {
+  id              String        @id @default(cuid())
+  establishmentId String
+  name            String
+  active          Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  saleItems       SaleItem[]
+
+  @@unique([establishmentId, name])
+}
+
+model AuditEvent {
+  id              String         @id @default(cuid())
+  organizationId  String
+  establishmentId String?
+  actorId         String
+  action          AuditAction
+  entityType      String
+  entityId        String
+  reason          String?
+  before          Json?
+  after           Json?
+  ipAddress       String?
+  createdAt       DateTime       @default(now())
+  organization    Organization   @relation(fields: [organizationId], references: [id])
+  establishment   Establishment? @relation(fields: [establishmentId], references: [id])
+  actor           User           @relation("AuditActor", fields: [actorId], references: [id])
+
+  @@index([organizationId, createdAt])
+  @@index([establishmentId, createdAt])
+  @@index([entityType, entityId])
+}
