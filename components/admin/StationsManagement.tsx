@@ -92,40 +92,49 @@ export function StationsManagement({ activeEstablishmentId }: { activeEstablishm
 
     {!loading && stations.length === 0 && <div className="empty small"><span>Nenhuma fila criada ainda. Sem filas, a cozinha funciona como uma tela única, do jeito que já é hoje.</span></div>}
 
-    <div className="role-list">
-      {stations.map(station => { const edit = edits[station.id] ?? { printerDriver: station.printerDriver, printerConfig: station.printerConfig, productIds: station.productIds }; const chosenDriver = printerDrivers.find(driver => driver.key === edit.printerDriver); return <article key={station.id} className="role-card">
-        <div className="role-card-head">
-          <div><b>{station.name}</b><span className={`status-pill ${station.active ? "status-active" : "status-inactive"}`}>{station.active ? "Ativa" : "Inativa"}</span></div>
-          <button type="button" className={`secondary ${station.active ? "warn" : ""}`} onClick={() => toggleActive(station)}>{station.active ? "Desativar" : "Ativar"}</button>
-        </div>
-
-        <div className="access-picker">
-          <span>Impressora desta fila</span>
-          <select value={edit.printerDriver} onChange={event => setEdits(current => ({ ...current, [station.id]: { ...edit, printerDriver: event.target.value } }))}>
-            {printerDrivers.map(driver => <option key={driver.key} value={driver.key} disabled={driver.status === "planned"}>{driver.label}{driver.status === "planned" ? " (em breve)" : ""}</option>)}
-          </select>
-          {chosenDriver && chosenDriver.configFields.length > 0 && <div className="integration-config-fields">
-            {chosenDriver.configFields.map(field => <label className="field" key={field.key}>
-              <span>{field.label}</span>
-              <input value={edit.printerConfig[field.key] ?? ""} placeholder={field.placeholder} onChange={event => setEdits(current => ({ ...current, [station.id]: { ...edit, printerConfig: { ...edit.printerConfig, [field.key]: event.target.value } } }))} />
-            </label>)}
-          </div>}
-        </div>
-
-        <div className="access-picker">
-          <span>Produtos desta fila</span>
-          <div className="permission-groups">
-            {grouped.map(([categoryName, items]) => <div key={categoryName} className="permission-group">
-              <small>{categoryName}</small>
-              {items.map(product => { const disabled = assignedElsewhere(station.id, product.id); return <label key={product.id} className={`permission-check ${disabled ? "disabled" : ""}`} title={disabled ? "Já atribuído a outra fila" : undefined}>
-                <input type="checkbox" disabled={disabled} checked={edit.productIds.includes(product.id)} onChange={() => toggleProduct(station.id, product.id)} />{product.name}
-              </label>; })}
-            </div>)}
+    {!loading && stations.length > 0 && <section className="panel settings-shell">
+      <div className="settings-shell-header"><div><span className="section-kicker">Filas existentes</span><h2>Configurar filas</h2></div></div>
+      <div className="role-list">
+        {stations.map(station => { const edit = edits[station.id] ?? { printerDriver: station.printerDriver, printerConfig: station.printerConfig, productIds: station.productIds }; const chosenDriver = printerDrivers.find(driver => driver.key === edit.printerDriver); return <article key={station.id} className="role-card">
+          <div className="role-card-head">
+            <div><b>{station.name}</b><span className={`status-pill ${station.active ? "status-active" : "status-inactive"}`}>{station.active ? "Ativa" : "Inativa"}</span></div>
+            <button type="button" className={`secondary ${station.active ? "warn" : ""}`} onClick={() => toggleActive(station)}>{station.active ? "Desativar" : "Ativar"}</button>
           </div>
-        </div>
 
-        <button type="button" className="primary" disabled={savingId === station.id} onClick={() => save(station.id)}>{savingId === station.id ? "Salvando…" : "Salvar fila"}</button>
-      </article>; })}
-    </div>
+          <div className="access-picker">
+            <span>Impressora desta fila</span>
+            <div className="integration-driver-list">
+              {printerDrivers.map(driver => <label key={driver.key} className={`integration-driver ${edit.printerDriver === driver.key ? "selected" : ""}`}>
+                <input type="radio" name={`printer-${station.id}`} checked={edit.printerDriver === driver.key} disabled={driver.status === "planned"} onChange={() => setEdits(current => ({ ...current, [station.id]: { ...edit, printerDriver: driver.key } }))} />
+                <div>
+                  <div className="integration-driver-head"><b>{driver.label}</b>{driver.status === "planned" && <span className="status-pill status-inactive">Em breve</span>}</div>
+                  <p>{driver.description}</p>
+                </div>
+              </label>)}
+            </div>
+            {chosenDriver && chosenDriver.configFields.length > 0 && <div className="integration-config-fields">
+              {chosenDriver.configFields.map(field => <label className="field" key={field.key}>
+                <span>{field.label}</span>
+                <input value={edit.printerConfig[field.key] ?? ""} placeholder={field.placeholder} onChange={event => setEdits(current => ({ ...current, [station.id]: { ...edit, printerConfig: { ...edit.printerConfig, [field.key]: event.target.value } } }))} />
+              </label>)}
+            </div>}
+          </div>
+
+          <div className="access-picker">
+            <span>Produtos desta fila</span>
+            <div className="permission-groups">
+              {grouped.map(([categoryName, items]) => <div key={categoryName} className="permission-group">
+                <small>{categoryName}</small>
+                {items.map(product => { const disabled = assignedElsewhere(station.id, product.id); return <label key={product.id} className={`permission-check ${disabled ? "disabled" : ""}`} title={disabled ? "Já atribuído a outra fila" : undefined}>
+                  <input type="checkbox" disabled={disabled} checked={edit.productIds.includes(product.id)} onChange={() => toggleProduct(station.id, product.id)} />{product.name}
+                </label>; })}
+              </div>)}
+            </div>
+          </div>
+
+          <button type="button" className="primary" disabled={savingId === station.id} onClick={() => save(station.id)}>{savingId === station.id ? "Salvando…" : "Salvar fila"}</button>
+        </article>; })}
+      </div>
+    </section>}
   </section>;
 }

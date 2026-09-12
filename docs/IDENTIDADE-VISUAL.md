@@ -22,6 +22,8 @@ A marca provisória usa um monograma “M” editorial envolvido por um arco. O 
 
 `components/ui.tsx` concentra marca, item de navegação, KPI e métrica. Estados compartilhados (`active`, `disabled`, `hover`, vazio e sucesso) usam tokens globais de `app/globals.css`. Novos módulos devem reutilizar esses componentes e tokens antes de criar variantes locais.
 
+Elementos de formulário nativos (`<select>`) têm estilo global em `app/globals.css` (regra base `select{...}` logo após o reset, com o comentário que explica a regra) — todo `<select>` do sistema nasce com borda, raio de 9px, fundo creme e foco dourado automaticamente, sem precisar de uma classe ou wrapper específico. Um componente novo nunca deve redefinir `border`/`border-radius`/`background` de um select; se precisar de um tamanho diferente, sobrescreva só `width`/`min-height`/`padding` com um seletor mais específico. Esse é o padrão a seguir para qualquer elemento nativo repetido pelo sistema (select, e no futuro outros): estilizar uma vez na base global em vez de depender de cada tela lembrar de aplicar a classe certa — foi assim que a fila de preparo (`Configurações → Filas de preparo`) escapou do padrão visual até ser corrigida.
+
 A barra lateral possui três zonas: marca fixa, navegação central rolável e rodapé fixo com unidade ativa e usuário. O menu principal recebe apenas áreas de trabalho de primeiro nível; páginas de estabelecimentos, usuários, perfis e demais cadastros devem ser organizadas dentro de **Configurações**, evitando crescimento indefinido da navegação lateral.
 
 ## Diretrizes de produto
