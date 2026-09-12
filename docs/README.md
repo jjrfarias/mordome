@@ -13,6 +13,7 @@ Esta pasta é a fonte de verdade funcional e técnica do produto. Toda mudança 
 | [AUTORIZACAO.md](AUTORIZACAO.md) | Perfis personalizados e cálculo de permissões |
 | [DESENVOLVIMENTO.md](DESENVOLVIMENTO.md) | Método, padrões, testes e definição de pronto |
 | [IMPLANTACAO.md](IMPLANTACAO.md) | Ambientes, serviços, deploy, banco e operação |
+| [HANDOFF-GPT-5.3.md](HANDOFF-GPT-5.3.md) | Estado completo, restrições e próxima tarefa para continuidade por outro modelo |
 | [IDENTIDADE-VISUAL.md](IDENTIDADE-VISUAL.md) | Marca, tokens e regras de interface |
 | [decisoes/](decisoes/) | Registros de decisões arquiteturais (ADRs) |
 
