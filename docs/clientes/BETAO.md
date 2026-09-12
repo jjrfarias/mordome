@@ -35,6 +35,7 @@
 - O segmento e a comunicação têm caráter popular, direto, familiar e energético.
 - Não foi possível obter do Linktree um arquivo confiável do logotipo em resolução adequada.
 - Uma recriação raster provisória baseada na referência fornecida foi salva em `public/clientes/betao/logo-recriada-v1.png`. Ela precisa de aprovação do cliente e não substitui o arquivo oficial da marca.
+- O símbolo compacto sem texto está em `public/clientes/betao/simbolo-compacto-v1.png` e foi aplicado provisoriamente ao cabeçalho de marca, favicon e tema da branch.
 
 Não criar uma identidade definitiva apenas a partir das fotografias públicas. Solicitar logo oficial, paleta ou materiais de cardápio antes de alterar marca, ícones e cores estruturais do sistema.
 

@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
+import Image from "next/image";
 
 export function Brand({ compact = false, light = false }: { compact?: boolean; light?: boolean }) {
-  return <div className={`brand brand-v2 ${light ? "light" : ""}`} aria-label="Mordomê — Tudo sob controle">
-    <div className="brand-mark-v2" aria-hidden="true"><span className="brand-arch"/><span className="brand-monogram">M</span><span className="brand-tray"/><i /></div>
-    {!compact && <div className="brand-copy"><b>Mordomê</b><span>Tudo sob controle.</span></div>}
-    {compact && <div className="brand-copy brand-copy-compact"><b>Mordomê</b><span>gestão inteligente</span></div>}
+  return <div className={`brand brand-v2 betao-lockup ${light ? "light" : ""}`} aria-label="Mordomê para Betão Hot Dog">
+    <div className="betao-client-mark" aria-hidden="true"><Image src="/clientes/betao/simbolo-compacto-v1.png" alt="" width={52} height={52} priority /></div>
+    {!compact && <div className="brand-copy"><b>Mordomê</b><span>para Betão Hot Dog</span></div>}
+    {compact && <div className="brand-copy brand-copy-compact"><b>Mordomê</b><span>operação Betão</span></div>}
   </div>;
 }
 
