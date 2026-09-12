@@ -2,6 +2,7 @@ import { createSession, isSameOrigin, normalizeUsername } from "@/lib/auth";
 import { loginSchema } from "@/lib/auth-validation";
 import { db } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/password";
+import { createLocalSession, isLocalAuthEnabled, localCredentialsAreValid } from "@/lib/local-auth";
 
 const dummyHash = hashPassword("invalid-password-0");
 
@@ -10,6 +11,12 @@ export async function POST(request: Request) {
 
   const parsed = loginSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Usuário ou senha inválidos." }, { status: 400 });
+
+  if (isLocalAuthEnabled()) {
+    if (!localCredentialsAreValid(normalizeUsername(parsed.data.username), parsed.data.password)) return Response.json({ error: "Usuário ou senha inválidos." }, { status: 401 });
+    await createLocalSession();
+    return Response.json({ ok: true });
+  }
 
   const user = await db.user.findUnique({ where: { username: normalizeUsername(parsed.data.username) } });
   const passwordIsValid = await verifyPassword(parsed.data.password, user?.passwordHash ?? await dummyHash);
