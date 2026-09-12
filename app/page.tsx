@@ -86,10 +86,9 @@ function Login({ needsSetup, onAuthenticated }: { needsSetup: boolean; onAuthent
       <div className="art-copy betao-art-copy">
         <Image className="betao-login-logo" src="/clientes/betao/logo-recriada-v1.png" alt="Betão Hot Dog" width={190} height={190} priority />
         <span className="betao-family">FAMÍLIA BETÃO · MACAÉ</span>
-        <h2>{needsSetup ? <>Quatro lojas.<br/>Uma só operação.</> : <>A casa está pronta.<br/>Pode entrar.</>}</h2>
+        <h2>{needsSetup ? <>Toda a operação.<br/>Em um só lugar.</> : <>A casa está pronta.<br/>Pode entrar.</>}</h2>
         <p>{needsSetup ? "Prepare o primeiro acesso para acompanhar a Família Betão pelo Mordomê." : "Salão, balcão, cozinha e caixa no mesmo ritmo."}</p>
       </div>
-      <div className="betao-units"><span>Parque Aeroporto</span><i/><span>Cavaleiros</span><i/><span>Lagomar</span></div>
     </section>
     <section className="login-panel betao-login-panel"><div className="login-box betao-login-box">
       <div className="mobile-brand"><Brand /></div>
