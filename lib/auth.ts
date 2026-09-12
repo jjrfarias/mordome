@@ -16,9 +16,11 @@ export function normalizeUsername(username: string) {
 export async function createSession(userId: string, request: Request) {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
+  const firstAccess = await db.establishmentAccess.findFirst({ where: { membership: { userId, status: "ACTIVE" }, establishment: { active: true } }, orderBy: { establishment: { name: "asc" } } });
   await db.session.create({
     data: {
       userId,
+      activeEstablishmentId: firstAccess?.establishmentId,
       tokenHash: tokenHash(token),
       expiresAt,
       ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
@@ -67,7 +69,8 @@ export async function getCurrentSession() {
   }
 
   const membership = session.user.memberships[0];
-  const establishment = membership?.accesses[0]?.establishment;
+  const establishments = membership?.accesses.map(access => access.establishment).filter(establishment => establishment.active).sort((a, b) => a.name.localeCompare(b.name, "pt-BR")) ?? [];
+  const establishment = establishments.find(item => item.id === session.activeEstablishmentId) ?? establishments[0];
   if (!membership || !membership.organization.active || !establishment?.active) return null;
 
   return {
@@ -75,7 +78,14 @@ export async function getCurrentSession() {
     user: { id: session.user.id, name: session.user.name, username: session.user.username },
     organization: { id: membership.organization.id, name: membership.organization.name },
     establishment: { id: establishment.id, name: establishment.name },
+    establishments: establishments.map(item => ({ id: item.id, name: item.name })),
   };
+}
+
+export async function selectEstablishment(sessionId: string, establishmentId: string, allowedIds: string[]) {
+  if (!allowedIds.includes(establishmentId)) return false;
+  await db.session.update({ where: { id: sessionId }, data: { activeEstablishmentId: establishmentId, lastSeenAt: new Date() } });
+  return true;
 }
 
 export function isSameOrigin(request: Request) {

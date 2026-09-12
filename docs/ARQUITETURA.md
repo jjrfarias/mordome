@@ -31,6 +31,8 @@ Platform
 
 Entidades operacionais carregam `organizationId` e/ou `establishmentId` conforme seu escopo. O servidor obtém a organização e unidade ativas da sessão validada, verifica `EstablishmentAccess` e adiciona o filtro de tenant a toda consulta. IDs enviados pelo cliente nunca concedem acesso por si mesmos.
 
+A sessão persiste `activeEstablishmentId`. A troca de unidade só é aceita quando o estabelecimento está entre os `EstablishmentAccess` ativos do usuário. No modo local, a mesma regra é simulada em cookie HTTP-only e o estado demonstrativo é particionado por unidade.
+
 Consultas administrativas no nível da organização só agregam estabelecimentos incluídos no acesso efetivo do usuário. Testes devem tentar ler, alterar e relacionar IDs de outro tenant.
 
 ## Camadas

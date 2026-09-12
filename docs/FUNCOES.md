@@ -1,13 +1,15 @@
 # Catálogo funcional
 
-## Organização e estabelecimentos — decidido
+## Organização e estabelecimentos — parcialmente implementado
 
 - Criar e editar dados da organização.
 - Criar múltiplos estabelecimentos por organização.
 - Definir nome, CNPJ opcional, telefone, endereço, horário e taxa de serviço por unidade.
-- Selecionar a unidade ativa em componente persistente.
+- Selecionar a unidade ativa em componente persistente. **Implementado:** o seletor exibe somente acessos da associação, persiste a escolha na sessão e rejeita IDs não autorizados.
 - Consolidar indicadores das unidades permitidas ao usuário.
 - Impedir qualquer leitura ou escrita em unidade não autorizada.
+
+No protótipo local, o estado operacional também é armazenado sob uma chave específica por estabelecimento para não misturar vendas e comandas durante a troca. Cadastro, edição e desativação de unidades ainda serão implementados na área administrativa.
 
 ## Usuários e acesso — decidido
 

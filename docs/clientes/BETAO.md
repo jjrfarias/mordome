@@ -25,6 +25,7 @@
 
 - O cliente deve nascer como uma organização com múltiplos estabelecimentos, não como uma instalação de unidade única.
 - O seletor de estabelecimento deve ser visível e rápido para usuários com acesso a mais de uma loja.
+- **Implementado na branch:** seletor persistente no cabeçalho, validação de acesso no servidor e estado local separado por unidade.
 - PDV simples, retirada e delivery são fluxos centrais; salão pode variar por unidade.
 - A visão consolidada da organização precisa conviver com a operação individual de cada loja.
 - A nomenclatura da interface pode adotar “Família Betão” em pontos institucionais sem substituir a marca do produto Mordomê.

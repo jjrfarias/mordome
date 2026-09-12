@@ -3,6 +3,13 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 
 const LOCAL_TOKEN = "mordome-local-betao";
+const LOCAL_ESTABLISHMENT_COOKIE = "mordome_local_establishment";
+const localEstablishments = [
+  { id: "parque-aeroporto", name: "Parque Aeroporto" },
+  { id: "anexo", name: "Anexo" },
+  { id: "cavaleiros", name: "Cavaleiros" },
+  { id: "lagomar", name: "Lagomar" },
+];
 
 export function isLocalAuthEnabled() {
   return process.env.NODE_ENV !== "production" && process.env.LOCAL_AUTH_ENABLED === "true";
@@ -21,15 +28,25 @@ export async function createLocalSession() {
 }
 
 export async function destroyLocalSession() {
-  (await cookies()).delete(SESSION_COOKIE);
+  const cookieStore = await cookies(); cookieStore.delete(SESSION_COOKIE); cookieStore.delete(LOCAL_ESTABLISHMENT_COOKIE);
 }
 
 export async function getLocalSession() {
-  if ((await cookies()).get(SESSION_COOKIE)?.value !== LOCAL_TOKEN) return null;
+  const cookieStore = await cookies();
+  if (cookieStore.get(SESSION_COOKIE)?.value !== LOCAL_TOKEN) return null;
+  const selectedId = cookieStore.get(LOCAL_ESTABLISHMENT_COOKIE)?.value;
+  const establishment = localEstablishments.find(item => item.id === selectedId) ?? localEstablishments[0];
   return {
     sessionId: "local",
     user: { id: "local-admin", name: "Administrador Betão", username: process.env.LOCAL_AUTH_USERNAME ?? "betao" },
     organization: { id: "local-betao", name: "Betão Hot Dog" },
-    establishment: { id: "local-matriz", name: "Betão Hot Dog" },
+    establishment,
+    establishments: localEstablishments,
   };
+}
+
+export async function selectLocalEstablishment(establishmentId: string) {
+  if (!localEstablishments.some(item => item.id === establishmentId)) return false;
+  (await cookies()).set(LOCAL_ESTABLISHMENT_COOKIE, establishmentId, { httpOnly: true, sameSite: "lax", secure: false, path: "/" });
+  return true;
 }

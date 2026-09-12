@@ -7,38 +7,53 @@ import { addProduct, closeTable, initialState, money, OrderItem, OrderStatus, pr
 import { Brand, KpiCard, MetricCard, NavItem } from "@/components/ui";
 
 type View = "pdv" | "salão" | "cozinha" | "resumo";
-const STORAGE_KEY = "mordome:demo-bistro:v1";
-type AuthSession = { user: { name: string; username: string }; organization: { name: string }; establishment: { id: string; name: string } };
+const storageKey = (establishmentId: string) => `mordome:demo:${establishmentId}:v1`;
+type AuthSession = { user: { name: string; username: string }; organization: { name: string }; establishment: { id: string; name: string }; establishments: { id: string; name: string }[] };
 
 export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
   const [needsSetup, setNeedsSetup] = useState(false);
   const [session, setSession] = useState<AuthSession | null>(null);
   const [state, setState] = useState<RestaurantState>(() => initialState());
+  const [loadedEstablishmentId, setLoadedEstablishmentId] = useState<string | null>(null);
+  const [switchingUnit, setSwitchingUnit] = useState(false);
   const [view, setView] = useState<View>("salão");
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [search, setSearch] = useState("");
   const [toast, setToast] = useState("");
 
   useEffect(() => { queueMicrotask(async () => {
-    const saved = localStorage.getItem(STORAGE_KEY); if (saved) setState(JSON.parse(saved));
     try {
       const response = await fetch("/api/auth/status", { cache: "no-store" });
       const data = await response.json();
-      setNeedsSetup(data.needsSetup); setSession(data.session);
+      setNeedsSetup(data.needsSetup);
+      if (data.session) { const saved = localStorage.getItem(storageKey(data.session.establishment.id)); setState(saved ? JSON.parse(saved) : initialState()); setLoadedEstablishmentId(data.session.establishment.id); }
+      setSession(data.session);
     } finally { setAuthLoading(false); }
   }); }, []);
-  useEffect(() => { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }, [state]);
+  useEffect(() => { if (session && loadedEstablishmentId === session.establishment.id) localStorage.setItem(storageKey(session.establishment.id), JSON.stringify(state)); }, [state, session, loadedEstablishmentId]);
   useEffect(() => { if (!toast) return; const timer = setTimeout(() => setToast(""), 2800); return () => clearTimeout(timer); }, [toast]);
 
   if (authLoading) return <div className="login-page"><section className="login-art"><div className="art-copy"><Brand light /><h2>Preparando seu ambiente…</h2></div></section><section className="login-panel"><div className="login-box"><span className="eyebrow">MORDOMÊ</span><h1>Um instante.</h1><p>Estamos verificando seu acesso com segurança.</p></div></section></div>;
-  if (!session) return <Login needsSetup={needsSetup} onAuthenticated={async () => { const response = await fetch("/api/auth/session", { cache: "no-store" }); if (response.ok) { const data = await response.json(); setSession(data.session); setNeedsSetup(false); } }} />;
+  if (!session) return <Login needsSetup={needsSetup} onAuthenticated={async () => { const response = await fetch("/api/auth/session", { cache: "no-store" }); if (response.ok) { const data = await response.json(); const saved = localStorage.getItem(storageKey(data.session.establishment.id)); setState(saved ? JSON.parse(saved) : initialState()); setLoadedEstablishmentId(data.session.establishment.id); setSession(data.session); setNeedsSetup(false); } }} />;
   const selected = state.tables.find((table) => table.id === selectedId);
   const ongoing = state.tables.filter((table) => table.orderStatus && table.orderStatus !== "Entregue");
   const revenue = state.sales.reduce((sum, sale) => sum + sale.total, 0);
 
   const updateTable = (id: number, updater: (table: RestaurantState["tables"][number]) => RestaurantState["tables"][number]) => setState(current => ({ ...current, tables: current.tables.map(table => table.id === id ? updater(table) : table) }));
   const notify = (message: string) => setToast(message);
+  const switchEstablishment = async (establishmentId: string) => {
+    if (establishmentId === session.establishment.id) return;
+    setSwitchingUnit(true);
+    try {
+      const response = await fetch("/api/auth/establishment", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ establishmentId }) });
+      const data = await response.json();
+      if (!response.ok) { notify(data.error ?? "Não foi possível trocar de unidade"); return; }
+      const saved = localStorage.getItem(storageKey(data.session.establishment.id));
+      setState(saved ? JSON.parse(saved) : initialState()); setLoadedEstablishmentId(data.session.establishment.id);
+      setSelectedId(null); setSession(data.session); notify(`Unidade alterada para ${data.session.establishment.name}`);
+    } catch { notify("Não foi possível conectar ao servidor"); } finally { setSwitchingUnit(false); }
+  };
 
   return <div className="app-shell">
     <aside className="sidebar">
@@ -52,10 +67,10 @@ export default function Home() {
         <NavItem active={view === "resumo"} icon={<BarChart3 />} label="Resumo" onClick={() => { setView("resumo"); setSelectedId(null); }} />
       </nav>
       <div className="shift-card"><span>Turno atual</span><b>Almoço</b><small>Aberto às 10:42</small><i /></div>
-      <div className="user-card"><div className="avatar">{session.user.name.split(" ").slice(0, 2).map(part => part[0]).join("").toUpperCase()}</div><div><b>{session.user.name}</b><span>@{session.user.username}</span></div><button aria-label="Sair" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); setSession(null); }}><LogOut /></button></div>
+      <div className="user-card"><div className="avatar">{session.user.name.split(" ").slice(0, 2).map(part => part[0]).join("").toUpperCase()}</div><div><b>{session.user.name}</b><span>@{session.user.username}</span></div><button aria-label="Sair" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); setLoadedEstablishmentId(null); setSession(null); }}><LogOut /></button></div>
     </aside>
     <main>
-      <header><div><span className="eyebrow">{session.establishment.name} <i>•</i> {new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span><h1>{view === "pdv" ? "PDV rápido" : view === "salão" ? selected ? `Mesa ${selected.id}` : "Gestão do salão" : view === "cozinha" ? "Cozinha" : "Resumo do dia"}</h1></div><div className="header-actions"><span className="sync-state"><i /> Sincronizado agora</span><button className="icon-button" aria-label="Notificações"><Bell /></button><div className="open-pill"><span /> Caixa aberto</div></div></header>
+      <header><div><div className="establishment-line"><label><span>Unidade</span><select aria-label="Unidade ativa" value={session.establishment.id} disabled={switchingUnit} onChange={event => switchEstablishment(event.target.value)}>{session.establishments.map(establishment => <option key={establishment.id} value={establishment.id}>{establishment.name}</option>)}</select></label><i>•</i><span>{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span></div><h1>{view === "pdv" ? "PDV rápido" : view === "salão" ? selected ? `Mesa ${selected.id}` : "Gestão do salão" : view === "cozinha" ? "Cozinha" : "Resumo do dia"}</h1></div><div className="header-actions"><span className="sync-state"><i /> Sincronizado agora</span><button className="icon-button" aria-label="Notificações"><Bell /></button><div className="open-pill"><span /> Caixa aberto</div></div></header>
       {view === "pdv" && <Pos onFinish={(items, payment) => { setState(current => recordPosSale(current, items, payment)); notify("Venda realizada com sucesso"); }} />}
       {view === "salão" && !selected && <Salon state={state} onSelect={setSelectedId} />}
       {view === "salão" && selected && <Command table={selected} search={search} setSearch={setSearch} onBack={() => setSelectedId(null)} onAdd={product => { updateTable(selected.id, table => addProduct(table, product)); notify(`${product.name} adicionado`); }} onQuantity={(productId, delta) => updateTable(selected.id, table => ({ ...table, items: table.items.map(item => item.id === productId ? { ...item, quantity: item.quantity + delta } : item).filter(item => item.quantity > 0) }))} onSend={() => { updateTable(selected.id, table => ({ ...table, orderStatus: "Recebido" })); notify("Pedido enviado para a cozinha"); }} onClose={payment => { setState(current => closeTable(current, selected.id, payment)); setSelectedId(null); notify("Conta fechada com sucesso"); }} />}
