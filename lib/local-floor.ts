@@ -6,17 +6,41 @@ type LocalTabItem = { id: string; productId: string; productName: string; quanti
 type LocalOrderItem = { id: string; tabItemId: string; productName: string; quantity: number; cancellations: { id: string; quantity: number; reason: string; actorId: string; createdAt: string }[] };
 type LocalOrder = { id: string; status: LocalOrderStatus; sentById: string; sentAt: string; items: LocalOrderItem[] };
 type LocalTab = { id: string; status: "OPEN" | "PAID" | "CANCELLED"; openedById: string; openedAt: string; closedAt?: string; saleId?: string; items: LocalTabItem[]; orders: LocalOrder[] };
-type LocalTable = { id: string; number: number; seats: number; active: boolean; tabs: LocalTab[] };
+type LocalTable = { id: string; number: number; seats: number; name: string | null; area: string | null; assignedWaiterId: string | null; active: boolean; tabs: LocalTab[] };
 
 const stores = new Map<string, LocalTable[]>();
 const tablesFor = (establishmentId: string) => {
-  if (!stores.has(establishmentId)) stores.set(establishmentId, Array.from({ length: 12 }, (_, index) => ({ id: `local-table-${establishmentId}-${index + 1}`, number: index + 1, seats: 4, active: true, tabs: [] })));
+  if (!stores.has(establishmentId)) stores.set(establishmentId, Array.from({ length: 12 }, (_, index) => ({ id: `local-table-${establishmentId}-${index + 1}`, number: index + 1, seats: 4, name: null, area: null, assignedWaiterId: null, active: true, tabs: [] })));
   return stores.get(establishmentId)!;
 };
 const openTab = (table: LocalTable) => table.tabs.find(tab => tab.status === "OPEN");
 
-export function getLocalFloor(establishmentId: string) {
-  const tables = tablesFor(establishmentId).filter(table => table.active).map(table => {
+export function listLocalTables(establishmentId: string) {
+  return tablesFor(establishmentId).map(table => ({ id: table.id, number: table.number, seats: table.seats, name: table.name, area: table.area, assignedWaiterId: table.assignedWaiterId, active: table.active }));
+}
+
+export function createLocalTables(establishmentId: string, input: { area: string | null; seats: number; quantity: number }) {
+  const tables = tablesFor(establishmentId);
+  const nextNumber = tables.reduce((max, table) => Math.max(max, table.number), 0) + 1;
+  const created: LocalTable[] = [];
+  for (let index = 0; index < input.quantity; index += 1) {
+    const table: LocalTable = { id: `local-table-${randomUUID()}`, number: nextNumber + index, seats: input.seats, name: null, area: input.area, assignedWaiterId: null, active: true, tabs: [] };
+    tables.push(table); created.push(table);
+  }
+  return created.map(table => ({ id: table.id, number: table.number, seats: table.seats, name: table.name, area: table.area, assignedWaiterId: table.assignedWaiterId, active: table.active }));
+}
+
+export function updateLocalTable(establishmentId: string, tableId: string, data: { name?: string | null; area?: string | null; seats?: number; active?: boolean; assignedWaiterId?: string | null }) {
+  const table = tablesFor(establishmentId).find(candidate => candidate.id === tableId);
+  if (!table) return "NOT_FOUND" as const;
+  const defined = Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined));
+  Object.assign(table, defined);
+  return { id: table.id, number: table.number, seats: table.seats, name: table.name, area: table.area, assignedWaiterId: table.assignedWaiterId, active: table.active };
+}
+
+export function getLocalFloor(establishmentId: string, viewer?: { userId: string; canManageFloor: boolean }) {
+  const scoped = tablesFor(establishmentId).filter(table => table.active && (!viewer || viewer.canManageFloor || !table.assignedWaiterId || table.assignedWaiterId === viewer.userId));
+  const tables = scoped.map(table => {
     const tab = openTab(table);
     return { ...table, tab: tab ? { ...tab, items: tab.items.filter(item => item.active), orders: tab.orders.map(order => ({ ...order, items: order.items.map(item => { const tabItem = tab.items.find(candidate => candidate.id === item.tabItemId); const stationId = tabItem ? getLocalProductStation(establishmentId, tabItem.productId) : null; return { ...item, stationId, cancelledQuantity: item.cancellations.reduce((sum, cancellation) => sum + cancellation.quantity, 0) }; }) })) } : null };
   });

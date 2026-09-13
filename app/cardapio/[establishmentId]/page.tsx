@@ -2,8 +2,9 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
+import Link from "next/link";
 import { useParams } from "next/navigation";
-import { Search, UtensilsCrossed } from "lucide-react";
+import { Search, ShoppingBag, UtensilsCrossed } from "lucide-react";
 
 type MenuProduct = { id: string; name: string; category: string; description: string | null; price: number };
 type MenuData = { establishment: { name: string }; products: MenuProduct[] };
@@ -46,6 +47,7 @@ export default function PublicMenuPage() {
       <span className="section-kicker">CARDÁPIO ONLINE</span>
       <h1>{data.establishment.name}</h1>
       <div className="search"><Search/><input placeholder="Buscar produto..." value={query} onChange={event => setQuery(event.target.value)} /></div>
+      <Link href={`/pedido-online/${params.establishmentId}`} className="primary" style={{ marginTop: 14, textDecoration: "none" }}><ShoppingBag style={{ width: 16 }} /> Fazer pedido online</Link>
     </div>
 
     {data.products.length === 0 ? <div className="big-empty"><UtensilsCrossed/><h2>Cardápio em preparação</h2><p>Nenhum produto disponível para consulta online no momento.</p></div> : <div className="public-menu-groups">

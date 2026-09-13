@@ -4,8 +4,8 @@ import { db } from "@/lib/db";
 import { hashPassword, verifyPassword } from "@/lib/password";
 import { createLocalSession, isLocalAuthEnabled, localCredentialsAreValid } from "@/lib/local-auth";
 import { rateLimit, resetRateLimit } from "@/lib/rate-limit";
-import { requestAuditMetadata } from "@/lib/audit";
 import { recordLocalAudit } from "@/lib/local-audit";
+import { requestAuditMetadata } from "@/lib/audit";
 
 const dummyHash = hashPassword("invalid-password-0");
 const LOGIN_ATTEMPT_LIMIT = 5;
@@ -49,9 +49,6 @@ export async function POST(request: Request) {
   });
   if (!membership) return Response.json({ error: "Seu usuário não possui acesso ativo." }, { status: 403 });
 
-  await createSession(user.id, request);
-  await db.auditEvent.create({
-    data: { organizationId: membership.organizationId, actorId: user.id, action: "LOGIN", entityType: "Session", entityId: user.id, reason: "Login realizado", ...requestAuditMetadata(request) },
-  });
+  await createSession(user.id, request, { organizationId: membership.organizationId });
   return Response.json({ ok: true });
 }

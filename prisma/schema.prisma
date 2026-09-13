@@ -84,6 +84,19 @@ enum SaleStatus {
   REFUNDED
 }
 
+enum DeliveryStatus {
+  RECEIVED
+  PREPARING
+  OUT_FOR_DELIVERY
+  DELIVERED
+  CANCELLED
+}
+
+enum DeliveryOrigin {
+  INTERNAL
+  ONLINE
+}
+
 enum TabStatus {
   OPEN
   PAID
@@ -155,6 +168,10 @@ model User {
   orderStatusChanges OrderStatusHistory[] @relation("OrderStatusChangedBy")
   orderItemCancellations OrderItemCancellation[]
   refunds        Refund[]
+  assignedTables DiningTable[]            @relation("TableAssignedWaiter")
+  courierDeliveries DeliveryOrder[]       @relation("DeliveryCourier")
+  createdDeliveries DeliveryOrder[]       @relation("DeliveryCreatedBy")
+  liveLocation      CourierLocation?      @relation("CourierLiveLocation")
 }
 
 model Session {
@@ -220,6 +237,7 @@ model Establishment {
   integrations     EstablishmentIntegration[]
   stations         PreparationStation[]
   productStations  ProductStation[]
+  deliveryOrders   DeliveryOrder[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
@@ -427,25 +445,73 @@ model Sale {
   payments        Payment[]
   refunds         Refund[]
   tab             Tab?
+  deliveryOrder   DeliveryOrder?
 
   @@index([organizationId, establishmentId, completedAt])
   @@index([cashSessionId, status])
 }
 
 model DiningTable {
-  id              String        @id @default(cuid())
-  establishmentId String
-  number          Int
-  seats           Int           @default(4)
-  name            String?
-  active          Boolean       @default(true)
-  createdAt       DateTime      @default(now())
-  updatedAt       DateTime      @updatedAt
-  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
-  tabs            Tab[]
+  id               String        @id @default(cuid())
+  establishmentId  String
+  number           Int
+  seats            Int           @default(4)
+  name             String?
+  area             String?
+  assignedWaiterId String?
+  active           Boolean       @default(true)
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  establishment    Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  assignedWaiter   User?         @relation("TableAssignedWaiter", fields: [assignedWaiterId], references: [id], onDelete: SetNull)
+  tabs             Tab[]
 
   @@unique([establishmentId, number])
   @@index([establishmentId, active, number])
+  @@index([establishmentId, area])
+}
+
+model DeliveryOrder {
+  id              String         @id @default(cuid())
+  establishmentId String
+  customerName    String
+  customerPhone   String
+  address         String
+  destinationLat  Float?
+  destinationLng  Float?
+  notes           String?
+  status          DeliveryStatus @default(RECEIVED)
+  origin          DeliveryOrigin @default(INTERNAL)
+  courierId       String?
+  saleId          String?        @unique
+  createdById     String?
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  establishment   Establishment  @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  courier         User?          @relation("DeliveryCourier", fields: [courierId], references: [id], onDelete: SetNull)
+  createdBy       User?          @relation("DeliveryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
+  sale            Sale?          @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  items           DeliveryOrderItem[]
+
+  @@index([establishmentId, status])
+}
+
+model CourierLocation {
+  courierId String   @id
+  lat       Float
+  lng       Float
+  updatedAt DateTime @updatedAt
+  courier   User     @relation("CourierLiveLocation", fields: [courierId], references: [id], onDelete: Cascade)
+}
+
+model DeliveryOrderItem {
+  id              String        @id @default(cuid())
+  deliveryOrderId String
+  productId       String?
+  productName     String
+  quantity        Int
+  unitPrice       Decimal       @db.Decimal(12, 2)
+  deliveryOrder   DeliveryOrder @relation(fields: [deliveryOrderId], references: [id], onDelete: Cascade)
 }
 
 model Tab {

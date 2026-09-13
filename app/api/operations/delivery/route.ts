@@ -1,0 +1,145 @@
+import { MembershipStatus, DeliveryStatus } from "@/generated/prisma/client";
+import { z } from "zod";
+import { requestAuditMetadata } from "@/lib/audit";
+import { getCurrentSession, isSameOrigin } from "@/lib/auth";
+import { db } from "@/lib/db";
+import { assignLocalCourier, changeLocalDeliveryStatus, createLocalDeliveryOrder, getLocalCourierLocations, listLocalDeliveryOrders } from "@/lib/local-delivery";
+import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
+import { listLocalCatalog } from "@/lib/local-catalog";
+import { recordLocalAudit } from "@/lib/local-audit";
+import { listLocalUsers } from "@/lib/local-access-control";
+
+const createSchema = z.object({
+  action: z.literal("CREATE"),
+  customerName: z.string().trim().min(2).max(100),
+  customerPhone: z.string().trim().min(8).max(20),
+  address: z.string().trim().min(5).max(300),
+  destinationLat: z.number().finite().min(-90).max(90).optional(),
+  destinationLng: z.number().finite().min(-180).max(180).optional(),
+  notes: z.string().trim().max(300).optional(),
+  items: z.array(z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(99) })).min(1),
+});
+const statusSchema = z.object({ action: z.literal("CHANGE_STATUS"), orderId: z.string().min(1), status: z.enum(DeliveryStatus) });
+const courierSchema = z.object({ action: z.literal("ASSIGN_COURIER"), orderId: z.string().min(1), courierId: z.string().min(1).nullable() });
+const actionSchema = z.discriminatedUnion("action", [createSchema, statusSchema, courierSchema]);
+
+const nextStatus: Partial<Record<DeliveryStatus, DeliveryStatus>> = { RECEIVED: "PREPARING", PREPARING: "OUT_FOR_DELIVERY", OUT_FOR_DELIVERY: "DELIVERED" };
+
+async function resolveActor() {
+  const session = await getCurrentSession();
+  if (!session) return null;
+  if (!session.canOperateDelivery) return null;
+  const membership = await db.organizationMembership.findFirst({ where: { userId: session.user.id, organizationId: session.organization.id, status: MembershipStatus.ACTIVE } });
+  return membership ? session : null;
+}
+
+function serializeOrder(order: { id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: string; origin: string; courierId: string | null; saleId: string | null; createdAt: Date | string; items: { id: string; productId: string | null; productName: string; quantity: number; unitPrice: unknown }[] }) {
+  return { id: order.id, customerName: order.customerName, customerPhone: order.customerPhone, address: order.address, destinationLat: order.destinationLat, destinationLng: order.destinationLng, notes: order.notes, status: order.status, origin: order.origin, courierId: order.courierId, saleId: order.saleId, createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : order.createdAt, items: order.items.map(item => ({ id: item.id, productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice) })) };
+}
+
+export async function GET(request: Request) {
+  if (!isSameOrigin(request)) return Response.json({ error: "Origem inválida." }, { status: 403 });
+  if (isLocalAuthEnabled()) {
+    const session = await getLocalSession();
+    if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
+    if (!session.canOperateDelivery) return Response.json({ error: "Acesso negado ao delivery." }, { status: 403 });
+    const products = listLocalCatalog(session.establishment.id).filter(product => product.active && product.channels.includes("DELIVERY")).map(product => ({ id: product.id, name: product.name, category: product.category, price: product.price }));
+    const orders = listLocalDeliveryOrders(session.establishment.id);
+    const activeCourierIds = [...new Set(orders.filter(order => order.status === "OUT_FOR_DELIVERY" && order.courierId).map(order => order.courierId as string))];
+    const couriers = listLocalUsers().filter(user => user.userActive && user.establishmentIds.includes(session.establishment.id)).map(user => ({ id: user.userId, name: user.name }));
+    return Response.json({ orders, products, couriers, courierLocations: getLocalCourierLocations(activeCourierIds) });
+  }
+
+  const actor = await resolveActor();
+  if (!actor) return Response.json({ error: "Acesso negado." }, { status: 403 });
+
+  const [orders, offerings, accesses] = await Promise.all([
+    db.deliveryOrder.findMany({ where: { establishmentId: actor.establishment.id }, include: { items: true }, orderBy: { createdAt: "desc" }, take: 100 }),
+    db.productOffering.findMany({ where: { establishmentId: actor.establishment.id, channel: "DELIVERY", active: true, variant: { active: true, product: { organizationId: actor.organization.id, active: true } } }, include: { variant: { include: { product: { include: { category: true } } } } } }),
+    db.establishmentAccess.findMany({ where: { establishmentId: actor.establishment.id, membership: { organizationId: actor.organization.id, status: MembershipStatus.ACTIVE } }, include: { membership: { include: { user: { select: { id: true, name: true, active: true } } } } } }),
+  ]);
+  const products = offerings.map(offering => ({ id: offering.variant.product.id, name: offering.variant.product.name, category: offering.variant.product.category?.name ?? "Sem categoria", price: Number(offering.price) }));
+  const couriers = accesses.map(access => access.membership.user).filter(user => user.active).filter((user, index, list) => list.findIndex(candidate => candidate.id === user.id) === index).map(user => ({ id: user.id, name: user.name }));
+  const activeCourierIds = [...new Set(orders.filter(order => order.status === "OUT_FOR_DELIVERY" && order.courierId).map(order => order.courierId as string))];
+  const courierLocations = activeCourierIds.length ? await db.courierLocation.findMany({ where: { courierId: { in: activeCourierIds } } }) : [];
+  return Response.json({ orders: orders.map(serializeOrder), products, couriers, courierLocations: courierLocations.map(location => ({ courierId: location.courierId, lat: location.lat, lng: location.lng, updatedAt: location.updatedAt.toISOString() })) });
+}
+
+export async function POST(request: Request) {
+  if (!isSameOrigin(request)) return Response.json({ error: "Origem inválida." }, { status: 403 });
+  const parsed = actionSchema.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return Response.json({ error: "Dados inválidos." }, { status: 400 });
+  const data = parsed.data;
+
+  if (isLocalAuthEnabled()) {
+    const session = await getLocalSession();
+    if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
+    if (!session.canOperateDelivery) return Response.json({ error: "Acesso negado ao delivery." }, { status: 403 });
+    const base = { organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, ...requestAuditMetadata(request) };
+
+    if (data.action === "CREATE") {
+      const catalog = listLocalCatalog(session.establishment.id);
+      const items = data.items.map(item => { const product = catalog.find(candidate => candidate.id === item.productId && candidate.active && candidate.channels.includes("DELIVERY")); return product ? { productId: product.id, productName: product.name, quantity: item.quantity, unitPrice: product.price } : null; });
+      if (items.some(item => !item)) return Response.json({ error: "Produto indisponível no delivery." }, { status: 409 });
+      const order = createLocalDeliveryOrder(session.establishment.id, { customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: session.user.id, items: items as NonNullable<(typeof items)[number]>[] });
+      recordLocalAudit({ ...base, action: "CREATE", entityType: "DeliveryOrder", entityId: order.id, reason: `Pedido de delivery criado para ${order.customerName}`, after: { customerName: order.customerName, address: order.address, items: order.items } });
+      return Response.json({ order }, { status: 201 });
+    }
+    if (data.action === "CHANGE_STATUS") {
+      const result = changeLocalDeliveryStatus(session.establishment.id, data.orderId, data.status);
+      if (result === "NOT_FOUND") return Response.json({ error: "Pedido não encontrado." }, { status: 404 });
+      if (result === "INVALID_TRANSITION") return Response.json({ error: "Esta mudança de etapa não é permitida." }, { status: 409 });
+      recordLocalAudit({ ...base, action: "UPDATE", entityType: "DeliveryOrder", entityId: result.order.id, reason: `Etapa do delivery alterada`, before: { status: result.before }, after: { status: result.order.status } });
+      return Response.json({ order: result.order });
+    }
+    const result = assignLocalCourier(session.establishment.id, data.orderId, data.courierId);
+    if (result === "NOT_FOUND") return Response.json({ error: "Pedido não encontrado." }, { status: 404 });
+    recordLocalAudit({ ...base, action: "UPDATE", entityType: "DeliveryOrder", entityId: result.id, reason: "Entregador atribuído ao pedido", after: { courierId: result.courierId } });
+    return Response.json({ order: result });
+  }
+
+  const actor = await resolveActor();
+  if (!actor) return Response.json({ error: "Acesso negado." }, { status: 403 });
+
+  if (data.action === "CREATE") {
+    try {
+      const offerings = await db.productOffering.findMany({ where: { establishmentId: actor.establishment.id, channel: "DELIVERY", active: true, variant: { productId: { in: data.items.map(item => item.productId) }, active: true, product: { organizationId: actor.organization.id, active: true } } }, include: { variant: { include: { product: true } } } });
+      const priceByProduct = new Map(offerings.map(offering => [offering.variant.product.id, { name: offering.variant.product.name, price: Number(offering.price) }]));
+      if (data.items.some(item => !priceByProduct.has(item.productId))) return Response.json({ error: "Produto indisponível no delivery." }, { status: 409 });
+      const order = await db.$transaction(async tx => {
+        const created = await tx.deliveryOrder.create({ data: { establishmentId: actor.establishment.id, customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: actor.user.id, items: { create: data.items.map(item => { const info = priceByProduct.get(item.productId)!; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice: info.price }; }) } }, include: { items: true } });
+        await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "CREATE", entityType: "DeliveryOrder", entityId: created.id, reason: `Pedido de delivery criado para ${created.customerName}`, after: { customerName: created.customerName, address: created.address, items: created.items.map(item => ({ productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice) })) } } });
+        return created;
+      });
+      return Response.json({ order: serializeOrder(order) }, { status: 201 });
+    } catch {
+      return Response.json({ error: "Não foi possível criar o pedido de delivery." }, { status: 500 });
+    }
+  }
+
+  if (data.action === "CHANGE_STATUS") {
+    const current = await db.deliveryOrder.findFirst({ where: { id: data.orderId, establishmentId: actor.establishment.id } });
+    if (!current) return Response.json({ error: "Pedido não encontrado." }, { status: 404 });
+    const validTransition = data.status === "CANCELLED" ? current.status !== "DELIVERED" && current.status !== "CANCELLED" : nextStatus[current.status] === data.status;
+    if (!validTransition) return Response.json({ error: "Esta mudança de etapa não é permitida." }, { status: 409 });
+    const updated = await db.$transaction(async tx => {
+      const result = await tx.deliveryOrder.update({ where: { id: current.id }, data: { status: data.status } });
+      await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: current.id, reason: "Etapa do delivery alterada", before: { status: current.status }, after: { status: result.status } } });
+      return result;
+    });
+    return Response.json({ order: { ...updated, items: [] } });
+  }
+
+  if (data.courierId) {
+    const access = await db.establishmentAccess.findFirst({ where: { establishmentId: actor.establishment.id, membership: { userId: data.courierId, organizationId: actor.organization.id, status: MembershipStatus.ACTIVE } } });
+    if (!access) return Response.json({ error: "Usuário sem acesso a esta unidade." }, { status: 400 });
+  }
+  const current = await db.deliveryOrder.findFirst({ where: { id: data.orderId, establishmentId: actor.establishment.id } });
+  if (!current) return Response.json({ error: "Pedido não encontrado." }, { status: 404 });
+  const updated = await db.$transaction(async tx => {
+    const result = await tx.deliveryOrder.update({ where: { id: current.id }, data: { courierId: data.courierId } });
+    await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: current.id, reason: "Entregador atribuído ao pedido", after: { courierId: data.courierId } } });
+    return result;
+  });
+  return Response.json({ order: { ...updated, items: [] } });
+}

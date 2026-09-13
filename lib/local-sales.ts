@@ -5,10 +5,10 @@ import { listLocalCatalog } from "./local-catalog.ts";
 import { listLocalRecipes } from "./local-recipes.ts";
 import { registerLocalCashRefund, reverseLocalCashSale, type LocalPaymentMethod } from "./local-cash.ts";
 
-type LocalSale = { id: string; idempotencyKey: string; establishmentId: string; channel: "POS" | "FLOOR"; status: "COMPLETED" | "CANCELLED" | "PARTIALLY_REFUNDED" | "REFUNDED"; consumptions: { inventoryItemId: string; quantity: number }[]; settlement?: { cashSessionId: string; payments: { method: LocalPaymentMethod; amount: number }[]; total: number; refunded: number } };
+type LocalSale = { id: string; idempotencyKey: string; establishmentId: string; channel: "POS" | "FLOOR" | "DELIVERY"; status: "COMPLETED" | "CANCELLED" | "PARTIALLY_REFUNDED" | "REFUNDED"; consumptions: { inventoryItemId: string; quantity: number }[]; settlement?: { cashSessionId: string; payments: { method: LocalPaymentMethod; amount: number }[]; total: number; refunded: number } };
 const sales: LocalSale[] = [];
 
-export function completeLocalSale(input: { establishmentId: string; idempotencyKey: string; channel: "POS" | "FLOOR"; items: { productId: string; quantity: number }[] }) {
+export function completeLocalSale(input: { establishmentId: string; idempotencyKey: string; channel: "POS" | "FLOOR" | "DELIVERY"; items: { productId: string; quantity: number }[] }) {
   const duplicate = sales.find(sale => sale.idempotencyKey === input.idempotencyKey);
   if (duplicate) return { status: "DUPLICATE" as const, sale: duplicate };
   const catalog = listLocalCatalog(input.establishmentId);

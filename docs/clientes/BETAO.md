@@ -40,6 +40,12 @@
 
 Não criar uma identidade definitiva apenas a partir das fotografias públicas. Solicitar logo oficial, paleta ou materiais de cardápio antes de alterar marca, ícones e cores estruturais do sistema.
 
+## Vídeo personalizado
+
+O roteiro institucional específico está em `docs/ROTEIROS-VIDEOS.md`. O vídeo **Mordomê para Família Betão** deve usar somente a personalização vermelha, creme e dourada desta branch. O vídeo genérico do SaaS deve permanecer na identidade visual padrão verde, areia e terracota do Mordomê, sem elementos da marca Betão.
+
+A apresentação personalizada inclui PDV, salão, cozinha, unidades, canais de venda e a mensagem de continuidade **“A internet caiu. Sua operação, não.”**. Funcionalidades ainda planejadas são apresentadas como visão completa por meio de mockups consistentes com o produto.
+
 ## Dados que precisam de confirmação do cliente
 
 - Nome jurídico e documentos de cada unidade.

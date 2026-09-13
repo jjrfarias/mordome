@@ -14,6 +14,9 @@ const permissionLabels: Record<string, string> = {
   "pos.sell": "Vender no PDV",
   "pos.cancel_sale": "Cancelar vendas concluídas",
   "floor.operate": "Operar o salão",
+  "floor.manage": "Configurar mesas, áreas e garçons",
+  "delivery.operate": "Operar o delivery",
+  "delivery.deliver": "Fazer entregas (app do entregador)",
   "tabs.cancel_item": "Cancelar itens enviados",
   "cash.open": "Abrir caixa",
   "cash.move": "Registrar suprimento e sangria",
@@ -27,7 +30,7 @@ const permissionLabels: Record<string, string> = {
   "users.password.reset": "Redefinir senhas",
   "roles.manage": "Criar e editar perfis",
 };
-const moduleLabels: Record<string, string> = { establishments: "Estabelecimentos", catalog: "Cardápio", recipes: "Fichas técnicas", stock: "Estoque", pos: "PDV", floor: "Salão", cash: "Caixa", finance: "Financeiro", audit: "Auditoria", users: "Usuários", roles: "Perfis" };
+const moduleLabels: Record<string, string> = { establishments: "Estabelecimentos", catalog: "Cardápio", recipes: "Fichas técnicas", stock: "Estoque", pos: "PDV", floor: "Salão", delivery: "Delivery", cash: "Caixa", finance: "Financeiro", audit: "Auditoria", users: "Usuários", roles: "Perfis" };
 
 function groupByModule(permissions: Permission[]) {
   const groups = new Map<string, Permission[]>();

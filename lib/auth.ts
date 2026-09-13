@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { hasPermission } from "@/lib/authorization";
-import { AUDIT_VIEW, CASH_CLOSE, CASH_HISTORY_VIEW, CASH_MOVE, CASH_OPEN, CATALOG_MANAGE, DISCOUNT_APPLY, DISCOUNT_OVERRIDE, ESTABLISHMENTS_MANAGE, FINANCE_SUMMARY_VIEW, FLOOR_OPERATE, INTEGRATIONS_MANAGE, POS_CANCEL_SALE, POS_SELL, PRINT_REPRINT, RECIPES_MANAGE, ROLES_MANAGE, SALE_REFUND, STOCK_ADJUST, STOCK_MANAGE, TABS_CANCEL_ITEM, USERS_DISABLE, USERS_INVITE, USERS_PASSWORD_RESET, USERS_VIEW } from "@/lib/permissions";
+import { AUDIT_VIEW, CASH_CLOSE, CASH_HISTORY_VIEW, CASH_MOVE, CASH_OPEN, CATALOG_MANAGE, DELIVERY_DELIVER, DELIVERY_OPERATE, DISCOUNT_APPLY, DISCOUNT_OVERRIDE, ESTABLISHMENTS_MANAGE, FINANCE_SUMMARY_VIEW, FLOOR_MANAGE, FLOOR_OPERATE, INTEGRATIONS_MANAGE, POS_CANCEL_SALE, POS_SELL, PRINT_REPRINT, RECIPES_MANAGE, ROLES_MANAGE, SALE_REFUND, STOCK_ADJUST, STOCK_MANAGE, TABS_CANCEL_ITEM, USERS_DISABLE, USERS_INVITE, USERS_PASSWORD_RESET, USERS_VIEW } from "@/lib/permissions";
 import { getActiveIntegrationDriver } from "@/lib/integrations/catalog";
 
 export const SESSION_COOKIE = "mordome_session";
@@ -16,19 +16,21 @@ export function normalizeUsername(username: string) {
   return username.trim().toLocaleLowerCase("pt-BR");
 }
 
-export async function createSession(userId: string, request: Request) {
+export async function createSession(userId: string, request: Request, audit: { organizationId: string; establishmentId?: string | null }) {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
   const firstAccess = await db.establishmentAccess.findFirst({ where: { membership: { userId, status: "ACTIVE" }, establishment: { active: true } }, orderBy: { establishment: { name: "asc" } } });
-  await db.session.create({
-    data: {
-      userId,
-      activeEstablishmentId: firstAccess?.establishmentId,
-      tokenHash: tokenHash(token),
-      expiresAt,
-      ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
-      userAgent: request.headers.get("user-agent")?.slice(0, 500),
-    },
+  const ipAddress = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
+  const userAgent = request.headers.get("user-agent")?.slice(0, 500);
+  const session = await db.$transaction(async tx => {
+    await tx.session.deleteMany({ where: { userId, expiresAt: { lte: new Date() } } });
+    const created = await tx.session.create({
+      data: { userId, activeEstablishmentId: firstAccess?.establishmentId, tokenHash: tokenHash(token), expiresAt, ipAddress, userAgent },
+    });
+    await tx.auditEvent.create({
+      data: { organizationId: audit.organizationId, establishmentId: audit.establishmentId, actorId: userId, action: "LOGIN", entityType: "Session", entityId: created.id, reason: "Login realizado", ipAddress, userAgent },
+    });
+    return created;
   });
 
   (await cookies()).set(SESSION_COOKIE, token, {
@@ -39,6 +41,7 @@ export async function createSession(userId: string, request: Request) {
     expires: expiresAt,
     priority: "high",
   });
+  return session.id;
 }
 
 export async function destroySession() {
@@ -122,6 +125,9 @@ export async function getCurrentSession() {
     }, RECIPES_MANAGE),
     canSellPos: hasPermission({ organizationId: membership.organization.id, allowedEstablishmentIds: new Set(establishments.map(item => item.id)), rolePermissions, overrides }, POS_SELL),
     canOperateFloor: hasPermission({ organizationId: membership.organization.id, allowedEstablishmentIds: new Set(establishments.map(item => item.id)), rolePermissions, overrides }, FLOOR_OPERATE),
+    canManageFloor: hasPermission(permissionContext, FLOOR_MANAGE),
+    canOperateDelivery: hasPermission(permissionContext, DELIVERY_OPERATE),
+    canDeliverOrders: hasPermission(permissionContext, DELIVERY_DELIVER),
     canCancelSentItems: hasPermission(permissionContext, TABS_CANCEL_ITEM),
     canCancelSales: hasPermission(permissionContext, POS_CANCEL_SALE),
     canApplyDiscount: hasPermission(permissionContext, DISCOUNT_APPLY),

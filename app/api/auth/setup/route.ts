@@ -39,9 +39,9 @@ export async function POST(request: Request) {
       });
       await tx.membershipRole.create({ data: { membershipId: membership.id, roleId: ownerRole.id } });
       await tx.auditEvent.create({ data: { organizationId: organization.id, establishmentId: establishment.id, actorId: user.id, action: "CREATE", entityType: "Organization", entityId: organization.id, reason: "Configuração inicial do sistema" } });
-      return user;
+      return { userId: user.id, organizationId: organization.id, establishmentId: establishment.id };
     });
-    await createSession(result.id, request);
+    await createSession(result.userId, request, { organizationId: result.organizationId, establishmentId: result.establishmentId });
     return Response.json({ ok: true }, { status: 201 });
   } catch (error) {
     if (error instanceof Error && error.message === "SETUP_ALREADY_DONE") return Response.json({ error: "A configuração inicial já foi concluída." }, { status: 409 });
