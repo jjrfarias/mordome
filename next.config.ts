@@ -15,6 +15,7 @@ const contentSecurityPolicy = [
 ].join("; ");
 
 const nextConfig: NextConfig = {
+  poweredByHeader: false,
   ...(isDev ? { allowedDevOrigins: ["192.168.1.5"] } : {}),
   async headers() {
     return [
