@@ -59,6 +59,14 @@ export function addLocalStockEntry(establishmentId: string, establishmentItemId:
   return listLocalInventory(establishmentId).find(row => row.id === item.id)!;
 }
 
+export function addLocalStockEntryByEstablishmentItemId(establishmentId: string, establishmentItemId: string, baseQuantity: number) {
+  const item = items.find(row => row.configurations.get(establishmentId)?.id === establishmentItemId);
+  const configuration = item?.configurations.get(establishmentId);
+  if (!item || !configuration) return null;
+  configuration.movements.push(baseQuantity);
+  return { id: `local-stock-movement-${randomUUID()}` };
+}
+
 export function transferLocalStock(input: { sourceEstablishmentId: string; destinationEstablishmentId: string; establishmentItemId: string; quantity: number; factorToBase: number; idempotencyKey: string }) {
   if (input.sourceEstablishmentId === input.destinationEstablishmentId) return "SAME_ESTABLISHMENT" as const;
   if (completedTransfers.has(input.idempotencyKey)) return "DUPLICATE" as const;

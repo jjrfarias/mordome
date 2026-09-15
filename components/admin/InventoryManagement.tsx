@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDownToLine, ArrowRightLeft, Boxes, ClipboardCheck, MapPin, Plus } from "lucide-react";
+import { ArrowDownToLine, ArrowRightLeft, Boxes, ClipboardCheck, FileText, MapPin, Plus } from "lucide-react";
+import { GoodsReceiptNotes } from "./GoodsReceiptNotes";
 
 type BaseUnit = "GRAM" | "MILLILITER" | "UNIT";
 type TrackingMode = "AUTOMATIC" | "MANUAL" | "NONE";
@@ -19,7 +20,10 @@ type InventoryItem = {
 
 const unitLabels: Record<BaseUnit, string> = { GRAM: "g", MILLILITER: "ml", UNIT: "un" };
 
+type InventorySection = "items" | "goods-receipts";
+
 export function InventoryManagement({ establishmentId, establishmentName }: { establishmentId: string; establishmentName: string }) {
+  const [section, setSection] = useState<InventorySection>("items");
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [establishments, setEstablishments] = useState<EstablishmentOption[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,18 +75,25 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
         <div><span className="section-kicker">Controle por unidade</span><h2>Estoque</h2><span className="active-unit-label"><MapPin />{establishmentName}</span></div>
         <div className="settings-summary"><span><i /> Itens ativos</span><strong>{items.filter(item => item.configured).length}</strong></div>
       </div>
-      <form className="inventory-create-form" onSubmit={create}>
+      <nav className="settings-tabs" aria-label="Seções do estoque">
+        <button className={section === "items" ? "active" : ""} onClick={() => setSection("items")}>Itens de estoque</button>
+        <button className={section === "goods-receipts" ? "active" : ""} onClick={() => setSection("goods-receipts")}><FileText size={14} />Notas de entrada</button>
+      </nav>
+      {section === "items" && <form className="inventory-create-form" onSubmit={create}>
         <label className="field"><span>Item</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Ex.: Milho" /></label>
         <label className="field"><span>Unidade-base</span><select value={baseUnit} onChange={event => setBaseUnit(event.target.value as BaseUnit)}><option value="GRAM">Grama (g)</option><option value="MILLILITER">Mililitro (ml)</option><option value="UNIT">Unidade (un)</option></select></label>
         <label className="field"><span>Controle</span><select value={trackingMode} onChange={event => setTrackingMode(event.target.value as TrackingMode)}><option value="AUTOMATIC">Automático por venda</option><option value="MANUAL">Somente baixa manual</option><option value="NONE">Sem controle</option></select></label>
         <label className="field"><span>Estoque mínimo</span><input inputMode="decimal" value={minimumStock} onChange={event => setMinimumStock(event.target.value)} /></label>
         <button className="primary" disabled={saving || name.trim().length < 2}><Plus />Cadastrar item</button>
-      </form>
+      </form>}
     </section>
-    {error && <div className="auth-error" role="alert">{error}</div>}
-    {loading && <div className="empty"><span>Carregando estoque…</span></div>}
-    {!loading && items.length === 0 && <div className="big-empty"><Boxes /><h2>Estoque vazio nesta unidade</h2><p>Cadastre os insumos usados por {establishmentName}.</p></div>}
-    {!loading && items.length > 0 && <section className="inventory-list">{items.map(item => <InventoryRow key={item.id} item={item} establishments={establishments} onChanged={load} />)}</section>}
+    {section === "items" && <>
+      {error && <div className="auth-error" role="alert">{error}</div>}
+      {loading && <div className="empty"><span>Carregando estoque…</span></div>}
+      {!loading && items.length === 0 && <div className="big-empty"><Boxes /><h2>Estoque vazio nesta unidade</h2><p>Cadastre os insumos usados por {establishmentName}.</p></div>}
+      {!loading && items.length > 0 && <section className="inventory-list">{items.map(item => <InventoryRow key={item.id} item={item} establishments={establishments} onChanged={load} />)}</section>}
+    </>}
+    {section === "goods-receipts" && <GoodsReceiptNotes items={items} />}
   </div>;
 }
 
