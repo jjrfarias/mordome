@@ -69,6 +69,7 @@
 28. Lançamento financeiro marcado como pago recebe `paidAt`; revertido para pendente, `paidAt` volta a nulo.
 29. O fluxo de caixa é sempre calculado em regime de caixa (data de realização: `paidAt` do lançamento ou `completedAt` da venda), nunca em regime de competência (`dueDate`); é uma leitura agregada sem persistência própria, recalculada a cada consulta por período e estabelecimento.
 30. Fornecedor é escopado por organização (não por estabelecimento): uma rede compra do mesmo fornecedor em várias lojas, e o cadastro é compartilhado entre as unidades da mesma organização, como já ocorre com `FinancialCategory`. Um lançamento financeiro pode opcionalmente referenciar um fornecedor (`FinancialEntry.supplierId`); a exclusão do fornecedor não é permitida, apenas inativação, e a relação usa `onDelete: SetNull` para nunca bloquear ou apagar lançamentos já vinculados.
+31. Não existem tabelas separadas para "entregador" e "garçom": ambos são `User` comuns, identificados por papel observacional no período — entregador é quem aparece em `DeliveryOrder.courierId` com `status = DELIVERED`; garçom é quem aparece em `Sale.operatorId` com `channel = FLOOR` e status concluído/parcialmente reembolsado. `UserCommissionRule` guarda no máximo uma regra por usuário/papel/estabelecimento (`@@unique([establishmentId, userId, role])`), com valor fixo por entrega OU percentual sobre vendas, nunca os dois. Um usuário sem regra ainda aparece no acerto do período, com valor calculado zero, para não esconder que ele teve movimento. `SettlementRecord` é imutável após criado (sem edição/estorno) e bloqueia apenas duplicidade exata de usuário/papel/`from`/`to` — períodos parcialmente sobrepostos não são detectados (ADR 0018).
 
 ## Estados
 
@@ -80,7 +81,7 @@
 
 ## Eventos relevantes
 
-`TabOpened`, `ItemAdded`, `ItemCancelled`, `OrderSent`, `OrderStatusChanged`, `DiscountApplied`, `PaymentRegistered`, `SaleClosed`, `CashOpened`, `CashWithdrawalRecorded`, `CashClosed`, `PermissionChanged`, `StockAdjusted`, `StockTransferred`, `FinancialEntryCreated` e `FinancialEntryStatusChanged`.
+`TabOpened`, `ItemAdded`, `ItemCancelled`, `OrderSent`, `OrderStatusChanged`, `DiscountApplied`, `PaymentRegistered`, `SaleClosed`, `CashOpened`, `CashWithdrawalRecorded`, `CashClosed`, `PermissionChanged`, `StockAdjusted`, `StockTransferred`, `FinancialEntryCreated`, `FinancialEntryStatusChanged` e `SettlementRecordCreated`.
 
 ## Questões ainda abertas
 

@@ -5,10 +5,10 @@ import { listLocalCatalog } from "./local-catalog.ts";
 import { listLocalRecipes } from "./local-recipes.ts";
 import { registerLocalCashRefund, reverseLocalCashSale, type LocalPaymentMethod } from "./local-cash.ts";
 
-type LocalSale = { id: string; idempotencyKey: string; establishmentId: string; channel: "POS" | "FLOOR" | "DELIVERY"; status: "COMPLETED" | "CANCELLED" | "PARTIALLY_REFUNDED" | "REFUNDED"; consumptions: { inventoryItemId: string; quantity: number }[]; settlement?: { cashSessionId: string; payments: { method: LocalPaymentMethod; amount: number }[]; total: number; refunded: number } };
+type LocalSale = { id: string; idempotencyKey: string; establishmentId: string; channel: "POS" | "FLOOR" | "DELIVERY"; status: "COMPLETED" | "CANCELLED" | "PARTIALLY_REFUNDED" | "REFUNDED"; operatorId: string | null; completedAt: string; consumptions: { inventoryItemId: string; quantity: number }[]; settlement?: { cashSessionId: string; payments: { method: LocalPaymentMethod; amount: number }[]; total: number; refunded: number } };
 const sales: LocalSale[] = [];
 
-export function completeLocalSale(input: { establishmentId: string; idempotencyKey: string; channel: "POS" | "FLOOR" | "DELIVERY"; items: { productId: string; quantity: number }[] }) {
+export function completeLocalSale(input: { establishmentId: string; idempotencyKey: string; channel: "POS" | "FLOOR" | "DELIVERY"; items: { productId: string; quantity: number }[]; operatorId?: string }) {
   const duplicate = sales.find(sale => sale.idempotencyKey === input.idempotencyKey);
   if (duplicate) return { status: "DUPLICATE" as const, sale: duplicate };
   const catalog = listLocalCatalog(input.establishmentId);
@@ -24,9 +24,18 @@ export function completeLocalSale(input: { establishmentId: string; idempotencyK
   const consumptionList = [...consumptions].map(([inventoryItemId, quantity]) => ({ inventoryItemId, quantity }));
   const applied = applyLocalRecipeConsumption(input.establishmentId, consumptionList);
   if (applied !== "APPLIED") return { status: applied };
-  const sale: LocalSale = { id: `local-sale-${randomUUID()}`, idempotencyKey: input.idempotencyKey, establishmentId: input.establishmentId, channel: input.channel, status: "COMPLETED", consumptions: consumptionList };
+  const sale: LocalSale = { id: `local-sale-${randomUUID()}`, idempotencyKey: input.idempotencyKey, establishmentId: input.establishmentId, channel: input.channel, status: "COMPLETED", operatorId: input.operatorId ?? null, completedAt: new Date().toISOString(), consumptions: consumptionList };
   sales.push(sale);
   return { status: "COMPLETED" as const, sale };
+}
+
+// Vendas de salão (FLOOR) concluídas, usadas pelo acerto de garçons (lib/local-settlements.ts):
+// operatorId é quem processou o pagamento da venda (mesmo critério do modo servidor, ver ADR 0018).
+export function listLocalFloorSalesForSettlement(establishmentId: string, from: string, to: string) {
+  return sales
+    .filter(sale => sale.establishmentId === establishmentId && sale.channel === "FLOOR" && sale.operatorId)
+    .filter(sale => (sale.status === "COMPLETED" || sale.status === "PARTIALLY_REFUNDED") && sale.completedAt >= from && sale.completedAt <= to)
+    .map(sale => ({ operatorId: sale.operatorId as string, total: sale.settlement?.total ?? 0, completedAt: sale.completedAt }));
 }
 
 export function findLocalSale(input: { establishmentId: string; saleId: string }) {

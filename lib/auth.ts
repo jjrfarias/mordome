@@ -2,7 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { cookies } from "next/headers";
 import { db } from "@/lib/db";
 import { hasPermission } from "@/lib/authorization";
-import { AUDIT_VIEW, CASH_CLOSE, CASH_HISTORY_VIEW, CASH_MOVE, CASH_OPEN, CATALOG_MANAGE, DELIVERY_DELIVER, DELIVERY_OPERATE, DISCOUNT_APPLY, DISCOUNT_OVERRIDE, ESTABLISHMENTS_MANAGE, FINANCE_CASHFLOW_VIEW, FINANCE_ENTRIES_MANAGE, FINANCE_MANAGE, FINANCE_SUMMARY_VIEW, FLOOR_MANAGE, FLOOR_OPERATE, INTEGRATIONS_MANAGE, POS_CANCEL_SALE, POS_SELL, PRINT_REPRINT, RECIPES_MANAGE, ROLES_MANAGE, SALE_REFUND, STOCK_ADJUST, STOCK_MANAGE, TABS_CANCEL_ITEM, USERS_DISABLE, USERS_INVITE, USERS_PASSWORD_RESET, USERS_VIEW } from "@/lib/permissions";
+import { AUDIT_VIEW, CASH_CLOSE, CASH_HISTORY_VIEW, CASH_MOVE, CASH_OPEN, CATALOG_MANAGE, DELIVERY_DELIVER, DELIVERY_OPERATE, DISCOUNT_APPLY, DISCOUNT_OVERRIDE, ESTABLISHMENTS_MANAGE, FINANCE_CASHFLOW_VIEW, FINANCE_ENTRIES_MANAGE, FINANCE_MANAGE, FINANCE_SUMMARY_VIEW, FLOOR_MANAGE, FLOOR_OPERATE, INTEGRATIONS_MANAGE, POS_CANCEL_SALE, POS_SELL, PRINT_REPRINT, RECIPES_MANAGE, ROLES_MANAGE, SALE_REFUND, SETTLEMENTS_MANAGE, STOCK_ADJUST, STOCK_MANAGE, TABS_CANCEL_ITEM, USERS_DISABLE, USERS_INVITE, USERS_PASSWORD_RESET, USERS_VIEW } from "@/lib/permissions";
 import { getActiveIntegrationDriver } from "@/lib/integrations/catalog";
 
 export const SESSION_COOKIE = "mordome_session";
@@ -142,6 +142,7 @@ export async function getCurrentSession() {
     canManageFinance: hasPermission(permissionContext, FINANCE_MANAGE),
     canManageFinanceEntries: hasPermission(permissionContext, FINANCE_ENTRIES_MANAGE),
     canViewFinanceCashflow: hasPermission(permissionContext, FINANCE_CASHFLOW_VIEW),
+    canManageSettlements: hasPermission(permissionContext, SETTLEMENTS_MANAGE),
     canViewUsers: hasPermission(permissionContext, USERS_VIEW),
     canCreateUsers: hasPermission(permissionContext, USERS_INVITE),
     canDisableUsers: hasPermission(permissionContext, USERS_DISABLE),

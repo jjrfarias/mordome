@@ -173,6 +173,9 @@ model User {
   createdDeliveries DeliveryOrder[]       @relation("DeliveryCreatedBy")
   liveLocation      CourierLocation?      @relation("CourierLiveLocation")
   financialEntriesCreated FinancialEntry[] @relation("FinancialEntryCreatedBy")
+  commissionRules         UserCommissionRule[]
+  settlementRecords       SettlementRecord[]   @relation("SettlementUser")
+  settlementsCreated      SettlementRecord[]   @relation("SettlementCreatedBy")
 }
 
 model Session {
@@ -245,6 +248,8 @@ model Establishment {
   bankAccounts     BankAccount[]
   paymentMethods   PaymentMethodConfig[]
   financialEntries FinancialEntry[]
+  commissionRules  UserCommissionRule[]
+  settlementRecords SettlementRecord[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
@@ -974,4 +979,44 @@ model Supplier {
 
   @@unique([organizationId, name])
   @@index([organizationId, active])
+}
+
+enum SettlementRole {
+  COURIER
+  WAITER
+}
+
+model UserCommissionRule {
+  id                String         @id @default(cuid())
+  establishmentId   String
+  userId            String
+  role              SettlementRole
+  amountPerDelivery Decimal?       @db.Decimal(12, 2)
+  percentOfSales    Decimal?       @db.Decimal(5, 2)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+  establishment     Establishment  @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  user              User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([establishmentId, userId, role])
+  @@index([establishmentId, role])
+}
+
+model SettlementRecord {
+  id              String         @id @default(cuid())
+  establishmentId String
+  userId          String
+  role            SettlementRole
+  from            DateTime
+  to              DateTime
+  amount          Decimal        @db.Decimal(12, 2)
+  paidAt          DateTime       @default(now())
+  createdById     String
+  establishment   Establishment  @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  user            User           @relation("SettlementUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy       User           @relation("SettlementCreatedBy", fields: [createdById], references: [id])
+
+  @@unique([establishmentId, userId, role, from, to])
+  @@index([establishmentId, role, paidAt])
+  @@index([userId])
 }

@@ -21,6 +21,7 @@ export const localPermissionCatalog = [
   ["finance.manage", "finance", "Gerenciar categorias, contas bancárias e formas de pagamento financeiras"],
   ["finance.entries.manage", "finance", "Lançar, editar e baixar contas a pagar e a receber"],
   ["finance.cashflow.view", "finance", "Consultar o fluxo de caixa consolidado"],
+  ["settlements.manage", "finance", "Configurar comissões e registrar acertos pagos de entregadores e garçons"],
   ["audit.view", "audit", "Consultar histórico do sistema"], ["users.view", "users", "Consultar usuários"],
   ["users.invite", "users", "Criar usuários"], ["users.disable", "users", "Suspender e reativar usuários"],
   ["users.password.reset", "users", "Redefinir senhas"], ["roles.manage", "roles", "Gerenciar perfis de permissão"],

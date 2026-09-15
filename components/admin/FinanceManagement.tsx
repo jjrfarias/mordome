@@ -6,14 +6,17 @@ type PaymentMethodConfig = { id: string; name: string; kind: string; feeRate: nu
 type Supplier = { id: string; name: string; tradeName: string | null; document: string | null; phone: string | null; email: string | null; notes: string | null; active: boolean };
 type Entry = { id: string; description: string; amount: number | string; dueDate: string; paidAt: string | null; status: "PENDING" | "PAID"; categoryId: string; bankAccountId: string | null; paymentMethodId: string | null; supplierId: string | null; notes: string | null };
 
-type FinanceSection = "categories" | "accounts" | "methods" | "suppliers" | "entries" | "cashflow";
+type FinanceSection = "categories" | "accounts" | "methods" | "suppliers" | "entries" | "cashflow" | "settlements";
+type CommissionRule = { id: string; userId: string; role: "COURIER" | "WAITER"; amountPerDelivery: number | string | null; percentOfSales: number | string | null };
+type SettlementCandidate = { userId: string; userName?: string; role: "COURIER" | "WAITER"; deliveryCount: number; salesTotal: number; hasRule: boolean; amount: number };
+type SettlementHistoryItem = { id: string; userId: string; role: "COURIER" | "WAITER"; from: string; to: string; amount: number | string; paidAt: string; user?: { name: string } };
 
 function money(value: number | string) {
   return Number(value).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
 
-export function FinanceManagement({ activeEstablishmentId, canManageFinance, canManageFinanceEntries, canViewFinanceCashflow }: { activeEstablishmentId: string; canManageFinance: boolean; canManageFinanceEntries: boolean; canViewFinanceCashflow: boolean }) {
-  const initialSection: FinanceSection = canManageFinance ? "categories" : canManageFinanceEntries ? "entries" : "cashflow";
+export function FinanceManagement({ activeEstablishmentId, canManageFinance, canManageFinanceEntries, canViewFinanceCashflow, canManageSettlements }: { activeEstablishmentId: string; canManageFinance: boolean; canManageFinanceEntries: boolean; canViewFinanceCashflow: boolean; canManageSettlements: boolean }) {
+  const initialSection: FinanceSection = canManageFinance ? "categories" : canManageFinanceEntries ? "entries" : canViewFinanceCashflow ? "cashflow" : "settlements";
   const [section, setSection] = useState<FinanceSection>(initialSection);
 
   return <section className="page-content">
@@ -29,6 +32,7 @@ export function FinanceManagement({ activeEstablishmentId, canManageFinance, can
         {canManageFinance && <button className={section === "suppliers" ? "active" : ""} onClick={() => setSection("suppliers")}>Fornecedores</button>}
         {canManageFinanceEntries && <button className={section === "entries" ? "active" : ""} onClick={() => setSection("entries")}>Lançamentos</button>}
         {canViewFinanceCashflow && <button className={section === "cashflow" ? "active" : ""} onClick={() => setSection("cashflow")}>Fluxo de caixa</button>}
+        {canManageSettlements && <button className={section === "settlements" ? "active" : ""} onClick={() => setSection("settlements")}>Acertos</button>}
       </nav>
     </section>
     {section === "categories" && canManageFinance && <CategoriesTab />}
@@ -37,6 +41,7 @@ export function FinanceManagement({ activeEstablishmentId, canManageFinance, can
     {section === "suppliers" && canManageFinance && <SuppliersTab />}
     {section === "entries" && canManageFinanceEntries && <EntriesTab activeEstablishmentId={activeEstablishmentId} />}
     {section === "cashflow" && canViewFinanceCashflow && <CashFlowTab activeEstablishmentId={activeEstablishmentId} />}
+    {section === "settlements" && canManageSettlements && <SettlementsTab activeEstablishmentId={activeEstablishmentId} />}
   </section>;
 }
 
@@ -433,6 +438,168 @@ function EntriesTab({ activeEstablishmentId }: { activeEstablishmentId: string }
             </span> : <button type="button" className="secondary" onClick={() => setConfirmPayId(entry.id)}>{entry.status === "PAID" ? "Marcar como pendente" : "Marcar como pago"}</button>}
           </div>
           <p className="section-note">{categoryName(entry.categoryId)} · {money(entry.amount)} · Vencimento {new Date(entry.dueDate).toLocaleDateString("pt-BR")}{entry.paidAt ? ` · Pago em ${new Date(entry.paidAt).toLocaleDateString("pt-BR")}` : ""}{supplierName(entry.supplierId) ? ` · Fornecedor: ${supplierName(entry.supplierId)}` : ""}</p>
+        </article>)}
+      </div>
+    </section>}
+  </>;
+}
+
+const roleLabel: Record<"COURIER" | "WAITER", string> = { COURIER: "Entregador", WAITER: "Garçom" };
+
+function SettlementsTab({ activeEstablishmentId }: { activeEstablishmentId: string }) {
+  const [roleFilter, setRoleFilter] = useState<"COURIER" | "WAITER">("COURIER");
+  const today = new Date();
+  const [from, setFrom] = useState(toDateInput(startOfMonth(today)));
+  const [to, setTo] = useState(toDateInput(today));
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [candidates, setCandidates] = useState<SettlementCandidate[]>([]);
+  const [history, setHistory] = useState<SettlementHistoryItem[]>([]);
+  const [confirmUserId, setConfirmUserId] = useState("");
+  const [paying, setPaying] = useState(false);
+
+  const [rules, setRules] = useState<CommissionRule[]>([]);
+  const [users, setUsers] = useState<{ id: string; name: string }[]>([]);
+  const [ruleForm, setRuleForm] = useState({ userId: "", role: "COURIER" as "COURIER" | "WAITER", kind: "amountPerDelivery" as "amountPerDelivery" | "percentOfSales", value: "" });
+  const [ruleError, setRuleError] = useState("");
+  const [savingRule, setSavingRule] = useState(false);
+
+  const loadRules = async () => {
+    try {
+      const response = await fetch("/api/admin/finance/commission-rules", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar as regras de comissão.");
+      setRules(data.rules ?? []); setUsers(data.users ?? []);
+    } catch (cause) { setRuleError(cause instanceof Error ? cause.message : "Não foi possível carregar as regras de comissão."); }
+  };
+
+  const load = async () => {
+    setLoading(true); setError("");
+    try {
+      const response = await fetch(`/api/admin/finance/settlements?role=${roleFilter}&from=${from}&to=${to}`, { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar os acertos.");
+      setCandidates(data.candidates ?? []); setHistory(data.history ?? []);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar os acertos."); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { queueMicrotask(() => { void loadRules(); }); }, [activeEstablishmentId]);
+  useEffect(() => { queueMicrotask(() => { void load(); }); }, [activeEstablishmentId, roleFilter, from, to]);
+
+  const applyShortcut = (shortcut: "today" | "week" | "month") => {
+    const now = new Date();
+    if (shortcut === "today") { setFrom(toDateInput(now)); setTo(toDateInput(now)); }
+    if (shortcut === "week") { setFrom(toDateInput(startOfWeek(now))); setTo(toDateInput(now)); }
+    if (shortcut === "month") { setFrom(toDateInput(startOfMonth(now))); setTo(toDateInput(now)); }
+  };
+
+  const createRule = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!ruleForm.userId || !ruleForm.value || savingRule) return;
+    setSavingRule(true); setRuleError("");
+    try {
+      const body = ruleForm.kind === "amountPerDelivery" ? { userId: ruleForm.userId, role: ruleForm.role, amountPerDelivery: Number(ruleForm.value) } : { userId: ruleForm.userId, role: ruleForm.role, percentOfSales: Number(ruleForm.value) };
+      const response = await fetch("/api/admin/finance/commission-rules", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível criar a regra de comissão.");
+      setRuleForm({ userId: "", role: "COURIER", kind: "amountPerDelivery", value: "" });
+      await loadRules(); await load();
+    } catch (cause) { setRuleError(cause instanceof Error ? cause.message : "Não foi possível criar a regra de comissão."); } finally { setSavingRule(false); }
+  };
+
+  const markPaid = async (candidate: SettlementCandidate) => {
+    setPaying(true); setError("");
+    try {
+      const response = await fetch("/api/admin/finance/settlements", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ userId: candidate.userId, role: candidate.role, from, to }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível registrar o acerto.");
+      setConfirmUserId(""); await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível registrar o acerto."); } finally { setPaying(false); }
+  };
+
+  const userName = (userId: string) => users.find(user => user.id === userId)?.name ?? userId;
+
+  return <>
+    <section className="panel settings-shell">
+      <div className="settings-shell-header"><div><span className="section-kicker">Comissões</span><h2>Configurar comissão</h2></div></div>
+      <p className="section-note">Fixo por entrega (entregadores) ou percentual sobre vendas de salão (garçons). Escolha apenas um dos dois. Sem regra configurada, o usuário aparece no acerto com valor zero.</p>
+      <form onSubmit={createRule} className="settings-form">
+        <label className="field"><span>Usuário</span>
+          <select value={ruleForm.userId} onChange={event => setRuleForm({ ...ruleForm, userId: event.target.value })}>
+            <option value="">Selecione…</option>
+            {users.map(user => <option key={user.id} value={user.id}>{user.name}</option>)}
+          </select>
+        </label>
+        <label className="field"><span>Papel</span>
+          <select value={ruleForm.role} onChange={event => setRuleForm({ ...ruleForm, role: event.target.value as "COURIER" | "WAITER" })}>
+            <option value="COURIER">Entregador</option>
+            <option value="WAITER">Garçom</option>
+          </select>
+        </label>
+        <label className="field"><span>Tipo de regra</span>
+          <select value={ruleForm.kind} onChange={event => setRuleForm({ ...ruleForm, kind: event.target.value as "amountPerDelivery" | "percentOfSales" })}>
+            <option value="amountPerDelivery">Fixo por entrega</option>
+            <option value="percentOfSales">Percentual sobre vendas</option>
+          </select>
+        </label>
+        <label className="field"><span>{ruleForm.kind === "amountPerDelivery" ? "Valor por entrega (R$)" : "Percentual (%)"}</span><input type="number" step="0.01" value={ruleForm.value} onChange={event => setRuleForm({ ...ruleForm, value: event.target.value })} /></label>
+        <button className="primary" type="submit" disabled={!ruleForm.userId || !ruleForm.value || savingRule}>{savingRule ? "Salvando…" : "Salvar regra"}</button>
+      </form>
+    </section>
+    {ruleError && <div className="auth-error">{ruleError}</div>}
+    {rules.length > 0 && <section className="panel settings-shell">
+      <div className="role-list">
+        {rules.map(rule => <article key={rule.id} className="role-card">
+          <div className="role-card-head"><div><b>{userName(rule.userId)}</b><span className="status-pill status-inactive">{roleLabel[rule.role]}</span></div></div>
+          <p className="section-note">{rule.amountPerDelivery ? `${money(rule.amountPerDelivery)} por entrega` : rule.percentOfSales ? `${Number(rule.percentOfSales).toFixed(2)}% sobre vendas` : "Sem valor definido"}</p>
+        </article>)}
+      </div>
+    </section>}
+
+    <section className="panel settings-shell">
+      <div className="settings-shell-header"><div><span className="section-kicker">Acertos</span><h2>Período</h2></div></div>
+      <nav className="settings-tabs">
+        <button className={roleFilter === "COURIER" ? "active" : ""} onClick={() => setRoleFilter("COURIER")}>Entregadores</button>
+        <button className={roleFilter === "WAITER" ? "active" : ""} onClick={() => setRoleFilter("WAITER")}>Garçons</button>
+      </nav>
+      <div className="settings-form">
+        <label className="field"><span>De</span><input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
+        <label className="field"><span>Até</span><input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
+      </div>
+      <nav className="settings-tabs">
+        <button type="button" onClick={() => applyShortcut("today")}>Hoje</button>
+        <button type="button" onClick={() => applyShortcut("week")}>Esta semana</button>
+        <button type="button" onClick={() => applyShortcut("month")}>Este mês</button>
+      </nav>
+    </section>
+
+    {loading ? <div className="empty"><span>Carregando acertos…</span></div> : null}
+    {error && <div className="auth-error">{error}</div>}
+    {!loading && !error && candidates.length === 0 && <div className="empty small"><span>Nenhum {roleFilter === "COURIER" ? "entregador" : "garçom"} com movimento neste período.</span></div>}
+    {!loading && !error && candidates.length > 0 && <section className="panel settings-shell">
+      <div className="role-list">
+        {candidates.map(candidate => <article key={candidate.userId} className="role-card">
+          <div className="role-card-head">
+            <div><b>{candidate.userName ?? userName(candidate.userId)}</b>{!candidate.hasRule && <span className="status-pill status-inactive">Sem regra de comissão configurada</span>}</div>
+            <strong>{money(candidate.amount)}</strong>
+          </div>
+          <p className="section-note">{candidate.role === "COURIER" ? `${candidate.deliveryCount} entrega(s) concluída(s)` : `${money(candidate.salesTotal)} em vendas de salão`}</p>
+          {confirmUserId === candidate.userId ? <span>
+            Confirmar pagamento de {money(candidate.amount)}? <button type="button" className="primary" disabled={paying} onClick={() => markPaid(candidate)}>Sim</button> <button type="button" className="secondary" onClick={() => setConfirmUserId("")}>Cancelar</button>
+          </span> : <button type="button" className="secondary" onClick={() => setConfirmUserId(candidate.userId)}>Marcar como acertado</button>}
+        </article>)}
+      </div>
+    </section>}
+
+    <section className="panel settings-shell">
+      <div className="settings-shell-header"><div><span className="section-kicker">Histórico</span><h2>Acertos pagos</h2></div></div>
+    </section>
+    {!loading && history.length === 0 && <div className="empty small"><span>Nenhum acerto registrado ainda.</span></div>}
+    {!loading && history.length > 0 && <section className="panel settings-shell">
+      <div className="role-list">
+        {history.map(item => <article key={item.id} className="role-card">
+          <div className="role-card-head"><div><b>{item.user?.name ?? userName(item.userId)}</b><span className="status-pill status-active">{roleLabel[item.role]}</span></div><strong>{money(item.amount)}</strong></div>
+          <p className="section-note">Período {new Date(item.from).toLocaleDateString("pt-BR")} a {new Date(item.to).toLocaleDateString("pt-BR")} · Pago em {new Date(item.paidAt).toLocaleString("pt-BR")}</p>
         </article>)}
       </div>
     </section>}

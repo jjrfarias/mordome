@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 export type LocalDeliveryStatus = "RECEIVED" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
 export type LocalDeliveryOrigin = "INTERNAL" | "ONLINE";
 type LocalDeliveryItem = { id: string; productId: string; productName: string; quantity: number; unitPrice: number };
-type LocalDeliveryOrder = { id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string; status: LocalDeliveryStatus; origin: LocalDeliveryOrigin; courierId: string | null; saleId: string | null; createdById: string | null; createdAt: string; items: LocalDeliveryItem[] };
+type LocalDeliveryOrder = { id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string; status: LocalDeliveryStatus; origin: LocalDeliveryOrigin; courierId: string | null; saleId: string | null; createdById: string | null; createdAt: string; updatedAt: string; items: LocalDeliveryItem[] };
 
 const stores = new Map<string, LocalDeliveryOrder[]>();
 const locations = new Map<string, { lat: number; lng: number; updatedAt: string }>();
@@ -23,7 +23,8 @@ export function getLocalDeliveryOrder(establishmentId: string, orderId: string) 
 }
 
 export function createLocalDeliveryOrder(establishmentId: string, input: { customerName: string; customerPhone: string; address: string; destinationLat?: number; destinationLng?: number; notes?: string; createdById?: string; origin?: LocalDeliveryOrigin; items: { productId: string; productName: string; quantity: number; unitPrice: number }[] }) {
-  const order: LocalDeliveryOrder = { id: `local-delivery-${randomUUID()}`, customerName: input.customerName, customerPhone: input.customerPhone, address: input.address, destinationLat: input.destinationLat ?? null, destinationLng: input.destinationLng ?? null, notes: input.notes ?? "", status: "RECEIVED", origin: input.origin ?? "INTERNAL", courierId: null, saleId: null, createdById: input.createdById ?? null, createdAt: new Date().toISOString(), items: input.items.map(item => ({ ...item, id: `local-delivery-item-${randomUUID()}` })) };
+  const now = new Date().toISOString();
+  const order: LocalDeliveryOrder = { id: `local-delivery-${randomUUID()}`, customerName: input.customerName, customerPhone: input.customerPhone, address: input.address, destinationLat: input.destinationLat ?? null, destinationLng: input.destinationLng ?? null, notes: input.notes ?? "", status: "RECEIVED", origin: input.origin ?? "INTERNAL", courierId: null, saleId: null, createdById: input.createdById ?? null, createdAt: now, updatedAt: now, items: input.items.map(item => ({ ...item, id: `local-delivery-item-${randomUUID()}` })) };
   ordersFor(establishmentId).push(order);
   return { ...order, items: order.items.map(item => ({ ...item })) };
 }
@@ -40,15 +41,16 @@ export function changeLocalDeliveryStatus(establishmentId: string, orderId: stri
   const order = ordersFor(establishmentId).find(candidate => candidate.id === orderId);
   if (!order) return "NOT_FOUND" as const;
   if (order.status === "CANCELLED" || order.status === "DELIVERED") return "INVALID_TRANSITION" as const;
-  if (status === "CANCELLED") { const before = order.status; order.status = "CANCELLED"; return { order, before }; }
+  if (status === "CANCELLED") { const before = order.status; order.status = "CANCELLED"; order.updatedAt = new Date().toISOString(); return { order, before }; }
   if (nextStatus[order.status] !== status) return "INVALID_TRANSITION" as const;
-  const before = order.status; order.status = status; return { order, before };
+  const before = order.status; order.status = status; order.updatedAt = new Date().toISOString(); return { order, before };
 }
 
 export function assignLocalCourier(establishmentId: string, orderId: string, courierId: string | null) {
   const order = ordersFor(establishmentId).find(candidate => candidate.id === orderId);
   if (!order) return "NOT_FOUND" as const;
   order.courierId = courierId;
+  order.updatedAt = new Date().toISOString();
   return { ...order, items: order.items.map(item => ({ ...item })) };
 }
 
@@ -57,5 +59,13 @@ export function attachLocalDeliverySale(establishmentId: string, orderId: string
   if (!order) return "NOT_FOUND" as const;
   order.saleId = saleId;
   order.status = "DELIVERED";
+  order.updatedAt = new Date().toISOString();
   return order;
+}
+
+// Entregas concluídas por entregador, usadas pelo acerto de entregadores (lib/local-settlements.ts).
+export function listLocalDeliveredOrders(establishmentId: string, from: string, to: string) {
+  return ordersFor(establishmentId)
+    .filter(order => order.status === "DELIVERED" && order.courierId && order.updatedAt >= from && order.updatedAt <= to)
+    .map(order => ({ courierId: order.courierId as string, deliveredAt: order.updatedAt }));
 }
