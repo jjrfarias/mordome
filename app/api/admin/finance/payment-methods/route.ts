@@ -79,7 +79,8 @@ export async function PATCH(request: Request) {
     const session = await getLocalSession();
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
     if (!session.canManageFinance) return Response.json({ error: "Acesso negado." }, { status: 403 });
-    const updated = updateLocalPaymentMethod(session.establishment.id, data.methodId, data);
+    const { methodId, ...changes } = data;
+    const updated = updateLocalPaymentMethod(session.establishment.id, methodId, changes);
     if (updated === "NOT_FOUND") return Response.json({ error: "Forma de pagamento não encontrada." }, { status: 404 });
     if (updated === "DUPLICATE") return Response.json({ error: "Já existe uma forma de pagamento com esse nome." }, { status: 409 });
     return Response.json({ method: updated });

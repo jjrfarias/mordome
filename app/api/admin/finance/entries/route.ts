@@ -3,12 +3,13 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
-import { listLocalFinancialCategories, listLocalBankAccounts, listLocalPaymentMethods, listLocalFinancialEntries, createLocalFinancialEntry, updateLocalFinancialEntry } from "@/lib/local-finance";
+import { listLocalFinancialCategories, listLocalBankAccounts, listLocalPaymentMethods, listLocalSuppliers, listLocalFinancialEntries, createLocalFinancialEntry, updateLocalFinancialEntry } from "@/lib/local-finance";
 
 const createSchema = z.object({
   categoryId: z.string().min(1),
   bankAccountId: z.string().min(1).optional(),
   paymentMethodId: z.string().min(1).optional(),
+  supplierId: z.string().min(1).optional(),
   description: z.string().trim().min(2).max(200),
   amount: z.number().positive(),
   dueDate: z.string().min(1),
@@ -19,6 +20,7 @@ const updateSchema = z.object({
   categoryId: z.string().min(1).optional(),
   bankAccountId: z.string().min(1).nullable().optional(),
   paymentMethodId: z.string().min(1).nullable().optional(),
+  supplierId: z.string().min(1).nullable().optional(),
   description: z.string().trim().min(2).max(200).optional(),
   amount: z.number().positive().optional(),
   dueDate: z.string().min(1).optional(),
@@ -51,12 +53,13 @@ export async function GET(request: Request) {
       categories: listLocalFinancialCategories(session.organization.id).filter(item => item.active),
       bankAccounts: listLocalBankAccounts(session.establishment.id).filter(item => item.active),
       paymentMethods: listLocalPaymentMethods(session.establishment.id).filter(item => item.active),
+      suppliers: listLocalSuppliers(session.organization.id).filter(item => item.active),
     });
   }
 
   const actor = await resolveActor();
   if (!actor) return Response.json({ error: "Acesso negado." }, { status: 403 });
-  const [entries, categories, bankAccounts, paymentMethods] = await Promise.all([
+  const [entries, categories, bankAccounts, paymentMethods, suppliers] = await Promise.all([
     db.financialEntry.findMany({
       where: {
         establishmentId: actor.establishment.id,
@@ -68,8 +71,9 @@ export async function GET(request: Request) {
     db.financialCategory.findMany({ where: { organizationId: actor.organization.id, active: true }, orderBy: { name: "asc" } }),
     db.bankAccount.findMany({ where: { establishmentId: actor.establishment.id, active: true }, orderBy: { name: "asc" } }),
     db.paymentMethodConfig.findMany({ where: { establishmentId: actor.establishment.id, active: true }, orderBy: { name: "asc" } }),
+    db.supplier.findMany({ where: { organizationId: actor.organization.id, active: true }, orderBy: { name: "asc" } }),
   ]);
-  return Response.json({ entries, categories, bankAccounts, paymentMethods });
+  return Response.json({ entries, categories, bankAccounts, paymentMethods, suppliers });
 }
 
 export async function POST(request: Request) {
@@ -83,6 +87,7 @@ export async function POST(request: Request) {
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
     if (!session.canManageFinanceEntries) return Response.json({ error: "Acesso negado." }, { status: 403 });
     if (!listLocalFinancialCategories(session.organization.id).some(category => category.id === data.categoryId)) return Response.json({ error: "Categoria inválida." }, { status: 400 });
+    if (data.supplierId && !listLocalSuppliers(session.organization.id).some(supplier => supplier.id === data.supplierId)) return Response.json({ error: "Fornecedor inválido." }, { status: 400 });
     const entry = createLocalFinancialEntry(session.organization.id, session.establishment.id, session.user.id, data);
     return Response.json({ entry }, { status: 201 });
   }
@@ -99,11 +104,15 @@ export async function POST(request: Request) {
     const method = await db.paymentMethodConfig.findFirst({ where: { id: data.paymentMethodId, establishmentId: actor.establishment.id } });
     if (!method) return Response.json({ error: "Forma de pagamento inválida." }, { status: 400 });
   }
+  if (data.supplierId) {
+    const supplier = await db.supplier.findFirst({ where: { id: data.supplierId, organizationId: actor.organization.id } });
+    if (!supplier) return Response.json({ error: "Fornecedor inválido." }, { status: 400 });
+  }
   try {
     const entry = await db.financialEntry.create({
       data: {
         organizationId: actor.organization.id, establishmentId: actor.establishment.id, categoryId: data.categoryId,
-        bankAccountId: data.bankAccountId, paymentMethodId: data.paymentMethodId, description: data.description,
+        bankAccountId: data.bankAccountId, paymentMethodId: data.paymentMethodId, supplierId: data.supplierId, description: data.description,
         amount: data.amount, dueDate: new Date(data.dueDate), notes: data.notes, createdById: actor.user.id,
       },
     });
@@ -125,6 +134,7 @@ export async function PATCH(request: Request) {
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
     if (!session.canManageFinanceEntries) return Response.json({ error: "Acesso negado." }, { status: 403 });
     const { entryId, ...changes } = data;
+    if (changes.supplierId && !listLocalSuppliers(session.organization.id).some(supplier => supplier.id === changes.supplierId)) return Response.json({ error: "Fornecedor inválido." }, { status: 400 });
     const updated = updateLocalFinancialEntry(session.establishment.id, entryId, changes);
     if (updated === "NOT_FOUND") return Response.json({ error: "Lançamento não encontrado." }, { status: 404 });
     return Response.json({ entry: updated });
@@ -139,12 +149,16 @@ export async function PATCH(request: Request) {
     const category = await db.financialCategory.findFirst({ where: { id: data.categoryId, organizationId: actor.organization.id } });
     if (!category) return Response.json({ error: "Categoria inválida." }, { status: 400 });
   }
+  if (data.supplierId) {
+    const supplier = await db.supplier.findFirst({ where: { id: data.supplierId, organizationId: actor.organization.id } });
+    if (!supplier) return Response.json({ error: "Fornecedor inválido." }, { status: 400 });
+  }
 
   try {
     const entry = await db.financialEntry.update({
       where: { id: current.id },
       data: {
-        categoryId: data.categoryId, bankAccountId: data.bankAccountId, paymentMethodId: data.paymentMethodId,
+        categoryId: data.categoryId, bankAccountId: data.bankAccountId, paymentMethodId: data.paymentMethodId, supplierId: data.supplierId,
         description: data.description, amount: data.amount, dueDate: data.dueDate ? new Date(data.dueDate) : undefined, notes: data.notes,
         status: data.status, paidAt: data.status === "PAID" ? (current.paidAt ?? new Date()) : data.status === "PENDING" ? null : undefined,
       },

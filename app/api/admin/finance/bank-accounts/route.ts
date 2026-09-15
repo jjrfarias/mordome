@@ -81,7 +81,8 @@ export async function PATCH(request: Request) {
     const session = await getLocalSession();
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
     if (!session.canManageFinance) return Response.json({ error: "Acesso negado." }, { status: 403 });
-    const updated = updateLocalBankAccount(session.establishment.id, data.accountId, data);
+    const { accountId, ...changes } = data;
+    const updated = updateLocalBankAccount(session.establishment.id, accountId, changes);
     if (updated === "NOT_FOUND") return Response.json({ error: "Conta não encontrada." }, { status: 404 });
     if (updated === "DUPLICATE") return Response.json({ error: "Já existe uma conta com esse nome." }, { status: 409 });
     return Response.json({ account: updated });

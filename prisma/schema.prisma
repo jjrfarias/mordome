@@ -212,6 +212,7 @@ model Organization {
   recipes        Recipe[]
   financialCategories FinancialCategory[]
   financialEntries    FinancialEntry[]
+  suppliers           Supplier[]
 }
 
 model Establishment {
@@ -932,6 +933,7 @@ model FinancialEntry {
   categoryId      String
   bankAccountId   String?
   paymentMethodId String?
+  supplierId      String?
   description     String
   amount          Decimal              @db.Decimal(12, 2)
   dueDate         DateTime
@@ -946,9 +948,30 @@ model FinancialEntry {
   category        FinancialCategory    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
   bankAccount     BankAccount?         @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
   paymentMethod   PaymentMethodConfig? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  supplier        Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   createdBy       User                 @relation("FinancialEntryCreatedBy", fields: [createdById], references: [id])
 
   @@index([establishmentId, status, dueDate])
   @@index([organizationId, status, dueDate])
   @@index([categoryId])
+  @@index([supplierId])
+}
+
+model Supplier {
+  id             String           @id @default(cuid())
+  organizationId String
+  name           String
+  tradeName      String?
+  document       String?
+  phone          String?
+  email          String?
+  notes          String?
+  active         Boolean          @default(true)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entries        FinancialEntry[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId, active])
 }

@@ -68,6 +68,7 @@
 27. Categoria financeira não pode ser excluída, apenas inativada, quando já existir lançamento vinculado a ela; o tipo receita/despesa do lançamento é sempre o da categoria escolhida, não um campo independente.
 28. Lançamento financeiro marcado como pago recebe `paidAt`; revertido para pendente, `paidAt` volta a nulo.
 29. O fluxo de caixa é sempre calculado em regime de caixa (data de realização: `paidAt` do lançamento ou `completedAt` da venda), nunca em regime de competência (`dueDate`); é uma leitura agregada sem persistência própria, recalculada a cada consulta por período e estabelecimento.
+30. Fornecedor é escopado por organização (não por estabelecimento): uma rede compra do mesmo fornecedor em várias lojas, e o cadastro é compartilhado entre as unidades da mesma organização, como já ocorre com `FinancialCategory`. Um lançamento financeiro pode opcionalmente referenciar um fornecedor (`FinancialEntry.supplierId`); a exclusão do fornecedor não é permitida, apenas inativação, e a relação usa `onDelete: SetNull` para nunca bloquear ou apagar lançamentos já vinculados.
 
 ## Estados
 

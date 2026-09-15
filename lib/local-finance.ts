@@ -9,14 +9,16 @@ type FinancialEntryStatus = "PENDING" | "PAID";
 type LocalFinancialCategory = { id: string; organizationId: string; name: string; kind: FinancialCategoryKind; active: boolean; createdAt: string };
 type LocalBankAccount = { id: string; establishmentId: string; name: string; bank: string; agency: string | null; accountNumber: string | null; initialBalance: number; active: boolean; createdAt: string };
 type LocalPaymentMethodConfig = { id: string; establishmentId: string; name: string; kind: string; feeRate: number | null; settlementDays: number | null; active: boolean; createdAt: string };
+type LocalSupplier = { id: string; organizationId: string; name: string; tradeName: string | null; document: string | null; phone: string | null; email: string | null; notes: string | null; active: boolean; createdAt: string };
 type LocalFinancialEntry = {
-  id: string; organizationId: string; establishmentId: string; categoryId: string; bankAccountId: string | null; paymentMethodId: string | null;
+  id: string; organizationId: string; establishmentId: string; categoryId: string; bankAccountId: string | null; paymentMethodId: string | null; supplierId: string | null;
   description: string; amount: number; dueDate: string; paidAt: string | null; status: FinancialEntryStatus; notes: string | null; createdById: string; createdAt: string;
 };
 
 const categoriesByOrg = new Map<string, LocalFinancialCategory[]>();
 const bankAccountsByEstablishment = new Map<string, LocalBankAccount[]>();
 const paymentMethodsByEstablishment = new Map<string, LocalPaymentMethodConfig[]>();
+const suppliersByOrg = new Map<string, LocalSupplier[]>();
 const entriesByEstablishment = new Map<string, LocalFinancialEntry[]>();
 
 function bucket<T>(map: Map<string, T[]>, key: string) {
@@ -87,6 +89,26 @@ export function updateLocalPaymentMethod(establishmentId: string, methodId: stri
   return { ...method };
 }
 
+// Fornecedores (escopo organização — uma rede compra do mesmo fornecedor em várias lojas)
+export function listLocalSuppliers(organizationId: string) {
+  return bucket(suppliersByOrg, organizationId).map(item => ({ ...item }));
+}
+export function createLocalSupplier(organizationId: string, data: { name: string; tradeName?: string | null; document?: string | null; phone?: string | null; email?: string | null; notes?: string | null }) {
+  const list = bucket(suppliersByOrg, organizationId);
+  if (list.some(item => sameName(item.name, data.name))) return "DUPLICATE" as const;
+  const supplier: LocalSupplier = { id: `local-supplier-${randomUUID()}`, organizationId, name: data.name, tradeName: data.tradeName ?? null, document: data.document ?? null, phone: data.phone ?? null, email: data.email ?? null, notes: data.notes ?? null, active: true, createdAt: new Date().toISOString() };
+  list.push(supplier);
+  return { ...supplier };
+}
+export function updateLocalSupplier(organizationId: string, supplierId: string, data: { name?: string; tradeName?: string | null; document?: string | null; phone?: string | null; email?: string | null; notes?: string | null; active?: boolean }) {
+  const list = bucket(suppliersByOrg, organizationId);
+  const supplier = list.find(item => item.id === supplierId);
+  if (!supplier) return "NOT_FOUND" as const;
+  if (data.name && list.some(item => item.id !== supplierId && sameName(item.name, data.name!))) return "DUPLICATE" as const;
+  Object.assign(supplier, Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)));
+  return { ...supplier };
+}
+
 // Lançamentos financeiros (escopo estabelecimento)
 export function listLocalFinancialEntries(establishmentId: string, filter?: { status?: FinancialEntryStatus; from?: string; to?: string }) {
   return bucket(entriesByEstablishment, establishmentId)
@@ -96,15 +118,15 @@ export function listLocalFinancialEntries(establishmentId: string, filter?: { st
     .map(item => ({ ...item }))
     .sort((a, b) => a.dueDate.localeCompare(b.dueDate));
 }
-export function createLocalFinancialEntry(organizationId: string, establishmentId: string, createdById: string, data: { categoryId: string; bankAccountId?: string | null; paymentMethodId?: string | null; description: string; amount: number; dueDate: string; notes?: string | null }) {
+export function createLocalFinancialEntry(organizationId: string, establishmentId: string, createdById: string, data: { categoryId: string; bankAccountId?: string | null; paymentMethodId?: string | null; supplierId?: string | null; description: string; amount: number; dueDate: string; notes?: string | null }) {
   const entry: LocalFinancialEntry = {
-    id: `local-fin-entry-${randomUUID()}`, organizationId, establishmentId, categoryId: data.categoryId, bankAccountId: data.bankAccountId ?? null, paymentMethodId: data.paymentMethodId ?? null,
+    id: `local-fin-entry-${randomUUID()}`, organizationId, establishmentId, categoryId: data.categoryId, bankAccountId: data.bankAccountId ?? null, paymentMethodId: data.paymentMethodId ?? null, supplierId: data.supplierId ?? null,
     description: data.description, amount: data.amount, dueDate: data.dueDate, paidAt: null, status: "PENDING", notes: data.notes ?? null, createdById, createdAt: new Date().toISOString(),
   };
   bucket(entriesByEstablishment, establishmentId).push(entry);
   return { ...entry };
 }
-export function updateLocalFinancialEntry(establishmentId: string, entryId: string, data: { description?: string; amount?: number; dueDate?: string; categoryId?: string; bankAccountId?: string | null; paymentMethodId?: string | null; notes?: string | null; status?: FinancialEntryStatus }) {
+export function updateLocalFinancialEntry(establishmentId: string, entryId: string, data: { description?: string; amount?: number; dueDate?: string; categoryId?: string; bankAccountId?: string | null; paymentMethodId?: string | null; supplierId?: string | null; notes?: string | null; status?: FinancialEntryStatus }) {
   const list = bucket(entriesByEstablishment, establishmentId);
   const entry = list.find(item => item.id === entryId);
   if (!entry) return "NOT_FOUND" as const;

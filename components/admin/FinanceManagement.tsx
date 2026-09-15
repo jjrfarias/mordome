@@ -3,9 +3,10 @@ import { useEffect, useState } from "react";
 type Category = { id: string; name: string; kind: "INCOME" | "EXPENSE"; active: boolean };
 type BankAccount = { id: string; name: string; bank: string; agency: string | null; accountNumber: string | null; initialBalance: number | string; active: boolean };
 type PaymentMethodConfig = { id: string; name: string; kind: string; feeRate: number | string | null; settlementDays: number | null; active: boolean };
-type Entry = { id: string; description: string; amount: number | string; dueDate: string; paidAt: string | null; status: "PENDING" | "PAID"; categoryId: string; bankAccountId: string | null; paymentMethodId: string | null; notes: string | null };
+type Supplier = { id: string; name: string; tradeName: string | null; document: string | null; phone: string | null; email: string | null; notes: string | null; active: boolean };
+type Entry = { id: string; description: string; amount: number | string; dueDate: string; paidAt: string | null; status: "PENDING" | "PAID"; categoryId: string; bankAccountId: string | null; paymentMethodId: string | null; supplierId: string | null; notes: string | null };
 
-type FinanceSection = "categories" | "accounts" | "methods" | "entries" | "cashflow";
+type FinanceSection = "categories" | "accounts" | "methods" | "suppliers" | "entries" | "cashflow";
 
 function money(value: number | string) {
   return Number(value).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -25,6 +26,7 @@ export function FinanceManagement({ activeEstablishmentId, canManageFinance, can
         {canManageFinance && <button className={section === "categories" ? "active" : ""} onClick={() => setSection("categories")}>Categorias</button>}
         {canManageFinance && <button className={section === "accounts" ? "active" : ""} onClick={() => setSection("accounts")}>Contas bancárias</button>}
         {canManageFinance && <button className={section === "methods" ? "active" : ""} onClick={() => setSection("methods")}>Formas de pagamento</button>}
+        {canManageFinance && <button className={section === "suppliers" ? "active" : ""} onClick={() => setSection("suppliers")}>Fornecedores</button>}
         {canManageFinanceEntries && <button className={section === "entries" ? "active" : ""} onClick={() => setSection("entries")}>Lançamentos</button>}
         {canViewFinanceCashflow && <button className={section === "cashflow" ? "active" : ""} onClick={() => setSection("cashflow")}>Fluxo de caixa</button>}
       </nav>
@@ -32,6 +34,7 @@ export function FinanceManagement({ activeEstablishmentId, canManageFinance, can
     {section === "categories" && canManageFinance && <CategoriesTab />}
     {section === "accounts" && canManageFinance && <BankAccountsTab activeEstablishmentId={activeEstablishmentId} />}
     {section === "methods" && canManageFinance && <PaymentMethodsTab activeEstablishmentId={activeEstablishmentId} />}
+    {section === "suppliers" && canManageFinance && <SuppliersTab />}
     {section === "entries" && canManageFinanceEntries && <EntriesTab activeEstablishmentId={activeEstablishmentId} />}
     {section === "cashflow" && canViewFinanceCashflow && <CashFlowTab activeEstablishmentId={activeEstablishmentId} />}
   </section>;
@@ -246,6 +249,77 @@ function PaymentMethodsTab({ activeEstablishmentId }: { activeEstablishmentId: s
   </>;
 }
 
+function SuppliersTab() {
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [form, setForm] = useState({ name: "", tradeName: "", document: "", phone: "", email: "", notes: "" });
+  const [creating, setCreating] = useState(false);
+
+  const load = async () => {
+    setLoading(true); setError("");
+    try {
+      const response = await fetch("/api/admin/finance/suppliers", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar os fornecedores.");
+      setSuppliers(data.suppliers ?? []);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar os fornecedores."); } finally { setLoading(false); }
+  };
+  useEffect(() => { queueMicrotask(() => { void load(); }); }, []);
+
+  const create = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!form.name.trim() || creating) return;
+    setCreating(true); setError("");
+    try {
+      const response = await fetch("/api/admin/finance/suppliers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: form.name.trim(), tradeName: form.tradeName.trim() || undefined, document: form.document.trim() || undefined, phone: form.phone.trim() || undefined, email: form.email.trim() || undefined, notes: form.notes.trim() || undefined }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível criar o fornecedor.");
+      setForm({ name: "", tradeName: "", document: "", phone: "", email: "", notes: "" }); await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível criar o fornecedor."); } finally { setCreating(false); }
+  };
+
+  const toggleActive = async (supplier: Supplier) => {
+    setError("");
+    try {
+      const response = await fetch("/api/admin/finance/suppliers", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ supplierId: supplier.id, active: !supplier.active }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível atualizar o fornecedor.");
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o fornecedor."); }
+  };
+
+  return <>
+    <section className="panel settings-shell">
+      <div className="settings-shell-header"><div><span className="section-kicker">Fornecedores</span><h2>Novo fornecedor</h2></div></div>
+      <p className="section-note">Cadastro básico para vincular a lançamentos financeiros (&quot;quem eu paguei&quot;). Documento (CPF/CNPJ) é opcional; quando informado, pode ser digitado com ou sem máscara.</p>
+      <form onSubmit={create} className="settings-form">
+        <label className="field"><span>Nome/razão social</span><input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Distribuidora Boa Compra Ltda" /></label>
+        <label className="field"><span>Nome fantasia (opcional)</span><input value={form.tradeName} onChange={event => setForm({ ...form, tradeName: event.target.value })} /></label>
+        <label className="field"><span>CNPJ/CPF (opcional)</span><input value={form.document} onChange={event => setForm({ ...form, document: event.target.value })} placeholder="Com ou sem máscara" /></label>
+        <label className="field"><span>Telefone/WhatsApp (opcional)</span><input value={form.phone} onChange={event => setForm({ ...form, phone: event.target.value })} /></label>
+        <label className="field"><span>E-mail (opcional)</span><input type="email" value={form.email} onChange={event => setForm({ ...form, email: event.target.value })} /></label>
+        <label className="field"><span>Observações (opcional)</span><input value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} /></label>
+        <button className="primary" type="submit" disabled={!form.name.trim() || creating}>{creating ? "Criando…" : "Criar fornecedor"}</button>
+      </form>
+    </section>
+    {loading ? <div className="empty"><span>Carregando fornecedores…</span></div> : null}
+    {error && <div className="auth-error">{error}</div>}
+    {!loading && suppliers.length === 0 && <div className="empty small"><span>Nenhum fornecedor cadastrado ainda.</span></div>}
+    {!loading && suppliers.length > 0 && <section className="panel settings-shell">
+      <div className="role-list">
+        {suppliers.map(supplier => <article key={supplier.id} className="role-card">
+          <div className="role-card-head">
+            <div><b>{supplier.name}</b>{supplier.tradeName && <span className="status-pill status-inactive">{supplier.tradeName}</span>}{!supplier.active && <span className="status-pill status-inactive">Inativo</span>}</div>
+            <button type="button" className={`secondary ${supplier.active ? "warn" : ""}`} onClick={() => toggleActive(supplier)}>{supplier.active ? "Desativar" : "Ativar"}</button>
+          </div>
+          <p className="section-note">{[supplier.document, supplier.phone, supplier.email].filter(Boolean).join(" · ") || "Sem dados de contato"}</p>
+        </article>)}
+      </div>
+    </section>}
+  </>;
+}
+
 function EntriesTab({ activeEstablishmentId }: { activeEstablishmentId: string }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -253,8 +327,9 @@ function EntriesTab({ activeEstablishmentId }: { activeEstablishmentId: string }
   const [categories, setCategories] = useState<Category[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethodConfig[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [statusFilter, setStatusFilter] = useState<"" | "PENDING" | "PAID">("PENDING");
-  const [form, setForm] = useState({ categoryId: "", bankAccountId: "", paymentMethodId: "", description: "", amount: "", dueDate: "", notes: "" });
+  const [form, setForm] = useState({ categoryId: "", bankAccountId: "", paymentMethodId: "", supplierId: "", description: "", amount: "", dueDate: "", notes: "" });
   const [creating, setCreating] = useState(false);
   const [confirmPayId, setConfirmPayId] = useState("");
 
@@ -265,7 +340,7 @@ function EntriesTab({ activeEstablishmentId }: { activeEstablishmentId: string }
       const response = await fetch(`/api/admin/finance/entries${params}`, { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar os lançamentos.");
-      setEntries(data.entries ?? []); setCategories(data.categories ?? []); setBankAccounts(data.bankAccounts ?? []); setPaymentMethods(data.paymentMethods ?? []);
+      setEntries(data.entries ?? []); setCategories(data.categories ?? []); setBankAccounts(data.bankAccounts ?? []); setPaymentMethods(data.paymentMethods ?? []); setSuppliers(data.suppliers ?? []);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar os lançamentos."); } finally { setLoading(false); }
   };
   useEffect(() => { queueMicrotask(() => { void load(); }); }, [activeEstablishmentId, statusFilter]);
@@ -275,10 +350,10 @@ function EntriesTab({ activeEstablishmentId }: { activeEstablishmentId: string }
     if (!form.categoryId || !form.description.trim() || !form.amount || !form.dueDate || creating) return;
     setCreating(true); setError("");
     try {
-      const response = await fetch("/api/admin/finance/entries", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ categoryId: form.categoryId, bankAccountId: form.bankAccountId || undefined, paymentMethodId: form.paymentMethodId || undefined, description: form.description.trim(), amount: Number(form.amount), dueDate: form.dueDate, notes: form.notes.trim() || undefined }) });
+      const response = await fetch("/api/admin/finance/entries", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ categoryId: form.categoryId, bankAccountId: form.bankAccountId || undefined, paymentMethodId: form.paymentMethodId || undefined, supplierId: form.supplierId || undefined, description: form.description.trim(), amount: Number(form.amount), dueDate: form.dueDate, notes: form.notes.trim() || undefined }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível criar o lançamento.");
-      setForm({ categoryId: "", bankAccountId: "", paymentMethodId: "", description: "", amount: "", dueDate: "", notes: "" }); await load();
+      setForm({ categoryId: "", bankAccountId: "", paymentMethodId: "", supplierId: "", description: "", amount: "", dueDate: "", notes: "" }); await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível criar o lançamento."); } finally { setCreating(false); }
   };
 
@@ -293,6 +368,7 @@ function EntriesTab({ activeEstablishmentId }: { activeEstablishmentId: string }
   };
 
   const categoryName = (id: string) => categories.find(item => item.id === id)?.name ?? "—";
+  const supplierName = (id: string | null) => (id ? suppliers.find(item => item.id === id)?.name : undefined);
   const total = entries.reduce((sum, entry) => sum + Number(entry.amount), 0);
 
   return <>
@@ -324,6 +400,12 @@ function EntriesTab({ activeEstablishmentId }: { activeEstablishmentId: string }
             {paymentMethods.map(method => <option key={method.id} value={method.id}>{method.name}</option>)}
           </select>
         </label>
+        <label className="field"><span>Fornecedor (opcional)</span>
+          <select value={form.supplierId} onChange={event => setForm({ ...form, supplierId: event.target.value })}>
+            <option value="">—</option>
+            {suppliers.map(supplier => <option key={supplier.id} value={supplier.id}>{supplier.name}</option>)}
+          </select>
+        </label>
         <label className="field"><span>Observações</span><input value={form.notes} onChange={event => setForm({ ...form, notes: event.target.value })} /></label>
         <button className="primary" type="submit" disabled={!form.categoryId || !form.description.trim() || !form.amount || !form.dueDate || creating}>{creating ? "Lançando…" : "Lançar"}</button>
       </form>
@@ -350,7 +432,7 @@ function EntriesTab({ activeEstablishmentId }: { activeEstablishmentId: string }
               Confirmar? <button type="button" className="primary" onClick={() => markPaid(entry)}>Sim</button> <button type="button" className="secondary" onClick={() => setConfirmPayId("")}>Cancelar</button>
             </span> : <button type="button" className="secondary" onClick={() => setConfirmPayId(entry.id)}>{entry.status === "PAID" ? "Marcar como pendente" : "Marcar como pago"}</button>}
           </div>
-          <p className="section-note">{categoryName(entry.categoryId)} · {money(entry.amount)} · Vencimento {new Date(entry.dueDate).toLocaleDateString("pt-BR")}{entry.paidAt ? ` · Pago em ${new Date(entry.paidAt).toLocaleDateString("pt-BR")}` : ""}</p>
+          <p className="section-note">{categoryName(entry.categoryId)} · {money(entry.amount)} · Vencimento {new Date(entry.dueDate).toLocaleDateString("pt-BR")}{entry.paidAt ? ` · Pago em ${new Date(entry.paidAt).toLocaleDateString("pt-BR")}` : ""}{supplierName(entry.supplierId) ? ` · Fornecedor: ${supplierName(entry.supplierId)}` : ""}</p>
         </article>)}
       </div>
     </section>}
