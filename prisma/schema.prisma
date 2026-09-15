@@ -173,6 +173,7 @@ model User {
   createdDeliveries DeliveryOrder[]       @relation("DeliveryCreatedBy")
   liveLocation      CourierLocation?      @relation("CourierLiveLocation")
   financialEntriesCreated FinancialEntry[] @relation("FinancialEntryCreatedBy")
+  financialEntriesReconciled FinancialEntry[] @relation("FinancialEntryReconciledBy")
   commissionRules         UserCommissionRule[]
   settlementRecords       SettlementRecord[]   @relation("SettlementUser")
   settlementsCreated      SettlementRecord[]   @relation("SettlementCreatedBy")
@@ -945,6 +946,9 @@ model FinancialEntry {
   paidAt          DateTime?
   status          FinancialEntryStatus @default(PENDING)
   notes           String?
+  reconciled      Boolean              @default(false)
+  reconciledAt    DateTime?
+  reconciledById  String?
   createdById     String
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
@@ -955,11 +959,13 @@ model FinancialEntry {
   paymentMethod   PaymentMethodConfig? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
   supplier        Supplier?            @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   createdBy       User                 @relation("FinancialEntryCreatedBy", fields: [createdById], references: [id])
+  reconciledBy    User?                @relation("FinancialEntryReconciledBy", fields: [reconciledById], references: [id], onDelete: SetNull)
 
   @@index([establishmentId, status, dueDate])
   @@index([organizationId, status, dueDate])
   @@index([categoryId])
   @@index([supplierId])
+  @@index([establishmentId, bankAccountId, status, paidAt])
 }
 
 model Supplier {

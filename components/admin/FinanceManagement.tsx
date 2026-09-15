@@ -5,8 +5,9 @@ type BankAccount = { id: string; name: string; bank: string; agency: string | nu
 type PaymentMethodConfig = { id: string; name: string; kind: string; feeRate: number | string | null; settlementDays: number | null; active: boolean };
 type Supplier = { id: string; name: string; tradeName: string | null; document: string | null; phone: string | null; email: string | null; notes: string | null; active: boolean };
 type Entry = { id: string; description: string; amount: number | string; dueDate: string; paidAt: string | null; status: "PENDING" | "PAID"; categoryId: string; bankAccountId: string | null; paymentMethodId: string | null; supplierId: string | null; notes: string | null };
+type ReconciliationEntry = { id: string; description: string; amount: number | string; paidAt: string | null; reconciled: boolean; reconciledAt: string | null };
 
-type FinanceSection = "categories" | "accounts" | "methods" | "suppliers" | "entries" | "cashflow" | "settlements";
+type FinanceSection = "categories" | "accounts" | "methods" | "suppliers" | "entries" | "cashflow" | "settlements" | "reconciliation";
 type CommissionRule = { id: string; userId: string; role: "COURIER" | "WAITER"; amountPerDelivery: number | string | null; percentOfSales: number | string | null };
 type SettlementCandidate = { userId: string; userName?: string; role: "COURIER" | "WAITER"; deliveryCount: number; salesTotal: number; hasRule: boolean; amount: number };
 type SettlementHistoryItem = { id: string; userId: string; role: "COURIER" | "WAITER"; from: string; to: string; amount: number | string; paidAt: string; user?: { name: string } };
@@ -24,7 +25,7 @@ export function FinanceManagement({ activeEstablishmentId, canManageFinance, can
       <div className="settings-shell-header">
         <div><span className="section-kicker">Financeiro</span><h2>Núcleo financeiro básico</h2></div>
       </div>
-      <p className="section-note">Cadastros de apoio (categorias, contas e formas de pagamento), lançamentos manuais de contas a pagar e a receber e o fluxo de caixa consolidado. Acertos e conciliação bancária ainda não fazem parte desta tela.</p>
+      <p className="section-note">Cadastros de apoio (categorias, contas e formas de pagamento), lançamentos manuais de contas a pagar e a receber, fluxo de caixa consolidado, acertos de entregadores/garçons e conciliação bancária manual.</p>
       <nav className="settings-tabs" aria-label="Seções do financeiro">
         {canManageFinance && <button className={section === "categories" ? "active" : ""} onClick={() => setSection("categories")}>Categorias</button>}
         {canManageFinance && <button className={section === "accounts" ? "active" : ""} onClick={() => setSection("accounts")}>Contas bancárias</button>}
@@ -33,6 +34,7 @@ export function FinanceManagement({ activeEstablishmentId, canManageFinance, can
         {canManageFinanceEntries && <button className={section === "entries" ? "active" : ""} onClick={() => setSection("entries")}>Lançamentos</button>}
         {canViewFinanceCashflow && <button className={section === "cashflow" ? "active" : ""} onClick={() => setSection("cashflow")}>Fluxo de caixa</button>}
         {canManageSettlements && <button className={section === "settlements" ? "active" : ""} onClick={() => setSection("settlements")}>Acertos</button>}
+        {canManageFinanceEntries && <button className={section === "reconciliation" ? "active" : ""} onClick={() => setSection("reconciliation")}>Conciliação bancária</button>}
       </nav>
     </section>
     {section === "categories" && canManageFinance && <CategoriesTab />}
@@ -42,6 +44,7 @@ export function FinanceManagement({ activeEstablishmentId, canManageFinance, can
     {section === "entries" && canManageFinanceEntries && <EntriesTab activeEstablishmentId={activeEstablishmentId} />}
     {section === "cashflow" && canViewFinanceCashflow && <CashFlowTab activeEstablishmentId={activeEstablishmentId} />}
     {section === "settlements" && canManageSettlements && <SettlementsTab activeEstablishmentId={activeEstablishmentId} />}
+    {section === "reconciliation" && canManageFinanceEntries && <ReconciliationTab activeEstablishmentId={activeEstablishmentId} />}
   </section>;
 }
 
@@ -625,6 +628,133 @@ function startOfMonth(reference: Date) {
 }
 
 const sourceLabel: Record<CashFlowItemView["source"], string> = { ENTRY: "Lançamento", SALE: "Venda", CASH_MOVEMENT: "Movimentação de caixa" };
+
+function ReconciliationTab({ activeEstablishmentId }: { activeEstablishmentId: string }) {
+  const today = new Date();
+  const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [bankAccountId, setBankAccountId] = useState("");
+  const [from, setFrom] = useState(toDateInput(startOfMonth(today)));
+  const [to, setTo] = useState(toDateInput(today));
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [entries, setEntries] = useState<ReconciliationEntry[]>([]);
+  const [totals, setTotals] = useState({ launched: 0, reconciled: 0, pending: 0 });
+  const [savingId, setSavingId] = useState("");
+  const [markingAll, setMarkingAll] = useState(false);
+
+  const loadAccounts = async () => {
+    try {
+      const response = await fetch("/api/admin/finance/bank-accounts", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar as contas bancárias.");
+      const accounts: BankAccount[] = data.accounts ?? [];
+      setBankAccounts(accounts);
+      setBankAccountId(current => current || accounts.find(account => account.active)?.id || "");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar as contas bancárias."); }
+  };
+
+  const load = async () => {
+    if (!bankAccountId) { setEntries([]); setTotals({ launched: 0, reconciled: 0, pending: 0 }); return; }
+    setLoading(true); setError("");
+    try {
+      const response = await fetch(`/api/admin/finance/reconciliation?bankAccountId=${bankAccountId}&from=${from}&to=${to}`, { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar a conciliação.");
+      setEntries(data.entries ?? []);
+      setTotals({ launched: data.launched ?? 0, reconciled: data.reconciled ?? 0, pending: data.pending ?? 0 });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar a conciliação."); } finally { setLoading(false); }
+  };
+
+  useEffect(() => { queueMicrotask(() => { void loadAccounts(); }); }, [activeEstablishmentId]);
+  useEffect(() => { queueMicrotask(() => { void load(); }); }, [activeEstablishmentId, bankAccountId, from, to]);
+
+  const applyShortcut = (shortcut: "today" | "week" | "month") => {
+    const now = new Date();
+    if (shortcut === "today") { setFrom(toDateInput(now)); setTo(toDateInput(now)); }
+    if (shortcut === "week") { setFrom(toDateInput(startOfWeek(now))); setTo(toDateInput(now)); }
+    if (shortcut === "month") { setFrom(toDateInput(startOfMonth(now))); setTo(toDateInput(now)); }
+  };
+
+  const toggleReconciled = async (entry: ReconciliationEntry) => {
+    setSavingId(entry.id); setError("");
+    try {
+      const response = await fetch("/api/admin/finance/reconciliation", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryId: entry.id, reconciled: !entry.reconciled }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível atualizar a conciliação.");
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar a conciliação."); } finally { setSavingId(""); }
+  };
+
+  const markAllFiltered = async () => {
+    const pendingIds = entries.filter(entry => !entry.reconciled).map(entry => entry.id);
+    if (pendingIds.length === 0 || markingAll) return;
+    setMarkingAll(true); setError("");
+    try {
+      const response = await fetch("/api/admin/finance/reconciliation", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entryIds: pendingIds, reconciled: true }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível marcar os lançamentos como conciliados.");
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível marcar os lançamentos como conciliados."); } finally { setMarkingAll(false); }
+  };
+
+  const pendingCount = entries.filter(entry => !entry.reconciled).length;
+
+  return <>
+    <section className="panel settings-shell">
+      <div className="settings-shell-header"><div><span className="section-kicker">Conciliação bancária</span><h2>Conta e período</h2></div></div>
+      <p className="section-note">Confira quais lançamentos financeiros já pagos e vinculados a esta conta bancária já apareceram no extrato do banco, marcando cada um como conciliado. Vendas e movimentações de caixa não entram aqui — apenas lançamentos com uma conta bancária associada (veja a aba Lançamentos).</p>
+      {bankAccounts.length === 0 && <p className="section-note">Cadastre ao menos uma conta bancária antes de conciliar.</p>}
+      <div className="settings-form">
+        <label className="field"><span>Conta bancária</span>
+          <select value={bankAccountId} onChange={event => setBankAccountId(event.target.value)}>
+            <option value="">Selecione…</option>
+            {bankAccounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
+          </select>
+        </label>
+        <label className="field"><span>De</span><input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
+        <label className="field"><span>Até</span><input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
+      </div>
+      <nav className="settings-tabs">
+        <button type="button" onClick={() => applyShortcut("today")}>Hoje</button>
+        <button type="button" onClick={() => applyShortcut("week")}>Esta semana</button>
+        <button type="button" onClick={() => applyShortcut("month")}>Este mês</button>
+      </nav>
+    </section>
+
+    {!bankAccountId && <div className="empty small"><span>Selecione uma conta bancária para ver a conciliação.</span></div>}
+    {bankAccountId && loading ? <div className="empty"><span>Carregando conciliação…</span></div> : null}
+    {error && <div className="auth-error">{error}</div>}
+
+    {bankAccountId && !loading && !error && <section className="panel settings-shell">
+      <div className="metric-cards">
+        <div className="role-card"><b>Lançado no período</b><p className="section-note">{money(totals.launched)}</p></div>
+        <div className="role-card"><b>Conciliado</b><p className="section-note">{money(totals.reconciled)}</p></div>
+        <div className="role-card"><b>Pendente de conciliação</b><p className="section-note">{money(totals.pending)}</p></div>
+      </div>
+    </section>}
+
+    {bankAccountId && !loading && !error && entries.length > 0 && <section className="panel settings-shell">
+      <div className="settings-shell-header">
+        <div><span className="section-kicker">Lançamentos</span><h2>{entries.length} no período</h2></div>
+        <button type="button" className="secondary" disabled={pendingCount === 0 || markingAll} onClick={markAllFiltered}>{markingAll ? "Marcando…" : `Marcar todos os filtrados como conciliados (${pendingCount})`}</button>
+      </div>
+    </section>}
+
+    {bankAccountId && !loading && !error && entries.length === 0 && <div className="empty small"><span>Nenhum lançamento pago desta conta no período.</span></div>}
+    {bankAccountId && !loading && !error && entries.length > 0 && <section className="panel settings-shell">
+      <div className="role-list">
+        {entries.map(entry => <article key={entry.id} className="role-card">
+          <div className="role-card-head">
+            <div><b>{entry.description}</b><span className={`status-pill ${entry.reconciled ? "status-active" : "status-inactive"}`}>{entry.reconciled ? "Conciliado" : "Pendente"}</span></div>
+            <strong>{money(entry.amount)}</strong>
+          </div>
+          <p className="section-note">Pago em {entry.paidAt ? new Date(entry.paidAt).toLocaleDateString("pt-BR") : "—"}{entry.reconciledAt ? ` · Conciliado em ${new Date(entry.reconciledAt).toLocaleString("pt-BR")}` : ""}</p>
+          <button type="button" className="secondary" disabled={savingId === entry.id} onClick={() => toggleReconciled(entry)}>{savingId === entry.id ? "Salvando…" : entry.reconciled ? "Desmarcar conciliação" : "Marcar como conciliado"}</button>
+        </article>)}
+      </div>
+    </section>}
+  </>;
+}
 
 function CashFlowTab({ activeEstablishmentId }: { activeEstablishmentId: string }) {
   const today = new Date();

@@ -13,6 +13,7 @@ type LocalSupplier = { id: string; organizationId: string; name: string; tradeNa
 type LocalFinancialEntry = {
   id: string; organizationId: string; establishmentId: string; categoryId: string; bankAccountId: string | null; paymentMethodId: string | null; supplierId: string | null;
   description: string; amount: number; dueDate: string; paidAt: string | null; status: FinancialEntryStatus; notes: string | null; createdById: string; createdAt: string;
+  reconciled: boolean; reconciledAt: string | null; reconciledById: string | null;
 };
 
 const categoriesByOrg = new Map<string, LocalFinancialCategory[]>();
@@ -122,6 +123,7 @@ export function createLocalFinancialEntry(organizationId: string, establishmentI
   const entry: LocalFinancialEntry = {
     id: `local-fin-entry-${randomUUID()}`, organizationId, establishmentId, categoryId: data.categoryId, bankAccountId: data.bankAccountId ?? null, paymentMethodId: data.paymentMethodId ?? null, supplierId: data.supplierId ?? null,
     description: data.description, amount: data.amount, dueDate: data.dueDate, paidAt: null, status: "PENDING", notes: data.notes ?? null, createdById, createdAt: new Date().toISOString(),
+    reconciled: false, reconciledAt: null, reconciledById: null,
   };
   bucket(entriesByEstablishment, establishmentId).push(entry);
   return { ...entry };
@@ -133,6 +135,25 @@ export function updateLocalFinancialEntry(establishmentId: string, entryId: stri
   Object.assign(entry, Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)));
   if (data.status === "PAID" && !entry.paidAt) entry.paidAt = new Date().toISOString();
   if (data.status === "PENDING") entry.paidAt = null;
+  return { ...entry };
+}
+
+// Conciliação bancária: apenas lançamentos financeiros pagos com bankAccountId preenchido
+// entram na conciliação de uma conta (vendas e movimentações de caixa não têm conta bancária
+// específica associada e ficam fora deste escopo, ver ADR 0019).
+export function listLocalFinancialEntriesForReconciliation(establishmentId: string, bankAccountId: string, from: string, to: string) {
+  return bucket(entriesByEstablishment, establishmentId)
+    .filter(entry => entry.status === "PAID" && entry.bankAccountId === bankAccountId && entry.paidAt && entry.paidAt >= from && entry.paidAt <= to)
+    .map(item => ({ ...item }))
+    .sort((a, b) => (a.paidAt ?? "").localeCompare(b.paidAt ?? ""));
+}
+export function reconcileLocalFinancialEntry(establishmentId: string, entryId: string, reconciled: boolean, actorId: string) {
+  const list = bucket(entriesByEstablishment, establishmentId);
+  const entry = list.find(item => item.id === entryId);
+  if (!entry) return "NOT_FOUND" as const;
+  entry.reconciled = reconciled;
+  entry.reconciledAt = reconciled ? new Date().toISOString() : null;
+  entry.reconciledById = reconciled ? actorId : null;
   return { ...entry };
 }
 
