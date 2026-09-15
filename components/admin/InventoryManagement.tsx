@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { ArrowDownToLine, ArrowRightLeft, Boxes, ClipboardCheck, FileText, MapPin, Plus } from "lucide-react";
+import { ArrowDownToLine, ArrowRightLeft, Boxes, ClipboardCheck, FileText, MapPin, Plus, ShoppingCart } from "lucide-react";
 import { GoodsReceiptNotes } from "./GoodsReceiptNotes";
+import { PurchaseOrders } from "./PurchaseOrders";
 
 type BaseUnit = "GRAM" | "MILLILITER" | "UNIT";
 type TrackingMode = "AUTOMATIC" | "MANUAL" | "NONE";
@@ -20,7 +21,7 @@ type InventoryItem = {
 
 const unitLabels: Record<BaseUnit, string> = { GRAM: "g", MILLILITER: "ml", UNIT: "un" };
 
-type InventorySection = "items" | "goods-receipts";
+type InventorySection = "items" | "purchase-orders" | "goods-receipts";
 
 export function InventoryManagement({ establishmentId, establishmentName }: { establishmentId: string; establishmentName: string }) {
   const [section, setSection] = useState<InventorySection>("items");
@@ -77,6 +78,7 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
       </div>
       <nav className="settings-tabs" aria-label="Seções do estoque">
         <button className={section === "items" ? "active" : ""} onClick={() => setSection("items")}>Itens de estoque</button>
+        <button className={section === "purchase-orders" ? "active" : ""} onClick={() => setSection("purchase-orders")}><ShoppingCart size={14} />Ordens de compra</button>
         <button className={section === "goods-receipts" ? "active" : ""} onClick={() => setSection("goods-receipts")}><FileText size={14} />Notas de entrada</button>
       </nav>
       {section === "items" && <form className="inventory-create-form" onSubmit={create}>
@@ -93,6 +95,7 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
       {!loading && items.length === 0 && <div className="big-empty"><Boxes /><h2>Estoque vazio nesta unidade</h2><p>Cadastre os insumos usados por {establishmentName}.</p></div>}
       {!loading && items.length > 0 && <section className="inventory-list">{items.map(item => <InventoryRow key={item.id} item={item} establishments={establishments} onChanged={load} />)}</section>}
     </>}
+    {section === "purchase-orders" && <PurchaseOrders items={items} />}
     {section === "goods-receipts" && <GoodsReceiptNotes items={items} />}
   </div>;
 }

@@ -65,6 +65,13 @@ enum GoodsReceiptStatus {
   CONFIRMED
 }
 
+enum PurchaseOrderStatus {
+  DRAFT
+  SENT
+  RECEIVED
+  CANCELLED
+}
+
 enum StockMovementType {
   ENTRY
   CONSUMPTION
@@ -183,6 +190,7 @@ model User {
   settlementRecords       SettlementRecord[]   @relation("SettlementUser")
   settlementsCreated      SettlementRecord[]   @relation("SettlementCreatedBy")
   goodsReceiptNotesCreated GoodsReceiptNote[]
+  purchaseOrdersCreated   PurchaseOrder[]
 }
 
 model Session {
@@ -258,6 +266,7 @@ model Establishment {
   commissionRules  UserCommissionRule[]
   settlementRecords SettlementRecord[]
   goodsReceiptNotes GoodsReceiptNote[]
+  purchaseOrders    PurchaseOrder[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
@@ -795,6 +804,7 @@ model EstablishmentInventoryItem {
   inventoryItem   InventoryItem         @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
   movements       StockMovement[]
   goodsReceiptItems GoodsReceiptItem[]
+  purchaseOrderItems PurchaseOrderItem[]
 
   @@unique([establishmentId, inventoryItemId])
   @@index([establishmentId, active])
@@ -835,6 +845,7 @@ model GoodsReceiptNote {
   supplier        Supplier?          @relation(fields: [supplierId], references: [id], onDelete: SetNull)
   createdBy       User               @relation(fields: [createdById], references: [id])
   items           GoodsReceiptItem[]
+  sourceOrder     PurchaseOrder?
 
   @@index([establishmentId, status, receivedAt])
   @@index([supplierId])
@@ -852,6 +863,40 @@ model GoodsReceiptItem {
   stockMovement      StockMovement?             @relation(fields: [stockMovementId], references: [id], onDelete: SetNull)
 
   @@index([noteId])
+  @@index([inventoryItemId])
+}
+
+model PurchaseOrder {
+  id              String              @id @default(cuid())
+  establishmentId String
+  supplierId      String?
+  expectedDate    DateTime?
+  notes           String?
+  status          PurchaseOrderStatus @default(DRAFT)
+  createdById     String
+  createdAt       DateTime            @default(now())
+  sentAt          DateTime?
+  generatedNoteId String?             @unique
+  establishment   Establishment       @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  supplier        Supplier?           @relation(fields: [supplierId], references: [id], onDelete: SetNull)
+  createdBy       User                @relation(fields: [createdById], references: [id])
+  generatedNote   GoodsReceiptNote?   @relation(fields: [generatedNoteId], references: [id], onDelete: SetNull)
+  items           PurchaseOrderItem[]
+
+  @@index([establishmentId, status])
+  @@index([supplierId])
+}
+
+model PurchaseOrderItem {
+  id                String                     @id @default(cuid())
+  orderId           String
+  inventoryItemId   String
+  quantity          Decimal                    @db.Decimal(14, 3)
+  estimatedUnitCost Decimal                    @db.Decimal(12, 4)
+  order             PurchaseOrder              @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  inventoryItem     EstablishmentInventoryItem @relation(fields: [inventoryItemId], references: [id])
+
+  @@index([orderId])
   @@index([inventoryItemId])
 }
 
@@ -1027,6 +1072,7 @@ model Supplier {
   organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   entries        FinancialEntry[]
   goodsReceiptNotes GoodsReceiptNote[]
+  purchaseOrders    PurchaseOrder[]
 
   @@unique([organizationId, name])
   @@index([organizationId, active])
