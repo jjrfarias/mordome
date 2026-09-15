@@ -32,6 +32,8 @@
 - Item de estoque pertence à organização; política, saldo e movimentos pertencem ao estabelecimento.
 - Receita de venda pertence à unidade e liga uma variante aos itens consumidos. Receita de pré-preparo transforma componentes em outro item de estoque com rendimento definido.
 - Transferência de estoque gera sempre dois movimentos atômicos: `TRANSFER_OUT` na origem e `TRANSFER_IN` no destino.
+- Categoria financeira pertence à organização e é compartilhada entre suas unidades; conta bancária e forma de pagamento configurável pertencem ao estabelecimento.
+- Lançamento financeiro pertence ao estabelecimento (e referencia a organização), a uma categoria financeira obrigatória e, opcionalmente, a uma conta bancária e a uma forma de pagamento configurada.
 
 ## Invariantes
 
@@ -63,6 +65,9 @@
 24. Itens enviados à cozinha não são apagados silenciosamente e cada rodada preserva seu snapshot.
 25. Mudanças de status de pedido seguem a sequência permitida e preservam ator/data em `OrderStatusHistory`.
 26. O fechamento de uma comanda e seu vínculo à venda acontecem na mesma transação.
+27. Categoria financeira não pode ser excluída, apenas inativada, quando já existir lançamento vinculado a ela; o tipo receita/despesa do lançamento é sempre o da categoria escolhida, não um campo independente.
+28. Lançamento financeiro marcado como pago recebe `paidAt`; revertido para pendente, `paidAt` volta a nulo.
+29. O fluxo de caixa é sempre calculado em regime de caixa (data de realização: `paidAt` do lançamento ou `completedAt` da venda), nunca em regime de competência (`dueDate`); é uma leitura agregada sem persistência própria, recalculada a cada consulta por período e estabelecimento.
 
 ## Estados
 
@@ -70,10 +75,11 @@
 - Comanda: `OPEN`, `AWAITING_PAYMENT`, `PAID`, `CANCELLED`.
 - Pedido: `RECEIVED`, `CONFIRMED`, `PREPARING`, `READY`, `DELIVERED`, `CANCELLED`.
 - Caixa: `OPEN`, `CLOSED`.
+- Lançamento financeiro: `PENDING`, `PAID`.
 
 ## Eventos relevantes
 
-`TabOpened`, `ItemAdded`, `ItemCancelled`, `OrderSent`, `OrderStatusChanged`, `DiscountApplied`, `PaymentRegistered`, `SaleClosed`, `CashOpened`, `CashWithdrawalRecorded`, `CashClosed`, `PermissionChanged`, `StockAdjusted` e `StockTransferred`.
+`TabOpened`, `ItemAdded`, `ItemCancelled`, `OrderSent`, `OrderStatusChanged`, `DiscountApplied`, `PaymentRegistered`, `SaleClosed`, `CashOpened`, `CashWithdrawalRecorded`, `CashClosed`, `PermissionChanged`, `StockAdjusted`, `StockTransferred`, `FinancialEntryCreated` e `FinancialEntryStatusChanged`.
 
 ## Questões ainda abertas
 

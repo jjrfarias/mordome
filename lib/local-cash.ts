@@ -65,3 +65,18 @@ export function closeLocalCash(establishmentId: string, operatorId: string, coun
 export function listLocalCashHistory(establishmentId: string) {
   return sessions.filter(session => session.establishmentId === establishmentId).slice(-10).reverse().map(summarizeLocalCash);
 }
+
+// Usado pelo fluxo de caixa: retiradas (WITHDRAWAL) e suprimentos (SUPPLY) de todas as sessões
+// (abertas ou fechadas) do estabelecimento, dentro do período informado.
+export function listLocalCashMovementsForEstablishment(establishmentId: string, from?: string, to?: string) {
+  const movements: { id: string; type: "SUPPLY" | "WITHDRAWAL"; amount: number; reason: string; createdAt: string }[] = [];
+  for (const session of sessions) {
+    if (session.establishmentId !== establishmentId) continue;
+    for (const movement of session.movements) {
+      if (from && movement.createdAt < from) continue;
+      if (to && movement.createdAt > to) continue;
+      movements.push(movement);
+    }
+  }
+  return movements;
+}

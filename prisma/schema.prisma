@@ -172,6 +172,7 @@ model User {
   courierDeliveries DeliveryOrder[]       @relation("DeliveryCourier")
   createdDeliveries DeliveryOrder[]       @relation("DeliveryCreatedBy")
   liveLocation      CourierLocation?      @relation("CourierLiveLocation")
+  financialEntriesCreated FinancialEntry[] @relation("FinancialEntryCreatedBy")
 }
 
 model Session {
@@ -209,6 +210,8 @@ model Organization {
   products       Product[]
   inventoryItems InventoryItem[]
   recipes        Recipe[]
+  financialCategories FinancialCategory[]
+  financialEntries    FinancialEntry[]
 }
 
 model Establishment {
@@ -238,6 +241,9 @@ model Establishment {
   stations         PreparationStation[]
   productStations  ProductStation[]
   deliveryOrders   DeliveryOrder[]
+  bankAccounts     BankAccount[]
+  paymentMethods   PaymentMethodConfig[]
+  financialEntries FinancialEntry[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
@@ -857,4 +863,92 @@ model AuditEvent {
   @@index([entityType, entityId])
   @@index([organizationId, actorId, createdAt])
   @@index([organizationId, action, createdAt])
+}
+
+enum FinancialCategoryKind {
+  INCOME
+  EXPENSE
+}
+
+model FinancialCategory {
+  id             String                @id @default(cuid())
+  organizationId String
+  name           String
+  kind           FinancialCategoryKind
+  active         Boolean               @default(true)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  entries        FinancialEntry[]
+
+  @@unique([organizationId, name, kind])
+  @@index([organizationId, active])
+}
+
+model BankAccount {
+  id              String           @id @default(cuid())
+  establishmentId String
+  name            String
+  bank            String
+  agency          String?
+  accountNumber   String?
+  initialBalance  Decimal          @default(0) @db.Decimal(12, 2)
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  establishment   Establishment    @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  entries         FinancialEntry[]
+
+  @@unique([establishmentId, name])
+  @@index([establishmentId, active])
+}
+
+model PaymentMethodConfig {
+  id              String           @id @default(cuid())
+  establishmentId String
+  name            String
+  kind            String
+  feeRate         Decimal?         @db.Decimal(5, 2)
+  settlementDays  Int?
+  active          Boolean          @default(true)
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  establishment   Establishment    @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  entries         FinancialEntry[]
+
+  @@unique([establishmentId, name])
+  @@index([establishmentId, active])
+}
+
+enum FinancialEntryStatus {
+  PENDING
+  PAID
+}
+
+model FinancialEntry {
+  id              String               @id @default(cuid())
+  organizationId  String
+  establishmentId String
+  categoryId      String
+  bankAccountId   String?
+  paymentMethodId String?
+  description     String
+  amount          Decimal              @db.Decimal(12, 2)
+  dueDate         DateTime
+  paidAt          DateTime?
+  status          FinancialEntryStatus @default(PENDING)
+  notes           String?
+  createdById     String
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  establishment   Establishment        @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  category        FinancialCategory    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  bankAccount     BankAccount?         @relation(fields: [bankAccountId], references: [id], onDelete: SetNull)
+  paymentMethod   PaymentMethodConfig? @relation(fields: [paymentMethodId], references: [id], onDelete: SetNull)
+  createdBy       User                 @relation("FinancialEntryCreatedBy", fields: [createdById], references: [id])
+
+  @@index([establishmentId, status, dueDate])
+  @@index([organizationId, status, dueDate])
+  @@index([categoryId])
 }

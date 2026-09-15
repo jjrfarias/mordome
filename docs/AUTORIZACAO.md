@@ -32,7 +32,7 @@ Um atendente pode, por exemplo, receber apenas `finance.reports.view` para ajuda
 | Operação do salão | `floor.operate` |
 | Caixa | `cash.open`, `cash.move`, `cash.close`, `cash.history.view` |
 | Histórico | `audit.view` |
-| Financeiro | `finance.summary.view`, `finance.reports.view`, `finance.export` |
+| Financeiro | `finance.summary.view`, `finance.reports.view`, `finance.export`, `finance.manage`, `finance.entries.manage` |
 | Produtos | `catalog.view`, `catalog.manage`, `prices.manage`, `availability.manage` |
 | Estoque | `stock.view`, `stock.move`, `stock.adjust` |
 | Auditoria | `audit.view` |

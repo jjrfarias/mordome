@@ -133,6 +133,15 @@ Planejado: pagamento dividido, reembolso após fechamento, reabertura administra
 
 Cadastro, configuração por estabelecimento, conversão de entrada, saldo, transferência, consumo automático por venda e estorno possuem domínio/API. Ajustes manuais e a tela operacional de cancelamento entram em etapa posterior.
 
+## Financeiro — núcleo básico implementado
+
+- Categorias financeiras por organização, com tipo receita ou despesa (`finance.manage`).
+- Contas bancárias cadastráveis por estabelecimento (banco, agência, conta e saldo inicial), sem cálculo de saldo corrente ainda (`finance.manage`).
+- Formas/métodos de pagamento configuráveis por estabelecimento (nome, tipo, taxa e prazo de repasse), distintos do meio de pagamento usado no PDV (`finance.manage`).
+- Lançamentos financeiros manuais (contas a pagar e a receber), com categoria, conta bancária e forma de pagamento opcionais, vencimento, status pendente/pago e observações (`finance.entries.manage`).
+- **Fluxo de caixa (implementado):** tela consolidada por período (padrão: mês corrente, com atalhos "Hoje"/"Esta semana"/"Este mês" e seleção livre de data "de"/"até"), somando em regime de caixa: lançamentos financeiros com status pago (`paidAt` no período, entrada se a categoria é receita e saída se é despesa) e vendas concluídas do PDV/salão/delivery (`Sale.total` no período, sempre como entrada) e movimentações manuais de caixa (`CashMovement`: suprimento como entrada, retirada como saída). Mostra total de entradas, total de saídas, saldo do período e saldo acumulado (soma do `BankAccount.initialBalance` de todas as contas do estabelecimento mais o saldo do período, sem reconciliar por conta individual) e a lista cronológica dos lançamentos que compõem o total. Somente leitura, permissão `finance.cashflow.view`. Ver ADR 0016 para as decisões de modelagem e limitações assumidas.
+- Ver ADR 0015 para as decisões do núcleo básico. Acertos de entregadores/garçons, fornecedores e conciliação bancária por conta permanecem fora deste escopo.
+
 ## Relatórios — protótipo parcial
 
 - Vendas, pedidos em andamento, ticket médio, produtos, pagamentos, cancelamentos e descontos.
