@@ -11,6 +11,10 @@ import { buildExcelBuffer, buildPdfBuffer } from "../lib/reports/export.ts";
 import { listLocalSalesForReport } from "../lib/local-finance.ts";
 import { recordLocalAudit } from "../lib/local-audit.ts";
 import { createLocalInventoryItem, configureLocalInventoryItem, applyLocalRecipeConsumption, adjustLocalStock, listLocalConsumptionMovements } from "../lib/local-inventory.ts";
+import { computeConsecutiveDurations, findFirstStatusEvent, shortOrderLabel, type OrderTimingRecord } from "../lib/reports/order-timing.ts";
+import { buildProductionTimeRows, summarizeProductionTime } from "../lib/reports/production-time.ts";
+import { buildTimeByStatusRows } from "../lib/reports/time-by-status.ts";
+import { addLocalTabItem, sendLocalOrder, changeLocalOrderStatus, listLocalOrderTimings, getLocalFloor } from "../lib/local-floor.ts";
 
 test("registro de relatorios filtra pelas permissoes da sessao", () => {
   assert.equal(REPORTS_REGISTRY.length >= 3, true);
@@ -483,4 +487,159 @@ test("exportacao Excel e PDF nao lanca erro com dados validos ou vazios", async 
   assert.equal(emptyExcel.byteLength > 0, true);
   const emptyPdf = await buildPdfBuffer(emptyInput);
   assert.equal(emptyPdf.byteLength > 0, true);
+});
+
+// --- Tempo de produção / Tempo por status (ADR 0039) -----------------------------------------
+
+function makeRecord(orderId: string, history: { status: OrderTimingRecord["history"][number]["status"]; at: string }[], tableLabel: string | null = "Mesa 1"): OrderTimingRecord {
+  return { orderId, tableLabel, history: history.map(event => ({ status: event.status, at: new Date(event.at) })) };
+}
+
+test("order-timing: computeConsecutiveDurations extrai a duracao entre cada par de transicoes consecutivas", () => {
+  const record = makeRecord("order-1", [
+    { status: "RECEIVED", at: "2026-09-10T10:00:00.000Z" },
+    { status: "PREPARING", at: "2026-09-10T10:02:00.000Z" },
+    { status: "READY", at: "2026-09-10T10:10:00.000Z" },
+  ]);
+  const durations = computeConsecutiveDurations(record);
+  assert.equal(durations.length, 2);
+  assert.deepEqual(durations[0], { orderId: "order-1", fromStatus: "RECEIVED", toStatus: "PREPARING", durationMs: 2 * 60_000 });
+  assert.deepEqual(durations[1], { orderId: "order-1", fromStatus: "PREPARING", toStatus: "READY", durationMs: 8 * 60_000 });
+});
+
+test("order-timing: findFirstStatusEvent e shortOrderLabel", () => {
+  const record = makeRecord("clv9x8y7z6w5", [
+    { status: "RECEIVED", at: "2026-09-10T10:00:00.000Z" },
+    { status: "PREPARING", at: "2026-09-10T10:02:00.000Z" },
+  ]);
+  assert.equal(findFirstStatusEvent(record, "PREPARING")?.status, "PREPARING");
+  assert.equal(findFirstStatusEvent(record, "READY"), undefined);
+  assert.equal(shortOrderLabel("clv9x8y7z6w5"), "Y7Z6W5"); // ultimos 6 caracteres do id, maiusculo
+});
+
+test("tempo de producao: calcula corretamente por pedido (sentAt ate primeiro READY) e tempo medio do periodo", () => {
+  const records: OrderTimingRecord[] = [
+    makeRecord("order-a", [
+      { status: "RECEIVED", at: "2026-09-10T10:00:00.000Z" },
+      { status: "PREPARING", at: "2026-09-10T10:01:00.000Z" },
+      { status: "READY", at: "2026-09-10T10:11:00.000Z" },
+    ], "Mesa 1"),
+    makeRecord("order-b", [
+      { status: "RECEIVED", at: "2026-09-10T11:00:00.000Z" },
+      { status: "PREPARING", at: "2026-09-10T11:01:00.000Z" },
+      { status: "READY", at: "2026-09-10T11:21:00.000Z" },
+    ], "Mesa 2"),
+  ];
+  const result = buildProductionTimeRows(records);
+  assert.equal(result.rows.length, 2);
+  assert.equal(result.inProgressCount, 0);
+  assert.equal(result.rows[0]?.durationSeconds, 11 * 60);
+  assert.equal(result.rows[1]?.durationSeconds, 21 * 60);
+
+  const summary = summarizeProductionTime(result);
+  assert.equal(summary.ordersCount, 2);
+  assert.equal(summary.averageDurationSeconds, 16 * 60); // (11+21)/2 minutos
+  assert.equal(summary.inProgressCount, 0);
+});
+
+test("tempo de producao: pedido sem transicao para READY (ainda em preparo ou cancelado) fica de fora do calculo", () => {
+  const records: OrderTimingRecord[] = [
+    makeRecord("order-ready", [
+      { status: "RECEIVED", at: "2026-09-10T10:00:00.000Z" },
+      { status: "READY", at: "2026-09-10T10:05:00.000Z" },
+    ]),
+    makeRecord("order-preparing", [
+      { status: "RECEIVED", at: "2026-09-10T10:00:00.000Z" },
+      { status: "PREPARING", at: "2026-09-10T10:01:00.000Z" },
+    ]),
+    makeRecord("order-cancelled", [
+      { status: "RECEIVED", at: "2026-09-10T10:00:00.000Z" },
+      { status: "CANCELLED", at: "2026-09-10T10:02:00.000Z" },
+    ]),
+  ];
+  const result = buildProductionTimeRows(records);
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0]?.orderId, "order-ready");
+  assert.equal(result.inProgressCount, 2);
+
+  const summary = summarizeProductionTime(result);
+  assert.equal(summary.ordersCount, 1);
+  assert.equal(summary.inProgressCount, 2);
+});
+
+test("tempo por status: agrega media geral por status (RECEIVED/PREPARING/READY), nao por pedido", () => {
+  const records: OrderTimingRecord[] = [
+    makeRecord("order-a", [
+      { status: "RECEIVED", at: "2026-09-10T10:00:00.000Z" },
+      { status: "PREPARING", at: "2026-09-10T10:02:00.000Z" }, // 2min em RECEIVED
+      { status: "READY", at: "2026-09-10T10:10:00.000Z" }, // 8min em PREPARING
+      { status: "DELIVERED", at: "2026-09-10T10:15:00.000Z" }, // 5min em READY
+    ]),
+    makeRecord("order-b", [
+      { status: "RECEIVED", at: "2026-09-10T11:00:00.000Z" },
+      { status: "PREPARING", at: "2026-09-10T11:04:00.000Z" }, // 4min em RECEIVED
+      { status: "CANCELLED", at: "2026-09-10T11:06:00.000Z" }, // 2min em PREPARING (cancelado ainda conta)
+    ]),
+  ];
+  const rows = buildTimeByStatusRows(records);
+  assert.equal(rows.length, 3);
+
+  const received = rows.find(row => row.status === "RECEIVED");
+  assert.equal(received?.ordersCount, 2);
+  assert.equal(received?.averageDurationSeconds, ((2 * 60) + (4 * 60)) / 2);
+
+  const preparing = rows.find(row => row.status === "PREPARING");
+  assert.equal(preparing?.ordersCount, 2);
+  assert.equal(preparing?.averageDurationSeconds, ((8 * 60) + (2 * 60)) / 2);
+
+  const ready = rows.find(row => row.status === "READY");
+  assert.equal(ready?.ordersCount, 1);
+  assert.equal(ready?.averageDurationSeconds, 5 * 60);
+});
+
+test("tempo por status: periodo sem nenhuma transicao nao gera linhas", () => {
+  assert.deepEqual(buildTimeByStatusRows([]), []);
+});
+
+test("tempo de producao/por status (modo local): historico de status e gravado nas transicoes e isolado por estabelecimento", () => {
+  const unitA = `floor-timing-a-${crypto.randomUUID()}`;
+  const unitB = `floor-timing-b-${crypto.randomUUID()}`;
+  const from = new Date("2000-01-01T00:00:00.000Z");
+  const to = new Date("2100-01-01T00:00:00.000Z");
+
+  const tableA = getLocalFloor(unitA).tables[0];
+  const addedA = addLocalTabItem({ establishmentId: unitA, tableId: tableA.id, operatorId: "waiter-a", product: { id: "product-timing", name: "Combo" }, unitPrice: 10 });
+  assert.notEqual(addedA, "TABLE_NOT_FOUND"); if (addedA === "TABLE_NOT_FOUND") return;
+  const sentA = sendLocalOrder({ establishmentId: unitA, tabId: addedA.tab.id, operatorId: "waiter-a" });
+  assert.notEqual(sentA, "TAB_NOT_FOUND"); assert.notEqual(sentA, "NOTHING_TO_SEND"); if (typeof sentA === "string") return;
+
+  const preparingA = changeLocalOrderStatus({ establishmentId: unitA, orderId: sentA.order.id, status: "PREPARING", actorId: "cook-a" });
+  assert.equal(typeof preparingA, "object"); if (typeof preparingA === "string") return;
+  const readyA = changeLocalOrderStatus({ establishmentId: unitA, orderId: sentA.order.id, status: "READY", actorId: "cook-a" });
+  assert.equal(typeof readyA, "object"); if (typeof readyA === "string") return;
+
+  // Pedido na loja B, nunca chega a READY (isolamento por estabelecimento e "ainda em andamento").
+  const tableB = getLocalFloor(unitB).tables[0];
+  const addedB = addLocalTabItem({ establishmentId: unitB, tableId: tableB.id, operatorId: "waiter-b", product: { id: "product-timing", name: "Combo" }, unitPrice: 10 });
+  assert.notEqual(addedB, "TABLE_NOT_FOUND"); if (addedB === "TABLE_NOT_FOUND") return;
+  const sentB = sendLocalOrder({ establishmentId: unitB, tabId: addedB.tab.id, operatorId: "waiter-b" });
+  assert.notEqual(sentB, "TAB_NOT_FOUND"); assert.notEqual(sentB, "NOTHING_TO_SEND"); if (typeof sentB === "string") return;
+
+  const timingsA = listLocalOrderTimings(unitA, from, to);
+  assert.equal(timingsA.length, 1);
+  assert.deepEqual(timingsA[0]?.history.map(event => event.status), ["RECEIVED", "PREPARING", "READY"]);
+  assert.equal(timingsA[0]?.tableLabel, `Mesa ${tableA.number}`);
+
+  const rowsA = buildProductionTimeRows(timingsA);
+  assert.equal(rowsA.rows.length, 1);
+  assert.equal(rowsA.inProgressCount, 0);
+
+  const timingsB = listLocalOrderTimings(unitB, from, to);
+  assert.equal(timingsB.length, 1);
+  assert.deepEqual(timingsB[0]?.history.map(event => event.status), ["RECEIVED"]);
+  assert.equal(timingsB.some(record => record.orderId === sentA.order.id), false); // isolamento: pedido da loja A nao aparece na B
+
+  const rowsB = buildProductionTimeRows(timingsB);
+  assert.equal(rowsB.rows.length, 0);
+  assert.equal(rowsB.inProgressCount, 1); // ainda em preparo (nunca chegou a READY)
 });

@@ -5,7 +5,8 @@ import type { SelectedOptionSnapshot } from "./ingredient-options.ts";
 export type LocalOrderStatus = "RECEIVED" | "PREPARING" | "READY" | "DELIVERED" | "CANCELLED";
 type LocalTabItem = { id: string; productId: string; productName: string; quantity: number; sentQuantity: number; unitPrice: number; active: boolean; addedById: string; selectedOptionsSnapshot?: SelectedOptionSnapshot[] };
 type LocalOrderItem = { id: string; tabItemId: string; productName: string; quantity: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[]; cancellations: { id: string; quantity: number; reason: string; actorId: string; createdAt: string }[] };
-type LocalOrder = { id: string; status: LocalOrderStatus; sentById: string; sentAt: string; items: LocalOrderItem[] };
+type LocalOrderStatusHistoryEntry = { status: LocalOrderStatus; actorId: string; createdAt: string };
+type LocalOrder = { id: string; status: LocalOrderStatus; sentById: string; sentAt: string; items: LocalOrderItem[]; statusHistory: LocalOrderStatusHistoryEntry[] };
 type LocalTab = { id: string; status: "OPEN" | "PAID" | "CANCELLED"; openedById: string; openedAt: string; closedAt?: string; saleId?: string; items: LocalTabItem[]; orders: LocalOrder[] };
 type LocalTable = { id: string; number: number; seats: number; name: string | null; area: string | null; assignedWaiterId: string | null; active: boolean; tabs: LocalTab[] };
 
@@ -85,7 +86,8 @@ export function sendLocalOrder(input: { establishmentId: string; tabId: string; 
   if (!table || !tab) return "TAB_NOT_FOUND" as const;
   const pending = tab.items.filter(item => item.active && item.quantity > item.sentQuantity).map(item => ({ tabItemId: item.id, productName: item.productName, quantity: item.quantity - item.sentQuantity }));
   if (!pending.length) return "NOTHING_TO_SEND" as const;
-  const order: LocalOrder = { id: `local-order-${randomUUID()}`, status: "RECEIVED", sentById: input.operatorId, sentAt: new Date().toISOString(), items: pending.map(item => { const tabItem = tab!.items.find(candidate => candidate.id === item.tabItemId); return { ...item, id: `local-order-item-${randomUUID()}`, selectedOptionsSnapshot: tabItem?.selectedOptionsSnapshot, cancellations: [] }; }) };
+  const sentAt = new Date().toISOString();
+  const order: LocalOrder = { id: `local-order-${randomUUID()}`, status: "RECEIVED", sentById: input.operatorId, sentAt, items: pending.map(item => { const tabItem = tab!.items.find(candidate => candidate.id === item.tabItemId); return { ...item, id: `local-order-item-${randomUUID()}`, selectedOptionsSnapshot: tabItem?.selectedOptionsSnapshot, cancellations: [] }; }), statusHistory: [{ status: "RECEIVED", actorId: input.operatorId, createdAt: sentAt }] };
   tab.orders.push(order); for (const pendingItem of pending) { const item = tab.items.find(candidate => candidate.id === pendingItem.tabItemId)!; item.sentQuantity = item.quantity; }
   return { table, tab, order };
 }
@@ -109,17 +111,44 @@ export function cancelLocalSentItem(input: { establishmentId: string; tabItemId:
   const before = { quantity: item.quantity, sentQuantity: item.sentQuantity };
   item.quantity -= input.quantity; item.sentQuantity -= input.quantity; item.active = item.quantity > 0;
   for (const order of tab.orders.filter(candidate => affectedOrderIds.has(candidate.id))) {
-    if (order.items.every(orderItem => orderItem.cancellations.reduce((sum, cancellation) => sum + cancellation.quantity, 0) >= orderItem.quantity)) order.status = "CANCELLED";
+    if (order.items.every(orderItem => orderItem.cancellations.reduce((sum, cancellation) => sum + cancellation.quantity, 0) >= orderItem.quantity)) {
+      order.status = "CANCELLED";
+      order.statusHistory.push({ status: "CANCELLED", actorId: input.actorId, createdAt: new Date().toISOString() });
+    }
   }
   return { table, tab, item, before, affectedOrderIds: [...affectedOrderIds] };
 }
 
-export function changeLocalOrderStatus(input: { establishmentId: string; orderId: string; status: LocalOrderStatus }) {
+export function changeLocalOrderStatus(input: { establishmentId: string; orderId: string; status: LocalOrderStatus; actorId: string }) {
   const table = tablesFor(input.establishmentId).find(candidate => openTab(candidate)?.orders.some(order => order.id === input.orderId)); const tab = table && openTab(table); const order = tab?.orders.find(candidate => candidate.id === input.orderId);
   if (!table || !tab || !order) return "ORDER_NOT_FOUND" as const;
   const next: Partial<Record<LocalOrderStatus, LocalOrderStatus>> = { RECEIVED: "PREPARING", PREPARING: "READY", READY: "DELIVERED" };
   if (next[order.status] !== input.status) return "INVALID_ORDER_TRANSITION" as const;
-  const before = order.status; order.status = input.status; return { table, tab, order, before };
+  const before = order.status; order.status = input.status;
+  order.statusHistory.push({ status: input.status, actorId: input.actorId, createdAt: new Date().toISOString() });
+  return { table, tab, order, before };
+}
+
+// Leitura somente-leitura para os relatórios "Tempo de produção" e "Tempo por status" (ADR 0039):
+// varre todas as mesas/comandas (abertas ou já fechadas — comandas pagas continuam na lista, nunca
+// são removidas) e devolve, para cada pedido enviado dentro do período (`sentAt`), seu histórico de
+// status normalizado. Não recebe nem devolve a fatia `data` do módulo — só objetos novos.
+export function listLocalOrderTimings(establishmentId: string, from: Date, to: Date) {
+  const result: { orderId: string; tableLabel: string | null; history: { status: LocalOrderStatus; at: Date }[] }[] = [];
+  for (const table of tablesFor(establishmentId)) {
+    for (const tab of table.tabs) {
+      for (const order of tab.orders) {
+        const sentAt = new Date(order.sentAt);
+        if (sentAt < from || sentAt > to) continue;
+        result.push({
+          orderId: order.id,
+          tableLabel: `Mesa ${table.number}`,
+          history: order.statusHistory.map(entry => ({ status: entry.status, at: new Date(entry.createdAt) })),
+        });
+      }
+    }
+  }
+  return result;
 }
 
 export function closeLocalTab(input: { establishmentId: string; tabId: string; saleId: string }) {

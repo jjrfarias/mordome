@@ -17,7 +17,7 @@ test("rodadas enviadas à cozinha preservam itens e bloqueiam redução já envi
   const sent = sendLocalOrder({ establishmentId: unit, tabId: added.tab.id, operatorId: "waiter" });
   assert.notEqual(sent, "TAB_NOT_FOUND"); assert.notEqual(sent, "NOTHING_TO_SEND"); if (typeof sent === "string") return;
   assert.equal(sent.order.items[0]?.quantity, 1); assert.equal(changeLocalTabItem({ establishmentId: unit, tabItemId: added.item.id, quantity: 0 }), "ALREADY_SENT");
-  const preparing = changeLocalOrderStatus({ establishmentId: unit, orderId: sent.order.id, status: "PREPARING" }); assert.equal(typeof preparing, "object"); if (typeof preparing === "string") return; assert.equal(preparing.before, "RECEIVED");
+  const preparing = changeLocalOrderStatus({ establishmentId: unit, orderId: sent.order.id, status: "PREPARING", actorId: "waiter" }); assert.equal(typeof preparing, "object"); if (typeof preparing === "string") return; assert.equal(preparing.before, "RECEIVED");
   assert.equal(getLocalFloor(unit).orders[0]?.status, "PREPARING");
 });
 

@@ -1,4 +1,4 @@
-import { REPORTS_ITEMS_CONSUMED_VIEW, REPORTS_ITEMS_SOLD_VIEW, REPORTS_PAYMENT_METHODS_VIEW, REPORTS_PERFORMANCE_BY_STAFF_VIEW, REPORTS_REVENUE_BY_DAY_VIEW, REPORTS_SALES_BY_DELIVERY_AREA_VIEW, REPORTS_SALES_BY_PERIOD_VIEW } from "../permissions.ts";
+import { REPORTS_ITEMS_CONSUMED_VIEW, REPORTS_ITEMS_SOLD_VIEW, REPORTS_PAYMENT_METHODS_VIEW, REPORTS_PERFORMANCE_BY_STAFF_VIEW, REPORTS_PRODUCTION_TIME_VIEW, REPORTS_REVENUE_BY_DAY_VIEW, REPORTS_SALES_BY_DELIVERY_AREA_VIEW, REPORTS_SALES_BY_PERIOD_VIEW, REPORTS_TIME_BY_STATUS_VIEW } from "../permissions.ts";
 
 // Catálogo central de relatórios (ADR 0033 — framework de relatórios). Para adicionar um relatório
 // novo no futuro: (1) criar sua permissão em `lib/permissions.ts` seguindo `reports.<slug>.view`,
@@ -64,6 +64,20 @@ export const REPORTS_REGISTRY: ReportDefinition[] = [
     label: "Itens consumidos",
     description: "Agrupa o consumo de estoque (baixa automática por venda via ficha técnica) por insumo no período, com quantidade total consumida e número de movimentações.",
     permissionKey: REPORTS_ITEMS_CONSUMED_VIEW,
+    category: "Vendas",
+  },
+  {
+    id: "production-time",
+    label: "Tempo de produção",
+    description: "Tempo entre o envio do pedido à cozinha e ele ficar pronto, por pedido, com tempo médio de produção do período.",
+    permissionKey: REPORTS_PRODUCTION_TIME_VIEW,
+    category: "Vendas",
+  },
+  {
+    id: "time-by-status",
+    label: "Tempo por status",
+    description: "Tempo médio agregado que os pedidos passam em cada etapa da cozinha (Recebido, Em preparo, Pronto) no período.",
+    permissionKey: REPORTS_TIME_BY_STATUS_VIEW,
     category: "Vendas",
   },
 ];

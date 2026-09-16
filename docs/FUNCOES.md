@@ -230,14 +230,27 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
   inclui `LOSS`/`ADJUSTMENT`/outros tipos, só consumo real por venda. Não é o Relatório de CMV
   (ADR 0026): este é sobre QUANTIDADE de insumo, não sobre custo/dinheiro. Ordenado por quantidade
   consumida decrescente.
+- Relatórios **Tempo de produção** e **Tempo por status** (ver ADR 0039): construídos juntos, sobre a
+  mesma fonte — histórico de status de cada pedido de cozinha (`OrderStatusHistory`/
+  `LocalOrder.statusHistory`), extração compartilhada em `lib/reports/order-timing.ts`.
+  - **Tempo de produção**: por PEDIDO enviado no período (`Order.sentAt`), tempo entre o envio à
+    cozinha e ele ficar pronto (primeira transição para `READY`) — identificador curto, mesa,
+    horário de envio, horário de pronto e tempo decorrido. Resumo com tempo médio do período.
+    Pedidos que nunca chegaram a `READY` no período (ainda em preparo, ou cancelados antes disso)
+    ficam fora das linhas e da média, contados à parte no rodapé ("ainda em andamento/não
+    concluídos").
+  - **Tempo por status**: agregado do período (não por pedido), tempo médio que os pedidos passam em
+    cada status antes de sair dele — Recebido até Em preparo, Em preparo até Pronto, Pronto até
+    Entregue — com tempo médio e quantidade de pedidos por status.
 - Todos por `establishmentId` da sessão ativa, com rota GET dedicada
   (`/api/admin/reports/sales-by-period`, `/api/admin/reports/revenue-by-day`,
   `/api/admin/reports/staff-performance`, `/api/admin/reports/payment-methods`,
   `/api/admin/reports/sales-by-delivery-area`, `/api/admin/reports/items-sold`,
-  `/api/admin/reports/items-consumed`), suportando modo Prisma (produção) e modo local
-  (`lib/local-finance.ts`/`lib/local-inventory.ts`, a partir do log de auditoria/movimentos locais).
-- Fora desta fatia (ficam para o futuro, reaproveitando o mesmo framework): cupons gerados, DRE,
-  tempo de produção/status.
+  `/api/admin/reports/items-consumed`, `/api/admin/reports/production-time`,
+  `/api/admin/reports/time-by-status`), suportando modo Prisma (produção) e modo local
+  (`lib/local-finance.ts`/`lib/local-inventory.ts`/`lib/local-floor.ts`, a partir do log de
+  auditoria/movimentos/histórico de status locais).
+- Fora desta fatia (ficam para o futuro, reaproveitando o mesmo framework): cupons gerados, DRE.
 
 ## Histórico e auditoria — primeira fatia implementada
 
