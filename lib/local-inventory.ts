@@ -196,6 +196,29 @@ export function getLocalAverageCostByInventoryItemId(establishmentId: string, in
 }
 
 /**
+ * Consulta somente-leitura: movimentos de tipo `CONSUMPTION` (consumo automático por venda, via
+ * ficha técnica) de TODOS os insumos configurados de um estabelecimento, dentro de um período —
+ * usada pelo relatório "Itens consumidos" (ver ADR 0038). Diferente de
+ * `getLocalStockPositionHistory` (que olha um único item), esta função varre todos os itens do
+ * catálogo de estoque para montar a base de agregação por insumo. Não inclui `LOSS`/`ADJUSTMENT`/
+ * outros tipos — só consumo real por venda.
+ */
+export function listLocalConsumptionMovements(establishmentId: string, from: Date, to: Date) {
+  const result: { inventoryItemId: string; inventoryItemName: string; baseUnit: LocalBaseUnit; quantity: number }[] = [];
+  for (const item of items) {
+    const configuration = item.configurations.get(establishmentId);
+    if (!configuration) continue;
+    for (const movement of configuration.movements) {
+      if (movement.type !== "CONSUMPTION") continue;
+      const at = new Date(movement.createdAt);
+      if (at < from || at > to) continue;
+      result.push({ inventoryItemId: item.id, inventoryItemName: item.name, baseUnit: item.baseUnit, quantity: movement.quantity });
+    }
+  }
+  return result;
+}
+
+/**
  * Consulta somente-leitura: histórico de posição de estoque de um item num período,
  * com saldo acumulado (running balance) calculado a partir do saldo de abertura do
  * período (soma de tudo antes de `from`). Não grava nada — usada pela tela "Histórico

@@ -223,12 +223,19 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
   vendida, receita total (soma bruta de `quantity × unitPrice`, sem descontar reembolso) e preço
   médio praticado (receita total / quantidade). Sem restrição de canal. Ordenado por receita total
   decrescente (ranking dos produtos mais vendidos por faturamento).
+- Relatório **Itens consumidos** (ver ADR 0038): diferente de "Itens vendidos" (sobre PRODUTOS finais),
+  agrupa o CONSUMO DE ESTOQUE — movimentos `StockMovement`/`LocalStockMovement` do tipo `CONSUMPTION`
+  (baixa automática por venda via ficha técnica) por INSUMO (`InventoryItem`) — quantidade total
+  consumida no período (soma do valor absoluto, mostrada positiva) e número de movimentações. Não
+  inclui `LOSS`/`ADJUSTMENT`/outros tipos, só consumo real por venda. Não é o Relatório de CMV
+  (ADR 0026): este é sobre QUANTIDADE de insumo, não sobre custo/dinheiro. Ordenado por quantidade
+  consumida decrescente.
 - Todos por `establishmentId` da sessão ativa, com rota GET dedicada
   (`/api/admin/reports/sales-by-period`, `/api/admin/reports/revenue-by-day`,
   `/api/admin/reports/staff-performance`, `/api/admin/reports/payment-methods`,
-  `/api/admin/reports/sales-by-delivery-area`, `/api/admin/reports/items-sold`), suportando modo
-  Prisma (produção) e modo local
-  (`lib/local-finance.ts`, a partir do log de auditoria).
+  `/api/admin/reports/sales-by-delivery-area`, `/api/admin/reports/items-sold`,
+  `/api/admin/reports/items-consumed`), suportando modo Prisma (produção) e modo local
+  (`lib/local-finance.ts`/`lib/local-inventory.ts`, a partir do log de auditoria/movimentos locais).
 - Fora desta fatia (ficam para o futuro, reaproveitando o mesmo framework): cupons gerados, DRE,
   tempo de produção/status.
 

@@ -6,9 +6,11 @@ import { buildStaffPerformanceRows } from "../lib/reports/staff-performance.ts";
 import { buildPaymentMethodsRows, summarizePaymentMethods } from "../lib/reports/payment-methods.ts";
 import { buildSalesByDeliveryAreaRows, summarizeSalesByDeliveryArea, NO_DELIVERY_AREA_LABEL } from "../lib/reports/sales-by-delivery-area.ts";
 import { buildItemsSoldRows, summarizeItemsSold } from "../lib/reports/items-sold.ts";
+import { buildItemsConsumedRows, summarizeItemsConsumed, type ConsumptionMovementRecord } from "../lib/reports/items-consumed.ts";
 import { buildExcelBuffer, buildPdfBuffer } from "../lib/reports/export.ts";
 import { listLocalSalesForReport } from "../lib/local-finance.ts";
 import { recordLocalAudit } from "../lib/local-audit.ts";
+import { createLocalInventoryItem, configureLocalInventoryItem, applyLocalRecipeConsumption, adjustLocalStock, listLocalConsumptionMovements } from "../lib/local-inventory.ts";
 
 test("registro de relatorios filtra pelas permissoes da sessao", () => {
   assert.equal(REPORTS_REGISTRY.length >= 3, true);
@@ -393,6 +395,80 @@ test("relatorios locais propagam itens de venda para itens vendidos, isolado por
   assert.equal(rowsB.length, 1);
   assert.equal(rowsB[0]?.productName, "Produto da loja B");
   assert.equal(rowsB[0]?.revenue, 999);
+});
+
+const consumptionMovements: ConsumptionMovementRecord[] = [
+  { inventoryItemId: "item-pao", inventoryItemName: "Pão", baseUnit: "UNIT", quantity: -2 },
+  { inventoryItemId: "item-pao", inventoryItemName: "Pão", baseUnit: "UNIT", quantity: -1 },
+  { inventoryItemId: "item-queijo", inventoryItemName: "Queijo", baseUnit: "GRAM", quantity: -150 },
+];
+
+test("itens consumidos: agrega por insumo, soma quantidade absoluta e conta movimentacoes, ranking por quantidade decrescente", () => {
+  const rows = buildItemsConsumedRows(consumptionMovements);
+
+  assert.equal(rows.length, 2);
+
+  const queijo = rows.find(row => row.inventoryItemId === "item-queijo");
+  assert.ok(queijo);
+  assert.equal(queijo?.quantity, 150);
+  assert.equal(queijo?.movementsCount, 1);
+  assert.equal(queijo?.baseUnit, "GRAM");
+
+  const pao = rows.find(row => row.inventoryItemId === "item-pao");
+  assert.ok(pao);
+  assert.equal(pao?.quantity, 3); // abs(-2) + abs(-1)
+  assert.equal(pao?.movementsCount, 2);
+
+  // Ordenado por quantidade consumida decrescente: Queijo (150) > Pao (3).
+  assert.deepEqual(rows.map(row => row.inventoryItemId), ["item-queijo", "item-pao"]);
+  assert.deepEqual(rows.map(row => row.rank), [1, 2]);
+
+  const summary = summarizeItemsConsumed(rows);
+  assert.equal(summary.itemsCount, 2);
+  assert.equal(summary.movementsCount, 1 + 2);
+});
+
+test("itens consumidos: sem movimentacoes no periodo nao gera linhas", () => {
+  const rows = buildItemsConsumedRows([]);
+  assert.equal(rows.length, 0);
+  const summary = summarizeItemsConsumed(rows);
+  assert.equal(summary.itemsCount, 0);
+  assert.equal(summary.movementsCount, 0);
+});
+
+test("itens consumidos (modo local): so CONSUMPTION conta, LOSS/ADJUSTMENT nao aparecem, isolado por estabelecimento", () => {
+  const storeA = `store-${crypto.randomUUID()}`;
+  const storeB = `store-${crypto.randomUUID()}`;
+  const from = new Date("2026-09-01T00:00:00.000Z");
+  const to = new Date("2026-09-30T23:59:59.999Z");
+
+  const flour = createLocalInventoryItem(storeA, { name: `Farinha ${crypto.randomUUID()}`, baseUnit: "GRAM", trackingMode: "AUTOMATIC", minimumStock: 0, allowNegative: true })!;
+  configureLocalInventoryItem(storeB, flour.id);
+
+  // Consumo real por venda (via ficha tecnica) - deve entrar no relatorio.
+  applyLocalRecipeConsumption(storeA, [{ inventoryItemId: flour.id, quantity: 200 }]);
+  applyLocalRecipeConsumption(storeA, [{ inventoryItemId: flour.id, quantity: 100 }]);
+
+  // Perda manual e ajuste de contagem - NAO devem entrar no relatorio (so consumo real por venda).
+  adjustLocalStock({ establishmentId: storeA, establishmentItemId: flour.establishmentItemId!, kind: "LOSS", quantity: 50, factorToBase: 1, idempotencyKey: `loss-${crypto.randomUUID()}` });
+  adjustLocalStock({ establishmentId: storeA, establishmentItemId: flour.establishmentItemId!, kind: "PHYSICAL_COUNT", quantity: 1000, factorToBase: 1, idempotencyKey: `count-${crypto.randomUUID()}` });
+
+  // Consumo na loja B - nao deve aparecer no relatorio da loja A (isolamento por estabelecimento).
+  applyLocalRecipeConsumption(storeB, [{ inventoryItemId: flour.id, quantity: 999 }]);
+
+  const movementsA = listLocalConsumptionMovements(storeA, from, to);
+  assert.equal(movementsA.length, 2);
+  assert.equal(movementsA.every(movement => movement.quantity < 0), true);
+
+  const rowsA = buildItemsConsumedRows(movementsA);
+  assert.equal(rowsA.length, 1);
+  assert.equal(rowsA[0]?.quantity, 300); // 200 + 100, sem a perda (50) nem o ajuste
+  assert.equal(rowsA[0]?.movementsCount, 2);
+
+  const movementsB = listLocalConsumptionMovements(storeB, from, to);
+  assert.equal(movementsB.length, 1);
+  const rowsB = buildItemsConsumedRows(movementsB);
+  assert.equal(rowsB[0]?.quantity, 999);
 });
 
 test("exportacao Excel e PDF nao lanca erro com dados validos ou vazios", async () => {
