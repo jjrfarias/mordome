@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { convertToBaseUnit, stockBalance } from "./inventory-domain.ts";
+import { convertToBaseUnit, resolvePhysicalCountAdjustment, stockBalance } from "./inventory-domain.ts";
 
 export type LocalBaseUnit = "GRAM" | "MILLILITER" | "UNIT";
 export type LocalTrackingMode = "AUTOMATIC" | "MANUAL" | "NONE";
@@ -92,13 +92,55 @@ export function adjustLocalStock(input: { establishmentId: string; establishment
   const item = items.find(row => row.configurations.get(input.establishmentId)?.id === input.establishmentItemId);
   const configuration = item?.configurations.get(input.establishmentId);
   if (!item || !configuration) return "NOT_FOUND" as const;
-  const converted = convertToBaseUnit(input.quantity, input.factorToBase);
   const balance = stockBalance(configuration.movements.map(quantity => ({ quantity })));
-  const delta = input.kind === "PHYSICAL_COUNT" ? converted - balance : -converted;
+  if (input.kind === "PHYSICAL_COUNT") {
+    const outcome = resolvePhysicalCountAdjustment({ countedQuantity: input.quantity, factorToBase: input.factorToBase, balance, allowNegative: configuration.allowNegative });
+    if (!outcome.ok) return "INSUFFICIENT_STOCK" as const;
+    configuration.movements.push(outcome.delta);
+    completedAdjustments.add(input.idempotencyKey);
+    return { delta: outcome.delta, balance: outcome.newBalance };
+  }
+  const converted = convertToBaseUnit(input.quantity, input.factorToBase);
+  const delta = -converted;
   if (!configuration.allowNegative && balance + delta < 0) return "INSUFFICIENT_STOCK" as const;
   configuration.movements.push(delta);
   completedAdjustments.add(input.idempotencyKey);
   return { delta, balance: balance + delta };
+}
+
+const completedBulkPhysicalCounts = new Set<string>();
+
+/**
+ * Aplica uma contagem física de vários itens de uma vez, reaproveitando a mesma
+ * fórmula de cálculo (`resolvePhysicalCountAdjustment`) usada pelo ajuste individual
+ * (`adjustLocalStock`). Todos os itens são validados antes de qualquer mutação —
+ * se um falhar (item inexistente ou estoque negativo não permitido), nada é aplicado.
+ */
+export function applyLocalBulkPhysicalCount(establishmentId: string, items: { establishmentItemId: string; countedQuantity: number; factorToBase: number }[], idempotencyKey?: string) {
+  if (idempotencyKey) {
+    if (completedBulkPhysicalCounts.has(idempotencyKey)) return "DUPLICATE" as const;
+  }
+  const resolved: { configuration: Configuration; establishmentItemId: string; delta: number; newBalance: number }[] = [];
+  for (const entry of items) {
+    const record = itemsFindByEstablishmentItemId(establishmentId, entry.establishmentItemId);
+    if (!record) return { failedEstablishmentItemId: entry.establishmentItemId, reason: "NOT_FOUND" } as const;
+    const balance = stockBalance(record.configuration.movements.map(quantity => ({ quantity })));
+    const outcome = resolvePhysicalCountAdjustment({ countedQuantity: entry.countedQuantity, factorToBase: entry.factorToBase, balance, allowNegative: record.configuration.allowNegative });
+    if (!outcome.ok) return { failedEstablishmentItemId: entry.establishmentItemId, reason: "NEGATIVE_STOCK" } as const;
+    resolved.push({ configuration: record.configuration, establishmentItemId: entry.establishmentItemId, delta: outcome.delta, newBalance: outcome.newBalance });
+  }
+  for (const entry of resolved) {
+    if (entry.delta !== 0) entry.configuration.movements.push(entry.delta);
+  }
+  if (idempotencyKey) completedBulkPhysicalCounts.add(idempotencyKey);
+  return resolved.filter(entry => entry.delta !== 0).map(entry => ({ establishmentItemId: entry.establishmentItemId, delta: entry.delta, balance: entry.newBalance }));
+}
+
+function itemsFindByEstablishmentItemId(establishmentId: string, establishmentItemId: string) {
+  const item = items.find(row => row.configurations.get(establishmentId)?.id === establishmentItemId);
+  const configuration = item?.configurations.get(establishmentId);
+  if (!item || !configuration) return null;
+  return { item, configuration };
 }
 
 export function applyLocalRecipeConsumption(establishmentId: string, consumptions: { inventoryItemId: string; quantity: number }[]) {

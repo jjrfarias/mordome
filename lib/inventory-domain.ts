@@ -29,3 +29,20 @@ export function calculateRecipeConsumption(components: RecipeComponentInput[], s
 export function stockBalance(movements: ReadonlyArray<{ quantity: number }>) {
   return roundStock(movements.reduce((total, movement) => total + movement.quantity, 0));
 }
+
+/**
+ * Regra única de cálculo do delta de uma contagem física de estoque, compartilhada
+ * pelo ajuste individual (`ADJUST`/`PHYSICAL_COUNT`) e pelo ajuste em lote
+ * (`BULK_PHYSICAL_COUNT`) — nunca duplicar esta fórmula em outro lugar.
+ */
+export function resolvePhysicalCountAdjustment(input: { countedQuantity: number; factorToBase: number; balance: number; allowNegative: boolean }) {
+  if (!Number.isFinite(input.countedQuantity) || input.countedQuantity < 0) throw new Error("A quantidade contada deve ser maior ou igual a zero.");
+  if (!Number.isFinite(input.factorToBase) || input.factorToBase <= 0) throw new Error("O fator de conversão deve ser maior que zero.");
+  // Diferente de `convertToBaseUnit` (usado por entrada/perda/consumo), uma contagem física
+  // aceita quantidade zero — significa que o item acabou (saldo real é zero).
+  const converted = roundStock(input.countedQuantity * input.factorToBase);
+  const delta = roundStock(converted - input.balance);
+  const newBalance = roundStock(input.balance + delta);
+  if (!input.allowNegative && newBalance < 0) return { ok: false as const };
+  return { ok: true as const, delta, newBalance };
+}

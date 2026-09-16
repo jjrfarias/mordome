@@ -1,0 +1,26 @@
+# ADR 0023: Posição e contagem de estoque
+
+- Estado: aceito
+- Data: 2026-09-15
+
+## Contexto
+
+O ajuste de contagem física já existia item por item: em `app/api/admin/inventory/route.ts`, a action `ADJUST` com `kind: "PHYSICAL_COUNT"` recebe a quantidade contada de um único item, calcula `delta = converted - balance` e grava um `StockMovement` tipo `ADJUSTMENT` (com `AuditEvent` `STOCK_ADJUST`). Essa lógica é usada por um formulário pequeno por item em `components/admin/InventoryManagement.tsx`.
+
+O Betão Hot Dog precisa fazer contagem física periódica de **todos** os itens de uma vez (uma "sessão de contagem"), não item a item — abrir e fechar um formulário por insumo é lento e não dá visão do total da diferença antes de confirmar.
+
+## Decisões
+
+1. **Reaproveitar a mesma regra de cálculo do ajuste individual, não criar um novo tipo de movimento.** A ação em lote (`BULK_PHYSICAL_COUNT`, mesma rota `app/api/admin/inventory/route.ts`) usa exatamente a mesma fórmula `delta = converted - balance` e grava `StockMovement` tipo `ADJUSTMENT` com `sourceType: "PHYSICAL_COUNT"` — a mesma semântica do ajuste individual. Para evitar divergência entre as duas regras, a fórmula foi extraída para uma função pura compartilhada, `resolvePhysicalCountAdjustment`, em `lib/inventory-domain.ts`, e tanto a action `ADJUST` (individual) quanto `BULK_PHYSICAL_COUNT` (lote) chamam essa mesma função no modo servidor. No modo local, `lib/local-inventory.ts` ganhou `applyLocalBulkPhysicalCount`, que chama a mesma `adjustLocalStock` já usada pelo ajuste individual, item por item, dentro de um laço com rollback manual em caso de falha (o modo local não tem transação de banco; ver decisão 4).
+2. **Motivo único por sessão, não por item.** A tela de contagem pede um único campo de motivo (ex.: "Contagem mensal de 16/09") aplicado a todos os `StockMovement`/`AuditEvent` gerados naquela sessão. Simplificação deliberada: pedir motivo por item tornaria a tela mais lenta de preencher sem ganho real de auditoria, já que todos os itens da sessão compartilham o mesmo contexto (a mesma contagem física, no mesmo momento). Sujeito a revisão se o negócio precisar de motivos diferentes por item no futuro.
+3. **Cada item ajustado gera seu próprio `StockMovement` e `AuditEvent`, não um evento genérico agregado.** Isso preserva o comportamento de auditoria já estabelecido (cada movimento de estoque é rastreável individualmente, com seu próprio `entityId`) e mantém a tela de Histórico/Auditoria funcionando sem alteração.
+4. **Atomicidade no servidor via `db.$transaction`.** A ação em lote calcula o delta de cada item, valida saldo negativo não permitido (`allowNegative`) e, se qualquer item falhar, nenhuma mudança é persistida — a transação inteira é revertida e o erro identifica qual item falhou (nome/id). No modo local (sem transação de banco real), a mesma garantia é obtida validando todos os itens primeiro (sem persistir nada) e só then aplicando os deltas; se qualquer validação falhar, nada é escrito.
+5. **Escopo desta fatia é só a sessão de contagem atual — não o histórico de posições passadas.** "Histórico de posição de estoque" (ver contagens/ajustes ao longo do tempo, comparar contagens anteriores) é uma funcionalidade diferente e fica fora de escopo aqui; o histórico de ajustes já existente (via `AuditEvent`/tela de Auditoria) continua sendo a única forma de consultar contagens passadas — não foi criada uma tela ou tabela nova de "posições". Se o negócio precisar de uma timeline dedicada de contagens (ex.: comparar contagem de setembro com a de agosto), é uma fatia futura própria.
+6. **Permissão reaproveitada: `stock.adjust`.** A mesma permissão que já controla o ajuste individual (`canAdjustStock` em `lib/auth.ts`/`lib/local-auth.ts`) controla a ação em lote — não foi criada uma permissão nova, pois o efeito no domínio é idêntico (ajuste de estoque via contagem física), só a experiência de tela muda.
+7. **Interface: nova sub-aba "Contagem de estoque" dentro de Estoque**, ao lado de "Itens de estoque", "Ordens de compra" e "Notas de entrada". A tela lista todos os itens configurados na unidade com um campo de contagem física por item (vazio por padrão — item não preenchido não é tocado), mostra a diferença calculada ao lado com destaque visual de sobra/falta, um resumo (quantos preenchidos, quantos com diferença) e um botão único "Confirmar contagem" que abre um modal de confirmação (padrão `.modal-bg`/`.modal`) resumindo os itens que serão ajustados antes de aplicar. Itens sem contagem preenchida ou com contagem igual ao saldo do sistema são ignorados (não geram `StockMovement`). Após confirmar, a tela mostra o resultado e reseta os campos para permitir uma nova contagem.
+
+## Consequências
+
+- Nenhum novo `StockMovementType` foi criado; `ADJUSTMENT` continua cobrindo tanto o ajuste individual quanto o em lote.
+- A regra de cálculo do delta vive em um único lugar (`resolvePhysicalCountAdjustment`), eliminando o risco de o ajuste individual e o em lote divergirem no futuro.
+- Pendência explícita para decisão humana / fatia futura: histórico de posições de estoque ao longo do tempo (comparar contagens passadas) não existe nesta fatia — apenas o `AuditEvent` de cada ajuste já registra o que aconteceu, sem uma tela dedicada de timeline.

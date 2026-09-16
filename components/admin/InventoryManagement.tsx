@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { ArrowDownToLine, ArrowRightLeft, Boxes, ClipboardCheck, FileText, MapPin, Plus, ShoppingCart } from "lucide-react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { ArrowDownToLine, ArrowRightLeft, Boxes, CheckCircle2, ClipboardCheck, ClipboardList, FileText, MapPin, Plus, ShoppingCart, TrendingDown, TrendingUp, X } from "lucide-react";
 import { GoodsReceiptNotes } from "./GoodsReceiptNotes";
 import { PurchaseOrders } from "./PurchaseOrders";
 
@@ -21,7 +21,7 @@ type InventoryItem = {
 
 const unitLabels: Record<BaseUnit, string> = { GRAM: "g", MILLILITER: "ml", UNIT: "un" };
 
-type InventorySection = "items" | "purchase-orders" | "goods-receipts";
+type InventorySection = "items" | "purchase-orders" | "goods-receipts" | "count";
 
 export function InventoryManagement({ establishmentId, establishmentName }: { establishmentId: string; establishmentName: string }) {
   const [section, setSection] = useState<InventorySection>("items");
@@ -80,6 +80,7 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
         <button className={section === "items" ? "active" : ""} onClick={() => setSection("items")}>Itens de estoque</button>
         <button className={section === "purchase-orders" ? "active" : ""} onClick={() => setSection("purchase-orders")}><ShoppingCart size={14} />Ordens de compra</button>
         <button className={section === "goods-receipts" ? "active" : ""} onClick={() => setSection("goods-receipts")}><FileText size={14} />Notas de entrada</button>
+        <button className={section === "count" ? "active" : ""} onClick={() => setSection("count")}><ClipboardList size={14} />Contagem de estoque</button>
       </nav>
       {section === "items" && <form className="inventory-create-form" onSubmit={create}>
         <label className="field"><span>Item</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Ex.: Milho" /></label>
@@ -97,7 +98,100 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
     </>}
     {section === "purchase-orders" && <PurchaseOrders items={items} />}
     {section === "goods-receipts" && <GoodsReceiptNotes items={items} />}
+    {section === "count" && <StockCountSession items={items.filter(item => item.configured)} loading={loading} error={error} establishmentName={establishmentName} onApplied={load} />}
   </div>;
+}
+
+function StockCountSession({ items, loading, error, establishmentName, onApplied }: { items: InventoryItem[]; loading: boolean; error: string; establishmentName: string; onApplied: () => Promise<void> }) {
+  const [counts, setCounts] = useState<Record<string, string>>({});
+  const [reason, setReason] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [success, setSuccess] = useState("");
+
+  const rows = useMemo(() => items.map(item => {
+    const raw = counts[item.id];
+    const numeric = raw !== undefined && raw.trim() !== "" ? Number(raw.replace(",", ".")) : null;
+    const hasCount = numeric !== null && Number.isFinite(numeric);
+    const delta = hasCount ? Math.round((numeric! - item.balance) * 1000) / 1000 : 0;
+    return { item, hasCount, numeric, delta };
+  }), [items, counts]);
+
+  const filledCount = rows.filter(row => row.hasCount).length;
+  const changedRows = rows.filter(row => row.hasCount && row.delta !== 0);
+
+  const setCount = (itemId: string, value: string) => {
+    setSuccess("");
+    setCounts(current => ({ ...current, [itemId]: value }));
+  };
+
+  const resetSession = () => { setCounts({}); setReason(""); };
+
+  const confirm = async () => {
+    setSaving(true); setSaveError("");
+    try {
+      const payload = {
+        action: "BULK_PHYSICAL_COUNT",
+        reason: reason.trim(),
+        idempotencyKey: crypto.randomUUID(),
+        items: changedRows.map(row => ({ establishmentItemId: row.item.establishmentItemId as string, countedQuantity: row.numeric as number, factorToBase: row.item.conversions[0]?.factorToBase ?? 1 })),
+      };
+      const response = await fetch("/api/admin/inventory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível aplicar a contagem.");
+      setConfirming(false);
+      resetSession();
+      setSuccess(`Contagem aplicada: ${changedRows.length} ${changedRows.length === 1 ? "item ajustado" : "itens ajustados"}.`);
+      await onApplied();
+    } catch (cause) {
+      setSaveError(cause instanceof Error ? cause.message : "Não foi possível aplicar a contagem.");
+    } finally { setSaving(false); }
+  };
+
+  if (loading) return <div className="empty"><span>Carregando estoque…</span></div>;
+  if (error) return <div className="auth-error" role="alert">{error}</div>;
+  if (items.length === 0) return <div className="big-empty"><ClipboardList /><h2>Nenhum item configurado</h2><p>Ative itens de estoque em {establishmentName} para iniciar uma contagem.</p></div>;
+
+  return <section className="stock-count-session">
+    <div className="stock-count-summary">
+      <div><span>Itens na unidade</span><strong>{items.length}</strong></div>
+      <div><span>Contagens preenchidas</span><strong>{filledCount}</strong></div>
+      <div><span>Com diferença</span><strong>{changedRows.length}</strong></div>
+      <button className="primary" disabled={changedRows.length === 0} onClick={() => setConfirming(true)}><ClipboardCheck />Confirmar contagem</button>
+    </div>
+    {success && <div className="stock-count-success"><CheckCircle2 />{success}</div>}
+    {saveError && <div className="auth-error" role="alert">{saveError}</div>}
+    <div className="stock-count-list">
+      {rows.map(({ item, hasCount, delta }) => {
+        const unit = unitLabels[item.baseUnit];
+        return <article key={item.id} className={`stock-count-row ${hasCount && delta !== 0 ? (delta > 0 ? "surplus" : "shortage") : ""}`}>
+          <div className="inventory-identity"><small>Saldo do sistema</small><strong>{item.name}</strong></div>
+          <div className="stock-count-balance"><strong>{item.balance.toLocaleString("pt-BR", { maximumFractionDigits: 3 })}</strong><em>{unit}</em></div>
+          <label className="field"><span>Contagem física</span><input inputMode="decimal" placeholder="Não contado" value={counts[item.id] ?? ""} onChange={event => setCount(item.id, event.target.value)} /></label>
+          <div className="stock-count-delta">
+            {hasCount && delta === 0 && <span className="neutral">Sem diferença</span>}
+            {hasCount && delta > 0 && <span className="surplus"><TrendingUp size={13} />+{delta.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {unit}</span>}
+            {hasCount && delta < 0 && <span className="shortage"><TrendingDown size={13} />{delta.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {unit}</span>}
+          </div>
+        </article>;
+      })}
+    </div>
+    {confirming && <div className="modal-bg" role="dialog" aria-modal="true">
+      <div className="modal">
+        <button className="modal-close" onClick={() => setConfirming(false)} aria-label="Fechar"><X /></button>
+        <div className="modal-icon"><ClipboardCheck /></div>
+        <h2>Confirmar contagem de estoque</h2>
+        <p>{changedRows.length} {changedRows.length === 1 ? "item será ajustado" : "itens serão ajustados"} em {establishmentName}:</p>
+        <ul className="stock-count-preview">
+          {changedRows.map(row => <li key={row.item.id}><span>{row.item.name}</span><strong className={row.delta > 0 ? "surplus" : "shortage"}>{row.delta > 0 ? "+" : ""}{row.delta.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {unitLabels[row.item.baseUnit]}</strong></li>)}
+        </ul>
+        <label className="field"><span>Motivo da contagem</span><input autoFocus value={reason} onChange={event => setReason(event.target.value)} placeholder="Ex.: Contagem mensal de 16/09" /></label>
+        {saveError && <span className="inline-error">{saveError}</span>}
+        <button className="primary wide" disabled={saving || reason.trim().length < 3} onClick={() => void confirm()}>{saving ? "Aplicando…" : "Aplicar ajustes"}</button>
+      </div>
+    </div>}
+  </section>;
 }
 
 function InventoryRow({ item, establishments, onChanged }: { item: InventoryItem; establishments: EstablishmentOption[]; onChanged: () => Promise<void> }) {

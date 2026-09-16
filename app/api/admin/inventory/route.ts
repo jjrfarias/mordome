@@ -3,9 +3,9 @@ import { z } from "zod";
 import { db } from "@/lib/db";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { slugify } from "@/lib/auth-validation";
-import { convertToBaseUnit } from "@/lib/inventory-domain";
+import { convertToBaseUnit, resolvePhysicalCountAdjustment } from "@/lib/inventory-domain";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
-import { addLocalStockEntry, adjustLocalStock, configureLocalInventoryItem, createLocalInventoryItem, defaultConversions, listLocalInventory, transferLocalStock } from "@/lib/local-inventory";
+import { addLocalStockEntry, adjustLocalStock, applyLocalBulkPhysicalCount, configureLocalInventoryItem, createLocalInventoryItem, defaultConversions, listLocalInventory, transferLocalStock } from "@/lib/local-inventory";
 import { requestAuditMetadata } from "@/lib/audit";
 import { recordLocalAudit } from "@/lib/local-audit";
 
@@ -14,7 +14,13 @@ const configureSchema = z.object({ action: z.literal("CONFIGURE_ITEM"), inventor
 const entrySchema = z.object({ action: z.literal("ENTRY"), establishmentItemId: z.string().min(1), quantity: z.number().finite().positive(), factorToBase: z.number().finite().positive(), totalCost: z.number().finite().min(0).optional(), idempotencyKey: z.string().uuid(), reason: z.string().trim().max(200).optional() });
 const transferSchema = z.object({ action: z.literal("TRANSFER"), establishmentItemId: z.string().min(1), destinationEstablishmentId: z.string().min(1), quantity: z.number().finite().positive(), factorToBase: z.number().finite().positive(), idempotencyKey: z.string().uuid(), reason: z.string().trim().min(2).max(200) });
 const adjustSchema = z.object({ action: z.literal("ADJUST"), establishmentItemId: z.string().min(1), kind: z.enum(["LOSS", "INTERNAL_CONSUMPTION", "PHYSICAL_COUNT"]), quantity: z.number().finite().min(0), factorToBase: z.number().finite().positive(), idempotencyKey: z.string().uuid(), reason: z.string().trim().min(3).max(200) });
-const actionSchema = z.discriminatedUnion("action", [createSchema, configureSchema, entrySchema, transferSchema, adjustSchema]);
+const bulkPhysicalCountSchema = z.object({
+  action: z.literal("BULK_PHYSICAL_COUNT"),
+  reason: z.string().trim().min(3).max(200),
+  idempotencyKey: z.string().uuid(),
+  items: z.array(z.object({ establishmentItemId: z.string().min(1), countedQuantity: z.number().finite().min(0), factorToBase: z.number().finite().positive() })).min(1).max(500),
+});
+const actionSchema = z.discriminatedUnion("action", [createSchema, configureSchema, entrySchema, transferSchema, adjustSchema, bulkPhysicalCountSchema]);
 
 async function resolveActor() {
   const session = await getCurrentSession();
@@ -67,6 +73,19 @@ export async function POST(request: Request) {
       recordLocalAudit({ ...localBase, action: "STOCK_ADJUST", entityType: "StockMovement", entityId: data.establishmentItemId, reason: data.reason, after: { kind: data.kind, ...adjusted } });
       return Response.json({ movement: adjusted }, { status: 201 });
     }
+    if (data.action === "BULK_PHYSICAL_COUNT") {
+      if (!session.canAdjustStock) return Response.json({ error: "Você não tem permissão para ajustar o estoque." }, { status: 403 });
+      const result = applyLocalBulkPhysicalCount(session.establishment.id, data.items, data.idempotencyKey);
+      if (result === "DUPLICATE") return Response.json({ error: "Esta contagem já foi registrada." }, { status: 409 });
+      if (typeof result === "object" && "failedEstablishmentItemId" in result) {
+        const message = result.reason === "NOT_FOUND" ? `Item de estoque "${result.failedEstablishmentItemId}" não encontrado nesta unidade.` : `Não foi possível ajustar o item ${result.failedEstablishmentItemId}: o ajuste deixaria o estoque negativo.`;
+        return Response.json({ error: message }, { status: result.reason === "NOT_FOUND" ? 404 : 409 });
+      }
+      for (const movement of result) {
+        recordLocalAudit({ ...localBase, action: "STOCK_ADJUST", entityType: "StockMovement", entityId: movement.establishmentItemId, reason: data.reason, after: { kind: "PHYSICAL_COUNT", delta: movement.delta, balance: movement.balance } });
+      }
+      return Response.json({ movements: result }, { status: 201 });
+    }
     if (data.action === "TRANSFER") {
       if (!session.establishments.some(item => item.id === data.destinationEstablishmentId)) return Response.json({ error: "Unidade de destino não autorizada." }, { status: 403 });
       const transfer = transferLocalStock({ ...data, sourceEstablishmentId: session.establishment.id });
@@ -95,9 +114,15 @@ export async function POST(request: Request) {
         const item = await tx.establishmentInventoryItem.findFirst({ where: { id: data.establishmentItemId, establishmentId: actor.session.establishment.id, active: true }, include: { movements: { select: { quantity: true } } } });
         if (!item) throw new Error("ADJUST_ITEM_NOT_FOUND");
         const balance = item.movements.reduce((sum, movement) => sum + Number(movement.quantity), 0);
-        const converted = convertToBaseUnit(data.quantity, data.factorToBase);
-        const delta = data.kind === "PHYSICAL_COUNT" ? converted - balance : -converted;
-        if (!item.allowNegative && balance + delta < 0) throw new Error("ADJUST_INSUFFICIENT_STOCK");
+        let delta: number;
+        if (data.kind === "PHYSICAL_COUNT") {
+          const outcome = resolvePhysicalCountAdjustment({ countedQuantity: data.quantity, factorToBase: data.factorToBase, balance, allowNegative: item.allowNegative });
+          if (!outcome.ok) throw new Error("ADJUST_INSUFFICIENT_STOCK");
+          delta = outcome.delta;
+        } else {
+          delta = -convertToBaseUnit(data.quantity, data.factorToBase);
+          if (!item.allowNegative && balance + delta < 0) throw new Error("ADJUST_INSUFFICIENT_STOCK");
+        }
         const movement = await tx.stockMovement.create({ data: { establishmentItemId: item.id, type: data.kind === "LOSS" ? "LOSS" : data.kind === "INTERNAL_CONSUMPTION" ? "CONSUMPTION" : "ADJUSTMENT", quantity: delta, actorId: actor.session.user.id, sourceType: data.kind, reason: data.reason, idempotencyKey: data.idempotencyKey } });
         await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "STOCK_ADJUST", entityType: "StockMovement", entityId: movement.id, reason: data.reason, before: { balance }, after: { kind: data.kind, quantity: delta, balance: balance + delta }, ...requestAuditMetadata(request) } });
         return movement;
@@ -108,6 +133,33 @@ export async function POST(request: Request) {
       if (error instanceof Error && error.message === "ADJUST_INSUFFICIENT_STOCK") return Response.json({ error: "O ajuste deixaria o estoque negativo." }, { status: 409 });
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return Response.json({ error: "Este ajuste já foi registrado." }, { status: 409 });
       return Response.json({ error: "Não foi possível ajustar o estoque." }, { status: 500 });
+    }
+  }
+
+  if (data.action === "BULK_PHYSICAL_COUNT") {
+    if (!actor.session.canAdjustStock) return Response.json({ error: "Você não tem permissão para ajustar o estoque." }, { status: 403 });
+    try {
+      const movements = await db.$transaction(async tx => {
+        const created: { id: string; establishmentItemId: string; quantity: number }[] = [];
+        for (const entry of data.items) {
+          const item = await tx.establishmentInventoryItem.findFirst({ where: { id: entry.establishmentItemId, establishmentId: actor.session.establishment.id, active: true, inventoryItem: { organizationId: actor.session.organization.id } }, include: { movements: { select: { quantity: true } } } });
+          if (!item) throw new Error(`BULK_ITEM_NOT_FOUND:${entry.establishmentItemId}`);
+          const balance = item.movements.reduce((sum, movement) => sum + Number(movement.quantity), 0);
+          const outcome = resolvePhysicalCountAdjustment({ countedQuantity: entry.countedQuantity, factorToBase: entry.factorToBase, balance, allowNegative: item.allowNegative });
+          if (!outcome.ok) throw new Error(`BULK_INSUFFICIENT_STOCK:${entry.establishmentItemId}`);
+          if (outcome.delta === 0) continue;
+          const movement = await tx.stockMovement.create({ data: { establishmentItemId: item.id, type: "ADJUSTMENT", quantity: outcome.delta, actorId: actor.session.user.id, sourceType: "PHYSICAL_COUNT", reason: data.reason, idempotencyKey: `${data.idempotencyKey}:${entry.establishmentItemId}` } });
+          await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "STOCK_ADJUST", entityType: "StockMovement", entityId: movement.id, reason: data.reason, before: { balance }, after: { kind: "PHYSICAL_COUNT", quantity: outcome.delta, balance: outcome.newBalance }, ...requestAuditMetadata(request) } });
+          created.push({ id: movement.id, establishmentItemId: entry.establishmentItemId, quantity: Number(movement.quantity) });
+        }
+        return created;
+      });
+      return Response.json({ movements }, { status: 201 });
+    } catch (error) {
+      if (error instanceof Error && error.message.startsWith("BULK_ITEM_NOT_FOUND:")) return Response.json({ error: `Item de estoque não encontrado: ${error.message.split(":")[1]}` }, { status: 404 });
+      if (error instanceof Error && error.message.startsWith("BULK_INSUFFICIENT_STOCK:")) return Response.json({ error: `O ajuste deixaria o estoque negativo para o item ${error.message.split(":")[1]}.` }, { status: 409 });
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return Response.json({ error: "Esta contagem já foi registrada." }, { status: 409 });
+      return Response.json({ error: "Não foi possível aplicar a contagem de estoque." }, { status: 500 });
     }
   }
 
