@@ -39,6 +39,28 @@ Um atendente pode, por exemplo, receber apenas `finance.reports.view` para ajuda
 
 Os nomes são contratos internos e só devem mudar por migração explícita.
 
+## Permissão por relatório individual (ADR 0033)
+
+Os relatórios (`lib/reports/registry.ts`) introduzem uma granularidade nova: em vez de uma
+permissão única "ver relatórios", **cada relatório do catálogo tem sua própria chave** de
+permissão, no padrão `reports.<slug>.view` (ex. `reports.sales_by_period.view`,
+`reports.revenue_by_day.view`). Isso permite que um perfil enxergue "Vendas por período" sem ter
+acesso a "Faturamento por dia", e vice-versa — decisão de produto explícita do dono.
+
+A tela única de relatórios (`components/admin/ReportsWorkspace.tsx`) não usa nenhuma flag booleana
+dedicada na sessão para isso: ela filtra o catálogo central diretamente pelo array
+`session.permissionKeys` (já existente e já propagado por `getCurrentSession`/`getLocalSession`),
+via `listAvailableReports(permissionKeys)`. Cada rota de API de um relatório (ex.
+`GET /api/admin/reports/sales-by-period`) valida `session.permissionKeys.includes(<chave do
+relatório>)` antes de responder — a interface some com o item que falta permissão, mas o servidor
+sempre repete a verificação.
+
+Para adicionar um relatório novo no futuro: criar sua constante de permissão em
+`lib/permissions.ts` seguindo o padrão `reports.<slug>.view`, gerar a migração inserindo a
+`Permission` e concedendo aos perfis `systemTemplate = true` (mesmo padrão das migrações 0015/0016/
+0018), e registrar o relatório em `lib/reports/registry.ts`. Nenhuma outra peça do framework
+(navegação, exportação, tabela) precisa mudar.
+
 ## Perfis modelo
 
 Administrador, gerente, atendente, caixa e cozinha são modelos clonáveis, não regras rígidas. O proprietário pode criar “Atendente + resumo financeiro” selecionando capacidades específicas.

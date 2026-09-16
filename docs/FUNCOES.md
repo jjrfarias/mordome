@@ -177,11 +177,34 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
 - **Conciliação bancária (implementado):** tela por conta bancária e período (mesmo padrão de atalhos do fluxo de caixa) que lista os lançamentos financeiros pagos vinculados àquela conta (`FinancialEntry.bankAccountId`, `status = PAID`, `paidAt` no período) para o dono/gerente marcar manualmente cada um como conciliado (`reconciled`/`reconciledAt`/`reconciledById`) conforme confere o extrato real do banco, com ação "marcar todos os filtrados como conciliados". Mostra total lançado, total conciliado e total pendente de conciliação no período. Diferente do Fluxo de caixa (que soma lançamentos + vendas + movimentações de caixa), a conciliação bancária só considera lançamentos com conta bancária específica associada — vendas e movimentações de caixa não entram. Sem importação de extrato (OFX/CSV) nem matching automático — conciliação deliberadamente manual. Permissão `finance.entries.manage` (mesma da aba Lançamentos). Ver ADR 0019.
 - Ver ADR 0015 para as decisões do núcleo básico. Importação/matching automático de extrato bancário permanece fora deste escopo (notas de entrada e ordem de compra foram implementadas dentro de Estoque, ver ADR 0020 e ADR 0021).
 
-## Relatórios — protótipo parcial
+## Relatórios — framework + 2 relatórios implementados (ver ADR 0033)
 
-- Vendas, pedidos em andamento, ticket médio, produtos, pagamentos, cancelamentos e descontos.
-- Filtros por período, estabelecimento e canal.
-- Visão consolidada somente para unidades autorizadas.
+- Tela única "Relatórios" (`components/admin/ReportsWorkspace.tsx`): navegação lateral lista apenas
+  os relatórios que a sessão tem permissão de ver (catálogo central em `lib/reports/registry.ts`,
+  filtrado por `session.permissionKeys`); a área principal renderiza o relatório selecionado. Sem
+  nenhuma permissão de relatório, mostra estado vazio claro em vez de quebrar.
+- Permissão granular por relatório individual: cada relatório tem sua própria chave
+  `reports.<slug>.view` (ex. `reports.sales_by_period.view`), então um perfil pode enxergar um
+  relatório sem ver outro — ver `docs/AUTORIZACAO.md`.
+- Tabela de relatório reutilizável (`components/admin/reports/ReportTable.tsx`): ordenação por
+  coluna (clique no cabeçalho), formatação de moeda/data consistente com o resto do sistema
+  (`money()` de `lib/domain.ts`), resumo no rodapé e dois botões de exportação.
+- Exportação reutilizável em Excel (`exceljs`) e PDF (`jspdf` + `jspdf-autotable`), geradas no
+  navegador sem serviço externo — `lib/reports/export.ts`. Nenhum relatório implementa exportação
+  própria.
+- Filtro de período reutilizável (`components/admin/PeriodFilter.tsx`): De/Até + atalhos
+  Hoje/Esta semana/Este mês, extraído da duplicação que existia em `FinanceManagement.tsx`.
+- Relatório **Vendas por período**: uma linha por venda concluída (`COMPLETED`/`PARTIALLY_REFUNDED`)
+  no período — data/hora, canal, mesa, forma de pagamento, valor bruto, desconto, valor líquido —
+  com resumo de total de vendas, valor total e ticket médio.
+- Relatório **Faturamento por dia**: agrega as vendas do período por dia (quantidade, bruto,
+  descontos, líquido), em ordem cronológica, com total geral.
+- Ambos por `establishmentId` da sessão ativa, com rota GET dedicada
+  (`/api/admin/reports/sales-by-period`, `/api/admin/reports/revenue-by-day`), suportando modo
+  Prisma (produção) e modo local (`lib/local-finance.ts`, a partir do log de auditoria).
+- Fora desta fatia (ficam para o futuro, reaproveitando o mesmo framework): cupons gerados,
+  desempenho por atendente/garçom, DRE, itens consumidos/vendidos, tempo de produção/status, vendas
+  por área de entrega/forma de pagamento.
 
 ## Histórico e auditoria — primeira fatia implementada
 

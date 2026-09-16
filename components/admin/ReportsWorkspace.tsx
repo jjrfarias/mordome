@@ -1,0 +1,44 @@
+"use client";
+
+import { useState, type ComponentType } from "react";
+import { FileBarChart } from "lucide-react";
+import { listAvailableReports } from "@/lib/reports/registry";
+import { SalesByPeriodReport } from "@/components/admin/reports/SalesByPeriodReport";
+import { RevenueByDayReport } from "@/components/admin/reports/RevenueByDayReport";
+
+// Componente por relatório: adicione uma entrada aqui ao registrar um novo relatório em
+// `lib/reports/registry.ts`. É o único outro ponto que muda ao adicionar um relatório.
+const REPORT_COMPONENTS: Record<string, ComponentType> = {
+  "sales-by-period": SalesByPeriodReport,
+  "revenue-by-day": RevenueByDayReport,
+};
+
+export function ReportsWorkspace({ permissionKeys }: { permissionKeys: string[] }) {
+  const availableReports = listAvailableReports(permissionKeys);
+  const [selectedId, setSelectedId] = useState(availableReports[0]?.id ?? "");
+  const selected = availableReports.find(report => report.id === selectedId) ?? availableReports[0];
+  const SelectedComponent = selected ? REPORT_COMPONENTS[selected.id] : undefined;
+
+  if (availableReports.length === 0) {
+    return <section className="page-content">
+      <div className="empty big-empty">
+        <FileBarChart />
+        <h2>Nenhum relatório disponível</h2>
+        <p>Seu perfil de acesso não tem permissão para ver nenhum relatório ainda. Peça a um administrador para liberar o acesso em Configurações → Perfis.</p>
+      </div>
+    </section>;
+  }
+
+  return <section className="page-content">
+    <section className="panel settings-shell">
+      <div className="settings-shell-header">
+        <div><span className="section-kicker">Relatórios</span><h2>{selected?.label ?? "Relatórios"}</h2></div>
+      </div>
+      <p className="section-note">{selected?.description}</p>
+      <nav className="settings-tabs" aria-label="Relatórios disponíveis">
+        {availableReports.map(report => <button key={report.id} className={report.id === selected?.id ? "active" : ""} onClick={() => setSelectedId(report.id)}>{report.label}</button>)}
+      </nav>
+    </section>
+    {SelectedComponent ? <SelectedComponent /> : null}
+  </section>;
+}

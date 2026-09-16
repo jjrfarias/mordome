@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { PeriodFilter, startOfMonth, toDateInput } from "@/components/admin/PeriodFilter";
 
 type Category = { id: string; name: string; kind: "INCOME" | "EXPENSE"; active: boolean };
 type BankAccount = { id: string; name: string; bank: string; agency: string | null; accountNumber: string | null; initialBalance: number | string; active: boolean };
@@ -489,13 +490,6 @@ function SettlementsTab({ activeEstablishmentId }: { activeEstablishmentId: stri
   useEffect(() => { queueMicrotask(() => { void loadRules(); }); }, [activeEstablishmentId]);
   useEffect(() => { queueMicrotask(() => { void load(); }); }, [activeEstablishmentId, roleFilter, from, to]);
 
-  const applyShortcut = (shortcut: "today" | "week" | "month") => {
-    const now = new Date();
-    if (shortcut === "today") { setFrom(toDateInput(now)); setTo(toDateInput(now)); }
-    if (shortcut === "week") { setFrom(toDateInput(startOfWeek(now))); setTo(toDateInput(now)); }
-    if (shortcut === "month") { setFrom(toDateInput(startOfMonth(now))); setTo(toDateInput(now)); }
-  };
-
   const createRule = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!ruleForm.userId || !ruleForm.value || savingRule) return;
@@ -565,15 +559,7 @@ function SettlementsTab({ activeEstablishmentId }: { activeEstablishmentId: stri
         <button className={roleFilter === "COURIER" ? "active" : ""} onClick={() => setRoleFilter("COURIER")}>Entregadores</button>
         <button className={roleFilter === "WAITER" ? "active" : ""} onClick={() => setRoleFilter("WAITER")}>Garçons</button>
       </nav>
-      <div className="settings-form">
-        <label className="field"><span>De</span><input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
-        <label className="field"><span>Até</span><input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
-      </div>
-      <nav className="settings-tabs">
-        <button type="button" onClick={() => applyShortcut("today")}>Hoje</button>
-        <button type="button" onClick={() => applyShortcut("week")}>Esta semana</button>
-        <button type="button" onClick={() => applyShortcut("month")}>Este mês</button>
-      </nav>
+      <PeriodFilter from={from} to={to} onChange={({ from: nextFrom, to: nextTo }) => { setFrom(nextFrom); setTo(nextTo); }} />
     </section>
 
     {loading ? <div className="empty"><span>Carregando acertos…</span></div> : null}
@@ -611,21 +597,6 @@ function SettlementsTab({ activeEstablishmentId }: { activeEstablishmentId: stri
 
 type CashFlowItemView = { id: string; date: string; description: string; type: "IN" | "OUT"; amount: number; source: "ENTRY" | "SALE" | "CASH_MOVEMENT" };
 type CashFlowData = { income: number; expense: number; balance: number; openingBalance: number; accumulatedBalance: number; items: CashFlowItemView[]; from: string; to: string };
-
-function toDateInput(date: Date) {
-  return date.toISOString().slice(0, 10);
-}
-
-function startOfWeek(reference: Date) {
-  const date = new Date(reference);
-  const day = date.getDay();
-  date.setDate(date.getDate() - day);
-  return date;
-}
-
-function startOfMonth(reference: Date) {
-  return new Date(reference.getFullYear(), reference.getMonth(), 1);
-}
 
 const sourceLabel: Record<CashFlowItemView["source"], string> = { ENTRY: "Lançamento", SALE: "Venda", CASH_MOVEMENT: "Movimentação de caixa" };
 
@@ -668,13 +639,6 @@ function ReconciliationTab({ activeEstablishmentId }: { activeEstablishmentId: s
   useEffect(() => { queueMicrotask(() => { void loadAccounts(); }); }, [activeEstablishmentId]);
   useEffect(() => { queueMicrotask(() => { void load(); }); }, [activeEstablishmentId, bankAccountId, from, to]);
 
-  const applyShortcut = (shortcut: "today" | "week" | "month") => {
-    const now = new Date();
-    if (shortcut === "today") { setFrom(toDateInput(now)); setTo(toDateInput(now)); }
-    if (shortcut === "week") { setFrom(toDateInput(startOfWeek(now))); setTo(toDateInput(now)); }
-    if (shortcut === "month") { setFrom(toDateInput(startOfMonth(now))); setTo(toDateInput(now)); }
-  };
-
   const toggleReconciled = async (entry: ReconciliationEntry) => {
     setSavingId(entry.id); setError("");
     try {
@@ -711,14 +675,8 @@ function ReconciliationTab({ activeEstablishmentId }: { activeEstablishmentId: s
             {bankAccounts.map(account => <option key={account.id} value={account.id}>{account.name}</option>)}
           </select>
         </label>
-        <label className="field"><span>De</span><input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
-        <label className="field"><span>Até</span><input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
       </div>
-      <nav className="settings-tabs">
-        <button type="button" onClick={() => applyShortcut("today")}>Hoje</button>
-        <button type="button" onClick={() => applyShortcut("week")}>Esta semana</button>
-        <button type="button" onClick={() => applyShortcut("month")}>Este mês</button>
-      </nav>
+      <PeriodFilter from={from} to={to} onChange={({ from: nextFrom, to: nextTo }) => { setFrom(nextFrom); setTo(nextTo); }} />
     </section>
 
     {!bankAccountId && <div className="empty small"><span>Selecione uma conta bancária para ver a conciliação.</span></div>}
@@ -775,26 +733,11 @@ function CashFlowTab({ activeEstablishmentId }: { activeEstablishmentId: string 
   };
   useEffect(() => { queueMicrotask(() => { void load(); }); }, [activeEstablishmentId, from, to]);
 
-  const applyShortcut = (shortcut: "today" | "week" | "month") => {
-    const now = new Date();
-    if (shortcut === "today") { setFrom(toDateInput(now)); setTo(toDateInput(now)); }
-    if (shortcut === "week") { setFrom(toDateInput(startOfWeek(now))); setTo(toDateInput(now)); }
-    if (shortcut === "month") { setFrom(toDateInput(startOfMonth(now))); setTo(toDateInput(now)); }
-  };
-
   return <>
     <section className="panel settings-shell">
       <div className="settings-shell-header"><div><span className="section-kicker">Fluxo de caixa</span><h2>Período</h2></div></div>
       <p className="section-note">Consolida lançamentos financeiros pagos e vendas realizadas no período (regime de caixa), somados às retiradas e suprimentos de caixa. Não substitui a conciliação bancária.</p>
-      <div className="settings-form">
-        <label className="field"><span>De</span><input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
-        <label className="field"><span>Até</span><input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
-      </div>
-      <nav className="settings-tabs">
-        <button type="button" onClick={() => applyShortcut("today")}>Hoje</button>
-        <button type="button" onClick={() => applyShortcut("week")}>Esta semana</button>
-        <button type="button" onClick={() => applyShortcut("month")}>Este mês</button>
-      </nav>
+      <PeriodFilter from={from} to={to} onChange={({ from: nextFrom, to: nextTo }) => { setFrom(nextFrom); setTo(nextTo); }} />
     </section>
 
     {loading ? <div className="empty"><span>Carregando fluxo de caixa…</span></div> : null}

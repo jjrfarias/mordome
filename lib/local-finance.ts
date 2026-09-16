@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { listLocalAudit } from "./local-audit.ts";
 import { listLocalCashMovementsForEstablishment } from "./local-cash.ts";
 import { summarizeCashFlow, type CashFlowItem } from "./cashflow.ts";
+import type { SaleRecord } from "./reports/sales.ts";
 
 type FinancialCategoryKind = "INCOME" | "EXPENSE";
 type FinancialEntryStatus = "PENDING" | "PAID";
@@ -195,4 +196,40 @@ export function computeLocalCashFlow(organizationId: string, establishmentId: st
   const openingBalance = listLocalBankAccounts(establishmentId).reduce((sum, account) => sum + account.initialBalance, 0);
   const summary = summarizeCashFlow(items);
   return { ...summary, openingBalance, accumulatedBalance: openingBalance + summary.balance };
+}
+
+// Vendas concluídas no período, para os relatórios (ADR 0033). Mesmo rastro de eventos de
+// auditoria usado por `computeLocalCashFlow` (não existe um "banco" de vendas locais separado),
+// mas devolvendo o registro completo (bruto, desconto, mesa, forma de pagamento) em vez de já
+// resumir em entradas de fluxo de caixa. Exclui vendas canceladas e totalmente reembolsadas.
+export function listLocalSalesForReport(organizationId: string, establishmentId: string, from: string, to: string): SaleRecord[] {
+  const completedEvents = listLocalAudit({ organizationId, establishmentId, action: "SALE_COMPLETE", limit: 5000 })
+    .filter(event => event.createdAt >= from && event.createdAt <= to);
+  const cancelledIds = new Set(listLocalAudit({ organizationId, establishmentId, action: "SALE_CANCEL", limit: 5000 }).map(event => event.entityId));
+  const refundedBySale = new Map<string, number>();
+  for (const event of listLocalAudit({ organizationId, establishmentId, action: "SALE_REFUND", limit: 5000 })) {
+    const after = event.after as { amount?: number } | undefined;
+    refundedBySale.set(event.entityId, (refundedBySale.get(event.entityId) ?? 0) + (after?.amount ?? 0));
+  }
+
+  const records: SaleRecord[] = [];
+  for (const event of completedEvents) {
+    if (cancelledIds.has(event.entityId)) continue;
+    const after = event.after as { channel?: string; table?: number; payments?: { method: string }[]; discount?: number; subtotal?: number; total?: number } | undefined;
+    const total = after?.total ?? 0;
+    const refunded = refundedBySale.get(event.entityId) ?? 0;
+    if (total > 0 && refunded >= total) continue;
+    records.push({
+      id: event.entityId,
+      completedAt: event.createdAt,
+      channel: after?.channel ?? "POS",
+      table: after?.table ?? null,
+      payment: after?.payments?.map(payment => payment.method).join(" + ") ?? "",
+      subtotal: after?.subtotal ?? 0,
+      discount: after?.discount ?? 0,
+      total,
+      refunded,
+    });
+  }
+  return records;
 }
