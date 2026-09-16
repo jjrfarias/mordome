@@ -4,7 +4,7 @@ import type { SelectedOptionSnapshot } from "./ingredient-options.ts";
 export type LocalDeliveryStatus = "RECEIVED" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
 export type LocalDeliveryOrigin = "INTERNAL" | "ONLINE";
 type LocalDeliveryItem = { id: string; productId: string; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] };
-type LocalDeliveryOrder = { id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string; status: LocalDeliveryStatus; origin: LocalDeliveryOrigin; courierId: string | null; saleId: string | null; createdById: string | null; createdAt: string; updatedAt: string; items: LocalDeliveryItem[] };
+type LocalDeliveryOrder = { id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string; status: LocalDeliveryStatus; origin: LocalDeliveryOrigin; courierId: string | null; deliveryAreaId: string | null; deliveryFee: number; saleId: string | null; createdById: string | null; createdAt: string; updatedAt: string; items: LocalDeliveryItem[] };
 
 const stores = new Map<string, LocalDeliveryOrder[]>();
 const locations = new Map<string, { lat: number; lng: number; updatedAt: string }>();
@@ -23,9 +23,9 @@ export function getLocalDeliveryOrder(establishmentId: string, orderId: string) 
   return ordersFor(establishmentId).find(candidate => candidate.id === orderId) ?? null;
 }
 
-export function createLocalDeliveryOrder(establishmentId: string, input: { customerName: string; customerPhone: string; address: string; destinationLat?: number; destinationLng?: number; notes?: string; createdById?: string; origin?: LocalDeliveryOrigin; items: { productId: string; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] }[] }) {
+export function createLocalDeliveryOrder(establishmentId: string, input: { customerName: string; customerPhone: string; address: string; destinationLat?: number; destinationLng?: number; notes?: string; createdById?: string; origin?: LocalDeliveryOrigin; deliveryAreaId?: string | null; deliveryFee?: number; items: { productId: string; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] }[] }) {
   const now = new Date().toISOString();
-  const order: LocalDeliveryOrder = { id: `local-delivery-${randomUUID()}`, customerName: input.customerName, customerPhone: input.customerPhone, address: input.address, destinationLat: input.destinationLat ?? null, destinationLng: input.destinationLng ?? null, notes: input.notes ?? "", status: "RECEIVED", origin: input.origin ?? "INTERNAL", courierId: null, saleId: null, createdById: input.createdById ?? null, createdAt: now, updatedAt: now, items: input.items.map(item => ({ ...item, id: `local-delivery-item-${randomUUID()}` })) };
+  const order: LocalDeliveryOrder = { id: `local-delivery-${randomUUID()}`, customerName: input.customerName, customerPhone: input.customerPhone, address: input.address, destinationLat: input.destinationLat ?? null, destinationLng: input.destinationLng ?? null, notes: input.notes ?? "", status: "RECEIVED", origin: input.origin ?? "INTERNAL", courierId: null, deliveryAreaId: input.deliveryAreaId ?? null, deliveryFee: input.deliveryFee ?? 0, saleId: null, createdById: input.createdById ?? null, createdAt: now, updatedAt: now, items: input.items.map(item => ({ ...item, id: `local-delivery-item-${randomUUID()}` })) };
   ordersFor(establishmentId).push(order);
   return { ...order, items: order.items.map(item => ({ ...item })) };
 }

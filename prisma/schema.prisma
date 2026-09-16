@@ -269,6 +269,7 @@ model Establishment {
   goodsReceiptNotes GoodsReceiptNote[]
   purchaseOrders    PurchaseOrder[]
   shoppingListItems ShoppingListItem[]
+  deliveryAreas     DeliveryArea[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
@@ -465,6 +466,7 @@ model Sale {
   subtotal        Decimal       @db.Decimal(12, 2)
   discount        Decimal       @default(0) @db.Decimal(12, 2)
   serviceAmount   Decimal       @default(0) @db.Decimal(12, 2)
+  deliveryFee     Decimal       @default(0) @db.Decimal(12, 2)
   total           Decimal       @db.Decimal(12, 2)
   completedAt     DateTime      @default(now())
   cancelledAt     DateTime?
@@ -514,6 +516,8 @@ model DeliveryOrder {
   status          DeliveryStatus @default(RECEIVED)
   origin          DeliveryOrigin @default(INTERNAL)
   courierId       String?
+  deliveryAreaId  String?
+  deliveryFee     Decimal?       @db.Decimal(10, 2)
   saleId          String?        @unique
   createdById     String?
   createdAt       DateTime       @default(now())
@@ -522,9 +526,30 @@ model DeliveryOrder {
   courier         User?          @relation("DeliveryCourier", fields: [courierId], references: [id], onDelete: SetNull)
   createdBy       User?          @relation("DeliveryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   sale            Sale?          @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  deliveryArea    DeliveryArea?  @relation(fields: [deliveryAreaId], references: [id], onDelete: SetNull)
   items           DeliveryOrderItem[]
 
   @@index([establishmentId, status])
+  @@index([establishmentId, deliveryAreaId])
+}
+
+// Áreas/zonas de entrega cadastradas por estabelecimento, com taxa fixa e bairros atendidos em
+// texto livre (sem geolocalização real — decisão registrada no ADR 0028). Nunca são excluídas,
+// apenas inativadas, seguindo o mesmo padrão dos demais cadastros do sistema.
+model DeliveryArea {
+  id              String         @id @default(cuid())
+  establishmentId String
+  name            String
+  deliveryFee     Decimal        @db.Decimal(10, 2)
+  neighborhoods   String?
+  active          Boolean        @default(true)
+  createdAt       DateTime       @default(now())
+  updatedAt       DateTime       @updatedAt
+  establishment   Establishment  @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  orders          DeliveryOrder[]
+
+  @@unique([establishmentId, name])
+  @@index([establishmentId, active])
 }
 
 model CourierLocation {

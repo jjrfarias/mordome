@@ -99,7 +99,8 @@ export async function POST(request: Request) {
       const catalog = listLocalCatalog(session.establishment.id);
       const items = localTab ? localTab.tab.items.filter(item => item.active && item.quantity > 0).map(item => ({ productId: item.productId, quantity: item.quantity, productName: item.productName, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot })) : localDelivery ? localDelivery.items.map(item => ({ productId: item.productId, quantity: item.quantity, productName: item.productName, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot })) : localItems.map((item, index) => ({ productId: item.productId, quantity: item.quantity, productName: catalog.find(product => product.id === item.productId)?.name ?? "Produto", unitPrice: directResolved[index]?.unitPrice ?? catalog.find(product => product.id === item.productId)?.price ?? 0, selectedOptionsSnapshot: directResolved[index]?.snapshot }));
       const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
-      const grossTotal = roundMoney(subtotal * (data.channel === "FLOOR" ? 1.1 : 1));
+      const deliveryFee = localDelivery?.deliveryFee ?? 0;
+      const grossTotal = roundMoney(subtotal * (data.channel === "FLOOR" ? 1.1 : 1) + deliveryFee);
       if (data.discount > 0 && !session.canApplyDiscount) return Response.json({ error: "Você não tem permissão para aplicar descontos." }, { status: 403 });
       if (data.discount > grossTotal) return Response.json({ error: "O desconto não pode superar o total da venda." }, { status: 400 });
       if (data.discount > 0 && !data.discountReason) return Response.json({ error: "Informe o motivo do desconto." }, { status: 400 });
@@ -200,7 +201,8 @@ export async function POST(request: Request) {
       }
       const subtotal = roundMoney(saleItems.reduce((sum, item) => sum + item.total, 0));
       const serviceAmount = data.channel === "FLOOR" ? roundMoney(subtotal * Number(establishment.serviceRate) / 100) : 0;
-      const grossTotal = roundMoney(subtotal + serviceAmount);
+      const deliveryFee = deliveryOrder?.deliveryFee ? Number(deliveryOrder.deliveryFee) : 0;
+      const grossTotal = roundMoney(subtotal + serviceAmount + deliveryFee);
       if (data.discount > 0 && !actor.session.canApplyDiscount) throw new Error("DISCOUNT_FORBIDDEN");
       if (data.discount > grossTotal) throw new Error("DISCOUNT_INVALID");
       if (data.discount > 0 && !data.discountReason) throw new Error("DISCOUNT_REASON_REQUIRED");
@@ -208,7 +210,7 @@ export async function POST(request: Request) {
       const total = roundMoney(grossTotal - data.discount); const payments = resolvePayments(data.payments);
       if (roundMoney(payments.reduce((sum, payment) => sum + payment.amount, 0)) !== total) throw new Error("PAYMENT_MISMATCH");
       if (payments.some(payment => payment.method !== "CASH" && payment.receivedAmount !== undefined)) throw new Error("CHANGE_ONLY_CASH");
-      const created = await tx.sale.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, cashSessionId: cash.id, operatorId: actor.session.user.id, channel: data.channel, subtotal, discount: data.discount, serviceAmount, total, idempotencyKey: data.idempotencyKey, items: { create: saleItems }, payments: { create: payments } } });
+      const created = await tx.sale.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, cashSessionId: cash.id, operatorId: actor.session.user.id, channel: data.channel, subtotal, discount: data.discount, serviceAmount, deliveryFee, total, idempotencyKey: data.idempotencyKey, items: { create: saleItems }, payments: { create: payments } } });
       await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "SALE_COMPLETE", entityType: "Sale", entityId: created.id, reason: tab ? `Fechamento da mesa ${tab.table.number}` : deliveryOrder ? `Pedido de delivery para ${deliveryOrder.customerName}` : "Venda direta no PDV", after: { channel: data.channel, table: tab?.table.number, tabId: tab?.id, deliveryOrderId: deliveryOrder?.id, payments, discount: data.discount, discountReason: data.discountReason, items: saleItems.map(item => ({ productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, total: item.total })), subtotal, serviceAmount, total, cashSessionId: cash.id }, ...requestAuditMetadata(request) } });
       if (data.discount > 0) await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "DISCOUNT_APPLY", entityType: "Sale", entityId: created.id, reason: data.discountReason!, after: { amount: data.discount, percent: grossTotal ? roundMoney(data.discount / grossTotal * 100) : 0 }, ...requestAuditMetadata(request) } });
       if (tab) { await tx.tab.update({ where: { id: tab.id }, data: { status: "PAID", closedAt: new Date(), saleId: created.id } }); await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "TAB_CLOSE", entityType: "Tab", entityId: tab.id, reason: `Comanda da mesa ${tab.table.number} fechada`, before: { status: "OPEN" }, after: { status: "PAID", saleId: created.id, tableNumber: tab.table.number }, ...requestAuditMetadata(request) } }); }

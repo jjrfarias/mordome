@@ -264,3 +264,7 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 .ingredient-picker-summary{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;border:1px solid #e4ded2;border-radius:10px;background:#f6f2e9;margin:16px 0;font-size:11px}
 .ingredient-picker-summary strong{font-family:var(--font-fraunces),serif;font-size:16px;color:var(--green)}
 .pos-cart-options{display:block;color:var(--muted);font-size:9px;margin:2px 0}
+.delivery-order-summary{border:1px solid var(--line);border-radius:10px;padding:10px 14px;background:#f6f2e9}
+.delivery-order-summary-row{display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:11px;color:var(--muted)}
+.delivery-order-summary-row.total{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;font-size:13px;color:var(--green);font-weight:800}
+.delivery-order-summary-row b{color:inherit}

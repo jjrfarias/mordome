@@ -92,12 +92,13 @@ O histórico de status e seus responsáveis está implementado. Planejado: atual
 - **Operação implementada:** PDV e salão carregam o catálogo persistido da unidade e a venda realiza a baixa automática transacional da ficha técnica.
 - **Grupos de ingrediente implementados (ver ADR 0022):** o dono cadastra, por produto, grupos de opções escolhidas manualmente no momento da venda (ex.: "Molhos" com mínimo/máximo de seleção, "Adicionais" com acréscimo de preço por opção), na própria tela de Cardápio (`catalog.manage`). Diferente da ficha técnica: aqui não há consumo automático de estoque, é uma escolha do cliente/atendente que pode alterar o preço final do item. **Integrado de ponta a ponta nos três canais de venda (PDV, Salão e Delivery)**: ao adicionar um produto com grupo ativo ao carrinho/comanda/pedido, abre um passo de seleção com validação de mínimo/máximo e resumo do preço antes de confirmar; produto sem grupo continua sendo adicionado direto, sem nenhum passo extra. O preço final e a validação são sempre recalculados no servidor. A escolha fica gravada no item correspondente (`TabItem.selectedOptionsSnapshot` na comanda, `DeliveryOrderItem.selectedOptionsSnapshot` no pedido de delivery, `SaleItem.selectedOptionsSnapshot` na venda concluída), no mesmo padrão do retrato de ficha técnica, e aparece de forma legível para a cozinha no KDS do Salão (`FloorManagement.tsx`).
 
-## Delivery — planejado para etapa posterior
+## Delivery (implementado)
 
-- Operação própria e integração com plataformas externas.
-- Origem do pedido preservada sem acoplar o catálogo a um marketplace.
-- Gestão futura de áreas, taxas, entregadores, despacho, rastreamento e conciliação.
-- Nesta primeira etapa, o Cardápio controla apenas disponibilidade e preço no canal delivery.
+- Central de delivery própria (`components/operations/DeliveryManagement.tsx`, `delivery.operate`): pedido com cliente, telefone, endereço, ponto opcional no mapa, itens do cardápio habilitado para o canal delivery (com grupos de ingrediente, ver ADR 0022) e observações. Board por etapa (Recebido → Em preparo → Saiu para entrega → Entregue/Cancelado), atribuição de entregador, mapa com destino/entregadores em tempo real e cobrança na entrega (gera a `Sale` do canal `DELIVERY`).
+- Origem do pedido preservada (`DeliveryOrder.origin`: `INTERNAL`/`ONLINE`) sem acoplar o catálogo a um marketplace.
+- **Áreas de entrega implementadas (ver ADR 0028):** cadastro simples por estabelecimento (`DeliveryArea`, permissão `catalog.manage`) com nome, taxa de entrega fixa e bairros atendidos em texto livre — sem geolocalização real (raio/polígono), decisão deliberada para manter o cadastro simples nesta fatia. Gerenciado por um painel dentro da própria Central de Delivery (`components/operations/DeliveryAreaSettings.tsx`), nunca excluído, apenas inativado. Ao criar um pedido, o atendente pode opcionalmente escolher uma área cadastrada: a taxa aparece separada do subtotal dos produtos, some ao total do pedido em tempo real antes de confirmar, e fica gravada como snapshot (`DeliveryOrder.deliveryAreaId`/`deliveryFee`) e refletida em `Sale.deliveryFee` na venda concluída (mesmo padrão de `serviceAmount` do Salão). Pedidos sem área selecionada continuam sem qualquer taxa adicional, exatamente como antes desta fatia.
+- Entregadores, despacho e conciliação de acertos por entregador já implementados (ver ADR 0018). Rastreamento por geolocalização do entregador implementado via `CourierLocation` (ver `CourierApp.tsx`).
+- Roteirização (cálculo de rota/tempo estimado via serviço externo) segue pendente — ver ADR 0014.
 
 ## Mordomê Continuidade — proposta futura
 

@@ -4,6 +4,7 @@ import { requestAuditMetadata } from "@/lib/audit";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { assignLocalCourier, changeLocalDeliveryStatus, createLocalDeliveryOrder, getLocalCourierLocations, listLocalDeliveryOrders } from "@/lib/local-delivery";
+import { getLocalDeliveryArea, listLocalDeliveryAreas } from "@/lib/local-delivery-areas";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
 import { listLocalCatalog } from "@/lib/local-catalog";
 import { recordLocalAudit } from "@/lib/local-audit";
@@ -19,6 +20,7 @@ const createSchema = z.object({
   destinationLat: z.number().finite().min(-90).max(90).optional(),
   destinationLng: z.number().finite().min(-180).max(180).optional(),
   notes: z.string().trim().max(300).optional(),
+  deliveryAreaId: z.string().min(1).optional(),
   items: z.array(z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(99), selectedOptions: z.array(optionSelectionSchema).max(10).optional() })).min(1),
 });
 const statusSchema = z.object({ action: z.literal("CHANGE_STATUS"), orderId: z.string().min(1), status: z.enum(DeliveryStatus) });
@@ -35,8 +37,8 @@ async function resolveActor() {
   return membership ? session : null;
 }
 
-function serializeOrder(order: { id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: string; origin: string; courierId: string | null; saleId: string | null; createdAt: Date | string; items: { id: string; productId: string | null; productName: string; quantity: number; unitPrice: unknown; selectedOptionsSnapshot?: unknown }[] }) {
-  return { id: order.id, customerName: order.customerName, customerPhone: order.customerPhone, address: order.address, destinationLat: order.destinationLat, destinationLng: order.destinationLng, notes: order.notes, status: order.status, origin: order.origin, courierId: order.courierId, saleId: order.saleId, createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : order.createdAt, items: order.items.map(item => ({ id: item.id, productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice), selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? null })) };
+function serializeOrder(order: { id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: string; origin: string; courierId: string | null; deliveryAreaId?: string | null; deliveryFee?: unknown; saleId: string | null; createdAt: Date | string; items: { id: string; productId: string | null; productName: string; quantity: number; unitPrice: unknown; selectedOptionsSnapshot?: unknown }[] }) {
+  return { id: order.id, customerName: order.customerName, customerPhone: order.customerPhone, address: order.address, destinationLat: order.destinationLat, destinationLng: order.destinationLng, notes: order.notes, status: order.status, origin: order.origin, courierId: order.courierId, deliveryAreaId: order.deliveryAreaId ?? null, deliveryFee: order.deliveryFee !== undefined && order.deliveryFee !== null ? Number(order.deliveryFee) : 0, saleId: order.saleId, createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : order.createdAt, items: order.items.map(item => ({ id: item.id, productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice), selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? null })) };
 }
 
 export async function GET(request: Request) {
@@ -49,22 +51,24 @@ export async function GET(request: Request) {
     const orders = listLocalDeliveryOrders(session.establishment.id);
     const activeCourierIds = [...new Set(orders.filter(order => order.status === "OUT_FOR_DELIVERY" && order.courierId).map(order => order.courierId as string))];
     const couriers = listLocalUsers().filter(user => user.userActive && user.establishmentIds.includes(session.establishment.id)).map(user => ({ id: user.userId, name: user.name }));
-    return Response.json({ orders, products, couriers, courierLocations: getLocalCourierLocations(activeCourierIds) });
+    const deliveryAreas = listLocalDeliveryAreas(session.establishment.id);
+    return Response.json({ orders, products, couriers, courierLocations: getLocalCourierLocations(activeCourierIds), deliveryAreas, canManageDeliveryAreas: session.canManageCatalog });
   }
 
   const actor = await resolveActor();
   if (!actor) return Response.json({ error: "Acesso negado." }, { status: 403 });
 
-  const [orders, offerings, accesses] = await Promise.all([
+  const [orders, offerings, accesses, deliveryAreas] = await Promise.all([
     db.deliveryOrder.findMany({ where: { establishmentId: actor.establishment.id }, include: { items: true }, orderBy: { createdAt: "desc" }, take: 100 }),
     db.productOffering.findMany({ where: { establishmentId: actor.establishment.id, channel: "DELIVERY", active: true, variant: { active: true, product: { organizationId: actor.organization.id, active: true } } }, include: { variant: { include: { product: { include: { category: true, ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } } } } } } } }),
     db.establishmentAccess.findMany({ where: { establishmentId: actor.establishment.id, membership: { organizationId: actor.organization.id, status: MembershipStatus.ACTIVE } }, include: { membership: { include: { user: { select: { id: true, name: true, active: true } } } } } }),
+    db.deliveryArea.findMany({ where: { establishmentId: actor.establishment.id, active: true }, orderBy: { name: "asc" } }),
   ]);
   const products = offerings.map(offering => ({ id: offering.variant.product.id, name: offering.variant.product.name, category: offering.variant.product.category?.name ?? "Sem categoria", price: Number(offering.price), ingredientGroups: offering.variant.product.ingredientGroups.map(group => ({ id: group.id, productId: group.productId, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) })) }));
   const couriers = accesses.map(access => access.membership.user).filter(user => user.active).filter((user, index, list) => list.findIndex(candidate => candidate.id === user.id) === index).map(user => ({ id: user.id, name: user.name }));
   const activeCourierIds = [...new Set(orders.filter(order => order.status === "OUT_FOR_DELIVERY" && order.courierId).map(order => order.courierId as string))];
   const courierLocations = activeCourierIds.length ? await db.courierLocation.findMany({ where: { courierId: { in: activeCourierIds } } }) : [];
-  return Response.json({ orders: orders.map(serializeOrder), products, couriers, courierLocations: courierLocations.map(location => ({ courierId: location.courierId, lat: location.lat, lng: location.lng, updatedAt: location.updatedAt.toISOString() })) });
+  return Response.json({ orders: orders.map(serializeOrder), products, couriers, courierLocations: courierLocations.map(location => ({ courierId: location.courierId, lat: location.lat, lng: location.lng, updatedAt: location.updatedAt.toISOString() })), deliveryAreas: deliveryAreas.map(area => ({ ...area, deliveryFee: Number(area.deliveryFee) })), canManageDeliveryAreas: actor.canManageCatalog });
 }
 
 export async function POST(request: Request) {
@@ -93,7 +97,13 @@ export async function POST(request: Request) {
       if (items.some(item => !item)) return Response.json({ error: "Produto indisponível no delivery." }, { status: 409 });
       const optionError = items.find(item => item && "error" in item) as { error: string } | undefined;
       if (optionError) return Response.json({ error: optionError.error }, { status: 400 });
-      const order = createLocalDeliveryOrder(session.establishment.id, { customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: session.user.id, items: items as ResolvedItem[] });
+      let deliveryFee = 0;
+      if (data.deliveryAreaId) {
+        const area = getLocalDeliveryArea(session.establishment.id, data.deliveryAreaId);
+        if (!area || !area.active) return Response.json({ error: "Área de entrega não encontrada." }, { status: 400 });
+        deliveryFee = area.deliveryFee;
+      }
+      const order = createLocalDeliveryOrder(session.establishment.id, { customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: session.user.id, deliveryAreaId: data.deliveryAreaId ?? null, deliveryFee, items: items as ResolvedItem[] });
       recordLocalAudit({ ...base, action: "CREATE", entityType: "DeliveryOrder", entityId: order.id, reason: `Pedido de delivery criado para ${order.customerName}`, after: { customerName: order.customerName, address: order.address, items: order.items } });
       return Response.json({ order }, { status: 201 });
     }
@@ -121,8 +131,14 @@ export async function POST(request: Request) {
       const resolvedItems = data.items.map(item => { const info = infoByProduct.get(item.productId)!; const resolved = resolveIngredientSelections(info.ingredientGroups, item.selectedOptions); return { item, info, resolved }; });
       const optionError = resolvedItems.find(entry => "error" in entry.resolved);
       if (optionError && "error" in optionError.resolved) return Response.json({ error: optionError.resolved.error }, { status: 400 });
+      let deliveryFee = 0;
+      if (data.deliveryAreaId) {
+        const area = await db.deliveryArea.findFirst({ where: { id: data.deliveryAreaId, establishmentId: actor.establishment.id, active: true } });
+        if (!area) return Response.json({ error: "Área de entrega não encontrada." }, { status: 400 });
+        deliveryFee = Number(area.deliveryFee);
+      }
       const order = await db.$transaction(async tx => {
-        const created = await tx.deliveryOrder.create({ data: { establishmentId: actor.establishment.id, customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: actor.user.id, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
+        const created = await tx.deliveryOrder.create({ data: { establishmentId: actor.establishment.id, customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: actor.user.id, deliveryAreaId: data.deliveryAreaId, deliveryFee, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
         await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "CREATE", entityType: "DeliveryOrder", entityId: created.id, reason: `Pedido de delivery criado para ${created.customerName}`, after: { customerName: created.customerName, address: created.address, items: created.items.map(item => ({ productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice), selectedOptionsSnapshot: item.selectedOptionsSnapshot })) } } });
         return created;
       });
