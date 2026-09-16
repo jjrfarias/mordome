@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth";
 import { authenticateLocalAccessUser, getLocalAccessUser, getLocalAccessUserByUsername } from "@/lib/local-access-control";
 import { getLocalIntegrationDriver } from "@/lib/local-integrations";
+import { getLocalPrintTemplate } from "@/lib/local-print-templates";
 
 const LOCAL_TOKEN = randomBytes(32).toString("base64url");
 const LOCAL_ESTABLISHMENT_COOKIE = "mordome_local_establishment";
@@ -96,6 +97,7 @@ export async function getLocalSession() {
     canManageIntegrations: localUser?.effectivePermissionKeys.includes("integrations.manage") ?? true,
     canReprint: localUser?.effectivePermissionKeys.includes("print.reprint") ?? true,
     printerDriver: getLocalIntegrationDriver(establishment.id, "PRINTER"),
+    printTemplate: { ...getLocalPrintTemplate(establishment.id), establishmentDocument: null },
   };
 }
 

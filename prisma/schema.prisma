@@ -272,9 +272,21 @@ model Establishment {
   shoppingListItems ShoppingListItem[]
   deliveryAreas     DeliveryArea[]
   workShifts        WorkShift[]
+  printTemplate     PrintTemplate?
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
+}
+
+model PrintTemplate {
+  id              String        @id @default(cuid())
+  establishmentId String        @unique
+  headerText      String?
+  footerText      String?
+  showDocument    Boolean       @default(false)
+  paperWidth      Int           @default(80)
+  updatedAt       DateTime      @updatedAt
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
 }
 
 model EstablishmentIntegration {

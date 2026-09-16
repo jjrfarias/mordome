@@ -89,6 +89,14 @@ export async function getCurrentSession() {
   const permissionKeys = new Set([...rolePermissions, ...[...overrides].filter(([, effect]) => effect === "ALLOW").map(([key]) => key)]);
   for (const [key, effect] of overrides) if (effect === "DENY") permissionKeys.delete(key);
   const printerDriver = await getActiveIntegrationDriver(establishment.id, "PRINTER");
+  const printTemplateRecord = await db.printTemplate.findUnique({ where: { establishmentId: establishment.id } });
+  const printTemplate = {
+    headerText: printTemplateRecord?.headerText ?? null,
+    footerText: printTemplateRecord?.footerText ?? null,
+    showDocument: printTemplateRecord?.showDocument ?? false,
+    paperWidth: printTemplateRecord?.paperWidth ?? 80,
+    establishmentDocument: establishment.document ?? null,
+  };
 
   return {
     sessionId: session.id,
@@ -151,6 +159,7 @@ export async function getCurrentSession() {
     canManageIntegrations: hasPermission(permissionContext, INTEGRATIONS_MANAGE),
     canReprint: hasPermission(permissionContext, PRINT_REPRINT),
     printerDriver,
+    printTemplate,
   };
 }
 

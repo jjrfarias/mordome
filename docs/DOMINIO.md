@@ -17,7 +17,7 @@
 
 ## Operação
 
-`Product`, `Category`, `ProductVariant`, `ProductOffering`, `IngredientGroup`, `IngredientOption`, `InventoryItem`, `InventoryConversion`, `EstablishmentInventoryItem`, `Recipe`, `RecipeComponent`, `DiningTable`, `Tab`, `TabItem`, `Order`, `OrderItem`, `OrderStatusHistory`, `CashSession`, `CashMovement`, `Sale`, `Payment`, `StockMovement`, `GoodsReceiptNote`, `GoodsReceiptItem`, `PurchaseOrder`, `PurchaseOrderItem`, `ShoppingListItem` e `AuditEvent`.
+`Product`, `Category`, `ProductVariant`, `ProductOffering`, `IngredientGroup`, `IngredientOption`, `InventoryItem`, `InventoryConversion`, `EstablishmentInventoryItem`, `Recipe`, `RecipeComponent`, `DiningTable`, `Tab`, `TabItem`, `Order`, `OrderItem`, `OrderStatusHistory`, `CashSession`, `CashMovement`, `Sale`, `Payment`, `StockMovement`, `GoodsReceiptNote`, `GoodsReceiptItem`, `PurchaseOrder`, `PurchaseOrderItem`, `ShoppingListItem`, `EstablishmentIntegration`, `PrintTemplate` e `AuditEvent`.
 
 ## Relações principais
 
@@ -36,6 +36,7 @@
 - Categoria financeira pertence à organização e é compartilhada entre suas unidades; conta bancária e forma de pagamento configurável pertencem ao estabelecimento.
 - Lançamento financeiro pertence ao estabelecimento (e referencia a organização), a uma categoria financeira obrigatória e, opcionalmente, a uma conta bancária e a uma forma de pagamento configurada.
 - CMV (Custo de Mercadoria Vendida) é um conceito calculado, não uma entidade persistida: para cada `SaleItem` com ficha técnica, o custo é a soma, por componente, da quantidade consumida × custo médio ponderado do insumo (`soma(quantidade × custoUnitário) / soma(quantidade)` sobre os `StockMovement` do tipo `ENTRY` com custo registrado). Custo médio é sempre "atual" (recalculado a cada consulta a partir de todo o histórico), não histórico por data de venda — ver ADR 0026 para a limitação. Item sem nenhuma entrada com custo é "desconhecido", nunca 0; produto sem ficha técnica fica fora do CMV.
+- `PrintTemplate` pertence à unidade (`@@unique([establishmentId])`, um único registro por estabelecimento) e controla apenas a aparência do recibo de venda impresso (cabeçalho, rodapé, exibir documento, largura do papel) — não afeta a lógica de itens/total nem o recibo da cozinha (ver ADR 0031).
 - A Simulação de CMV (ver ADR 0027) é o mesmo conceito de custo aplicado a um cenário HIPOTÉTICO em vez de uma venda real: uma lista de componentes simulados (que pode coincidir com uma `Recipe` existente ou ser inventada do zero) + um preço de venda simulado (que pode coincidir com a `ProductOffering` atual ou não) — nada disso é persistido, é só um cálculo efêmero client-side sobre os mesmos custos médios já usados no Relatório de CMV.
 
 ## Invariantes

@@ -113,6 +113,14 @@ O histórico de status e seus responsáveis está implementado. Planejado: atual
 - Gerenciado em nova sub-aba "Turnos" em Configurações (`components/admin/WorkShiftsManagement.tsx`), com seletor de dias da semana em chips clicáveis e uma lista de checkboxes por turno para atribuir/desatribuir a equipe da unidade; nunca excluído, apenas inativado.
 - Sem lógica de negócio automática associada nesta fatia: não há controle de ponto, cálculo de horas trabalhadas, nem bloqueio de operações fora do turno cadastrado — é a base para funcionalidades futuras desse tipo.
 
+## Modelos de impressão — aparência do recibo de venda (implementado, ver ADR 0031)
+
+- Cadastro de personalização visual do recibo impresso de venda (`PrintTemplate`, um registro por estabelecimento, permissão `integrations.manage`): texto de cabeçalho opcional (ex. endereço/telefone), texto de rodapé opcional (ex. mensagem de despedida), exibir ou não o CNPJ/documento do estabelecimento (`Establishment.document`) e largura do papel (58mm ou 80mm).
+- Não altera a lógica de itens/total/pagamento do recibo, apenas a aparência. O recibo da cozinha (`printKitchenOrder`) não é afetado — fica fora de escopo.
+- Sem configuração, o recibo sai idêntico ao formato original (80mm, sem cabeçalho/rodapé extra, sem documento) — nenhuma unidade sofre regressão visual.
+- Gerenciado em nova sub-seção "Modelos de impressão" dentro de Integrações (`components/admin/IntegrationsManagement.tsx`), com prévia ao vivo do recibo num `<iframe>` que atualiza a cada alteração do formulário, sem precisar imprimir de verdade.
+- O template chega à tela de vendas embutido na sessão (`session.printTemplate`, resolvido junto com `printerDriver` em `getCurrentSession`/`getLocalSession`) — não há chamada de rede extra a cada impressão.
+
 ## Mordomê Continuidade — proposta futura
 
 - Recurso opcional por estabelecimento para operação em nuvem + servidor local.
