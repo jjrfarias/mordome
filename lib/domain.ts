@@ -1,8 +1,11 @@
 export type OrderStatus = "Recebido" | "Em preparo" | "Pronto" | "Entregue";
 export type TableStatus = "Livre" | "Ocupada" | "Fechamento";
 
-export type Product = { id: string; name: string; category: string; price: number; emoji: string };
-export type OrderItem = Product & { quantity: number; note?: string };
+export type IngredientOption = { id: string; name: string; priceDelta: number; active: boolean };
+export type IngredientGroup = { id: string; name: string; minSelections: number; maxSelections: number; active: boolean; options: IngredientOption[] };
+export type SelectedIngredientOption = { groupName: string; optionName: string; priceDelta: number };
+export type Product = { id: string; name: string; category: string; price: number; emoji: string; ingredientGroups?: IngredientGroup[] };
+export type OrderItem = Product & { quantity: number; note?: string; cartLineId?: string; selectedOptions?: SelectedIngredientOption[]; optionSelections?: { groupId: string; optionIds: string[] }[] };
 export type Table = { id: number; seats: number; status: TableStatus; openedAt?: string; items: OrderItem[]; orderStatus?: OrderStatus };
 export type Sale = { id: string; table?: number; channel: "Salão" | "PDV"; total: number; payment: string; closedAt: string };
 export type RestaurantState = { establishmentId: string; tables: Table[]; sales: Sale[] };

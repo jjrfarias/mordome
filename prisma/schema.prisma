@@ -572,6 +572,7 @@ model TabItem {
   sentQuantity    Decimal        @default(0) @db.Decimal(10, 3)
   unitPrice       Decimal        @db.Decimal(12, 2)
   active          Boolean        @default(true)
+  selectedOptionsSnapshot Json?
   addedById       String
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
@@ -649,6 +650,7 @@ model SaleItem {
   total       Decimal  @db.Decimal(12, 2)
   discount    Decimal  @default(0) @db.Decimal(12, 2)
   recipeSnapshot Json?
+  selectedOptionsSnapshot Json?
   sale        Sale     @relation(fields: [saleId], references: [id], onDelete: Cascade)
   product     Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
 }
@@ -707,10 +709,39 @@ model Product {
   saleItems      SaleItem[]
   tabItems       TabItem[]
   stationLinks   ProductStation[]
+  ingredientGroups IngredientGroup[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
   @@index([categoryId])
+}
+
+model IngredientGroup {
+  id            String             @id @default(cuid())
+  productId     String
+  name          String
+  minSelections Int                @default(0)
+  maxSelections Int                @default(1)
+  active        Boolean            @default(true)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  product       Product            @relation(fields: [productId], references: [id], onDelete: Cascade)
+  options       IngredientOption[]
+
+  @@index([productId, active])
+}
+
+model IngredientOption {
+  id         String          @id @default(cuid())
+  groupId    String
+  name       String
+  priceDelta Decimal         @default(0) @db.Decimal(12, 2)
+  active     Boolean         @default(true)
+  createdAt  DateTime        @default(now())
+  updatedAt  DateTime        @updatedAt
+  group      IngredientGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@index([groupId, active])
 }
 
 model Category {

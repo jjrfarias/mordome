@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { BarChart3, Bell, Bike, Check, ChefHat, ChevronDown, CircleDollarSign, FileClock, LayoutGrid, LogOut, Minus, Navigation, Plus, Printer, Search, Settings, ShoppingBag, Sparkles, UtensilsCrossed, X } from "lucide-react";
-import { money, OrderItem, products } from "@/lib/domain";
+import { money, IngredientGroup, OrderItem, products, SelectedIngredientOption } from "@/lib/domain";
 import { Brand, MetricCard, NavItem } from "@/components/ui";
 import { SettingsWorkspace } from "@/components/admin/SettingsWorkspace";
 import { DeliveryManagement } from "@/components/operations/DeliveryManagement";
@@ -59,9 +59,9 @@ export default function Home() {
       setSession(data.session); notify(`Unidade alterada para ${data.session.establishment.name}`);
     } catch { notify("Não foi possível conectar ao servidor"); } finally { setSwitchingUnit(false); }
   };
-  const completeSale = async (items: { id: string; quantity: number }[], checkout: SaleCheckout, channel: "POS" | "FLOOR" | "DELIVERY", table?: number, tabId?: string, deliveryOrderId?: string) => {
+  const completeSale = async (items: { id: string; quantity: number; selectedOptions?: { groupId: string; optionIds: string[] }[] }[], checkout: SaleCheckout, channel: "POS" | "FLOOR" | "DELIVERY", table?: number, tabId?: string, deliveryOrderId?: string) => {
     try {
-      const response = await fetch("/api/operations/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "COMPLETE", channel, items: items.map(item => ({ productId: item.id, quantity: item.quantity })), ...checkout, table, tabId, deliveryOrderId, idempotencyKey: crypto.randomUUID() }) });
+      const response = await fetch("/api/operations/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "COMPLETE", channel, items: items.map(item => ({ productId: item.id, quantity: item.quantity, selectedOptions: item.selectedOptions })), ...checkout, table, tabId, deliveryOrderId, idempotencyKey: crypto.randomUUID() }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) { notify(data.error ?? "Não foi possível concluir a venda"); return false; }
       return true;
@@ -102,7 +102,7 @@ export default function Home() {
     </aside>
     <main>
       <header><div><span className="header-date">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span><h1>{view === "pdv" ? "PDV rápido" : view === "salão" ? "Gestão do salão" : view === "cozinha" ? "Cozinha" : view === "delivery" ? "Delivery" : view === "entregas" ? "Minhas entregas" : view === "caixa" ? "Caixa" : view === "historico" ? "Histórico" : view === "config" ? "Configurações" : "Resumo do dia"}</h1></div><div className="header-actions"><span className="sync-state"><i /> Sincronizado agora</span><button className="icon-button" aria-label="Notificações"><Bell /></button><button className={`open-pill ${cashOpen ? "" : "closed"}`} onClick={() => setView("caixa")}><span /> {cashOpen ? "Caixa aberto" : "Caixa fechado"}</button></div></header>
-      {view === "pdv" && <Pos establishmentId={session.establishment.id} onFinish={async (items, checkout) => { if (!await completeSale(items, checkout, "POS")) return false; if (session.printerDriver === "browser_print") printReceipt({ establishmentName: session.establishment.name, items: items.map(item => ({ name: item.name, quantity: item.quantity, unitPrice: item.price })), total: items.reduce((sum, item) => sum + item.price * item.quantity, 0) - checkout.discount, payment: checkout.payments.map(p => p.method).join(" + "), channel: "POS" }); notify("Venda realizada e estoque atualizado"); return true; }} />}
+      {view === "pdv" && <Pos establishmentId={session.establishment.id} onFinish={async (items, checkout) => { const saleItems = items.map(item => ({ id: item.id, quantity: item.quantity, selectedOptions: item.optionSelections })); if (!await completeSale(saleItems, checkout, "POS")) return false; if (session.printerDriver === "browser_print") printReceipt({ establishmentName: session.establishment.name, items: items.map(item => ({ name: item.selectedOptions?.length ? `${item.name} — ${item.selectedOptions.map(option => option.optionName).join(", ")}` : item.name, quantity: item.quantity, unitPrice: item.price })), total: items.reduce((sum, item) => sum + item.price * item.quantity, 0) - checkout.discount, payment: checkout.payments.map(p => p.method).join(" + "), channel: "POS" }); notify("Venda realizada e estoque atualizado"); return true; }} />}
       {view === "salão" && <FloorManagement establishmentId={session.establishment.id} establishmentName={session.establishment.name} printerDriver={session.printerDriver} mode="salon" canCancelSentItems={session.canCancelSentItems} canReprint={session.canReprint} onToast={notify} onFinishSale={(items, payment, table, tabId) => completeSale(items, payment, "FLOOR", table, tabId)} />}
       {view === "cozinha" && <FloorManagement establishmentId={session.establishment.id} establishmentName={session.establishment.name} printerDriver={session.printerDriver} mode="kitchen" canCancelSentItems={session.canCancelSentItems} canReprint={session.canReprint} onToast={notify} onFinishSale={(items, payment, table, tabId) => completeSale(items, payment, "FLOOR", table, tabId)} />}
       {view === "delivery" && <DeliveryManagement establishmentId={session.establishment.id} establishmentName={session.establishment.name} onToast={notify} onFinishSale={(items, checkout, deliveryOrderId) => completeSale(items, checkout, "DELIVERY", undefined, undefined, deliveryOrderId)} />}
@@ -161,15 +161,71 @@ function useOperationalCatalog(channel: "POS" | "FLOOR", establishmentId: string
 function Pos({ establishmentId, onFinish }: { establishmentId: string; onFinish: (items: OrderItem[], checkout: SaleCheckout) => Promise<boolean> }) {
   const operational = useOperationalCatalog("POS", establishmentId);
   const [cart, setCart] = useState<OrderItem[]>([]); const [query, setQuery] = useState(""); const [payments, setPayments] = useState([{ method: "Pix", amount: "", receivedAmount: "" }]); const [discount, setDiscount] = useState(""); const [discountReason, setDiscountReason] = useState(""); const [category, setCategory] = useState("Todos"); const [finishing, setFinishing] = useState(false);
+  const [pickerProduct, setPickerProduct] = useState<typeof products[number] | null>(null);
   const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const add = (product: typeof products[number]) => setCart(current => { const found = current.find(item => item.id === product.id); return found ? current.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item) : [...current, { ...product, quantity: 1 }]; });
-  const change = (id: string, delta: number) => setCart(current => current.map(item => item.id === id ? { ...item, quantity: item.quantity + delta } : item).filter(item => item.quantity > 0));
+  const addPlain = (product: typeof products[number]) => setCart(current => { const found = current.find(item => item.id === product.id && !item.selectedOptions?.length); return found ? current.map(item => item === found ? { ...item, quantity: item.quantity + 1 } : item) : [...current, { ...product, quantity: 1, cartLineId: crypto.randomUUID() }]; });
+  const addWithOptions = (product: typeof products[number], unitPrice: number, selectedOptions: SelectedIngredientOption[], optionSelections: { groupId: string; optionIds: string[] }[]) => setCart(current => [...current, { ...product, price: unitPrice, quantity: 1, cartLineId: crypto.randomUUID(), selectedOptions, optionSelections }]);
+  const add = (product: typeof products[number]) => {
+    const groups = (product.ingredientGroups ?? []).filter(group => group.active && group.options.some(option => option.active));
+    if (groups.length > 0) { setPickerProduct(product); return; }
+    addPlain(product);
+  };
+  const change = (cartLineId: string, delta: number) => setCart(current => current.map(item => item.cartLineId === cartLineId ? { ...item, quantity: item.quantity + delta } : item).filter(item => item.quantity > 0));
   const categories = ["Todos", ...new Set(operational.products.map(product => product.category))];
   const visibleProducts = operational.products.filter(p => (category === "Todos" || p.category === category) && p.name.toLowerCase().includes(query.toLowerCase()));
   return <div className="pos-layout">
     <section className="pos-products"><div className="pos-intro"><div><span className="section-kicker">Balcão</span><h2>Venda direta</h2><p>Produtos habilitados no PDV desta unidade.</p></div><div className="search"><Search/><input placeholder="Buscar produto..." value={query} onChange={e => setQuery(e.target.value)}/><kbd>F2</kbd></div></div><div className="pos-category-bar">{categories.map(item => <button key={item} className={category === item ? "active" : ""} onClick={() => setCategory(item)}>{item}</button>)}</div>{operational.error && <div className="auth-error">{operational.error}</div>}{operational.loading ? <div className="empty"><span>Carregando catálogo…</span></div> : visibleProducts.length === 0 ? <div className="big-empty"><ShoppingBag/><h2>Nenhum produto no PDV</h2><p>Habilite produtos no canal PDV do Cardápio.</p></div> : <div className="pos-product-grid">{visibleProducts.map(product => <button key={product.id} className="pos-product" onClick={() => add(product)}><span>{product.emoji}</span><div><small>{product.category}</small><b>{product.name}</b><strong>{money(product.price)}</strong></div><Plus/></button>)}</div>}</section>
-    <aside className="pos-cart"><div className="pos-cart-head"><div><span>VENDA ATUAL</span><h2>{cart.reduce((sum, item) => sum + item.quantity, 0)} itens</h2></div>{cart.length > 0 && <button onClick={() => setCart([])}>Limpar</button>}</div><div className="pos-cart-items">{cart.length === 0 ? <div className="empty"><ShoppingBag/><b>Nenhum produto</b><span>Toque em um produto para começar a venda.</span></div> : cart.map(item => <div className="pos-cart-row" key={item.id}><span className="food">{item.emoji}</span><div><b>{item.name}</b><small>{money(item.price * item.quantity)}</small></div><div className="stepper"><button onClick={() => change(item.id, -1)}><Minus/></button><b>{item.quantity}</b><button onClick={() => change(item.id, 1)}><Plus/></button></div></div>)}</div><div className="pos-payment"><PaymentComposer grossTotal={total} discount={discount} setDiscount={setDiscount} discountReason={discountReason} setDiscountReason={setDiscountReason} payments={payments} setPayments={setPayments}/><button className="primary wide" disabled={!cart.length || finishing} onClick={async () => { setFinishing(true); const completed = await onFinish(cart, serializeCheckout(payments, discount, discountReason, total)); setFinishing(false); if (completed) { setCart([]); setDiscount(""); setDiscountReason(""); setPayments([{ method: "Pix", amount: "", receivedAmount: "" }]); } }}><CircleDollarSign/> {finishing ? "Finalizando…" : "Finalizar venda"}</button><small className="shortcut-hint">Atalho: pressione <kbd>F8</kbd> para finalizar</small></div></aside>
+    <aside className="pos-cart"><div className="pos-cart-head"><div><span>VENDA ATUAL</span><h2>{cart.reduce((sum, item) => sum + item.quantity, 0)} itens</h2></div>{cart.length > 0 && <button onClick={() => setCart([])}>Limpar</button>}</div><div className="pos-cart-items">{cart.length === 0 ? <div className="empty"><ShoppingBag/><b>Nenhum produto</b><span>Toque em um produto para começar a venda.</span></div> : cart.map(item => <div className="pos-cart-row" key={item.cartLineId}><span className="food">{item.emoji}</span><div><b>{item.name}</b>{item.selectedOptions?.length ? <small className="pos-cart-options">{item.selectedOptions.map(option => option.optionName).join(", ")}</small> : null}<small>{money(item.price * item.quantity)}</small></div><div className="stepper"><button onClick={() => change(item.cartLineId!, -1)}><Minus/></button><b>{item.quantity}</b><button onClick={() => change(item.cartLineId!, 1)}><Plus/></button></div></div>)}</div><div className="pos-payment"><PaymentComposer grossTotal={total} discount={discount} setDiscount={setDiscount} discountReason={discountReason} setDiscountReason={setDiscountReason} payments={payments} setPayments={setPayments}/><button className="primary wide" disabled={!cart.length || finishing} onClick={async () => { setFinishing(true); const completed = await onFinish(cart, serializeCheckout(payments, discount, discountReason, total)); setFinishing(false); if (completed) { setCart([]); setDiscount(""); setDiscountReason(""); setPayments([{ method: "Pix", amount: "", receivedAmount: "" }]); } }}><CircleDollarSign/> {finishing ? "Finalizando…" : "Finalizar venda"}</button><small className="shortcut-hint">Atalho: pressione <kbd>F8</kbd> para finalizar</small></div></aside>
+    {pickerProduct && <IngredientPicker product={pickerProduct} onClose={() => setPickerProduct(null)} onConfirm={(unitPrice, selectedOptions, optionSelections) => { addWithOptions(pickerProduct, unitPrice, selectedOptions, optionSelections); setPickerProduct(null); }} />}
   </div>;
+}
+
+function IngredientPicker({ product, onClose, onConfirm }: { product: typeof products[number]; onClose: () => void; onConfirm: (unitPrice: number, selectedOptions: SelectedIngredientOption[], optionSelections: { groupId: string; optionIds: string[] }[]) => void }) {
+  const groups = (product.ingredientGroups ?? []).filter((group: IngredientGroup) => group.active && group.options.some(option => option.active));
+  const [choices, setChoices] = useState<Record<string, string[]>>({});
+  const [error, setError] = useState("");
+
+  const toggleOption = (group: IngredientGroup, optionId: string) => setChoices(current => {
+    const chosen = current[group.id] ?? [];
+    if (group.maxSelections === 1) return { ...current, [group.id]: chosen.includes(optionId) ? [] : [optionId] };
+    if (chosen.includes(optionId)) return { ...current, [group.id]: chosen.filter(id => id !== optionId) };
+    if (chosen.length >= group.maxSelections) return current;
+    return { ...current, [group.id]: [...chosen, optionId] };
+  });
+
+  const priceDelta = groups.reduce((sum, group) => sum + (choices[group.id] ?? []).reduce((groupSum, optionId) => groupSum + (group.options.find(option => option.id === optionId)?.priceDelta ?? 0), 0), 0);
+  const unitPrice = product.price + priceDelta;
+
+  const confirm = () => {
+    for (const group of groups) {
+      const chosen = choices[group.id] ?? [];
+      if (chosen.length < group.minSelections) { setError(`Selecione ao menos ${group.minSelections} opção(ões) em "${group.name}".`); return; }
+      if (chosen.length > group.maxSelections) { setError(`Selecione no máximo ${group.maxSelections} opção(ões) em "${group.name}".`); return; }
+    }
+    const selectedOptions: SelectedIngredientOption[] = groups.flatMap(group => (choices[group.id] ?? []).map(optionId => { const option = group.options.find(candidate => candidate.id === optionId)!; return { groupName: group.name, optionName: option.name, priceDelta: option.priceDelta }; }));
+    const optionSelections = groups.filter(group => (choices[group.id] ?? []).length > 0).map(group => ({ groupId: group.id, optionIds: choices[group.id] ?? [] }));
+    onConfirm(unitPrice, selectedOptions, optionSelections);
+  };
+
+  return <div className="modal-bg"><div className="modal ingredient-picker-modal">
+    <button className="modal-close" onClick={onClose}><X/></button>
+    <span className="modal-icon"><Plus/></span>
+    <h2>{product.name}</h2>
+    <p>Personalize o pedido antes de adicionar ao carrinho.</p>
+    {groups.map(group => <div className="ingredient-picker-group" key={group.id}>
+      <div className="ingredient-picker-group-head"><strong>{group.name}</strong><span>{group.minSelections > 0 ? `Obrigatório · até ${group.maxSelections}` : `Opcional · até ${group.maxSelections}`}</span></div>
+      <div className="ingredient-picker-options">
+        {group.options.filter(option => option.active).map(option => { const selected = (choices[group.id] ?? []).includes(option.id); return <label className={`ingredient-picker-option ${selected ? "selected" : ""}`} key={option.id}>
+          <input type={group.maxSelections === 1 ? "radio" : "checkbox"} name={group.id} checked={selected} onChange={() => toggleOption(group, option.id)} />
+          <span className="ingredient-picker-option-name">{option.name}</span>
+          {option.priceDelta > 0 && <span className="ingredient-picker-option-price">+{money(option.priceDelta)}</span>}
+        </label>; })}
+      </div>
+    </div>)}
+    {error && <p className="ingredient-picker-error">{error}</p>}
+    <div className="ingredient-picker-summary"><span>Preço com escolhas</span><strong>{money(unitPrice)}</strong></div>
+    <button className="primary wide" onClick={confirm}><Plus/> Adicionar ao carrinho</button>
+  </div></div>;
 }
 
 type SummarySale = { id: string; channel: string; table: number | null; payment: string; total: number; refunded?: number; status?: string; completedAt: string; items: { productName: string; quantity: number; unitPrice: number }[] };

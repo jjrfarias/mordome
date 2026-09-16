@@ -89,6 +89,7 @@ O histórico de status e seus responsáveis está implementado. Planejado: atual
 - **Estoque implementado:** cadastro de insumos, unidade-base, forma de controle, mínimo, ativação por estabelecimento e entrada com conversão e custo.
 - **Fichas técnicas implementadas:** vínculo de um produto vendido a vários itens de estoque, quantidade em unidade-base e perda técnica.
 - **Operação implementada:** PDV e salão carregam o catálogo persistido da unidade e a venda realiza a baixa automática transacional da ficha técnica.
+- **Grupos de ingrediente implementados (parcial — ver ADR 0022):** o dono cadastra, por produto, grupos de opções escolhidas manualmente no momento da venda (ex.: "Molhos" com mínimo/máximo de seleção, "Adicionais" com acréscimo de preço por opção), na própria tela de Cardápio (`catalog.manage`). Diferente da ficha técnica: aqui não há consumo automático de estoque, é uma escolha do cliente/atendente que pode alterar o preço final do item. **Integrado de ponta a ponta apenas no PDV**: ao adicionar um produto com grupo ativo ao carrinho, abre um passo de seleção com validação de mínimo/máximo e resumo do preço antes de confirmar; produto sem grupo continua sendo adicionado direto, sem nenhum passo extra. O preço final e a validação são sempre recalculados no servidor. A escolha fica gravada no item da venda (`SaleItem.selectedOptionsSnapshot`) no mesmo padrão do retrato de ficha técnica. Salão e Delivery ainda não coletam a escolha (pendente para a próxima fatia).
 
 ## Delivery — planejado para etapa posterior
 

@@ -11,13 +11,17 @@ import { recordLocalAudit } from "@/lib/local-audit";
 import { requestAuditMetadata } from "@/lib/audit";
 import { closeLocalTab, getLocalOpenTab } from "@/lib/local-floor";
 import { attachLocalDeliverySale, getLocalDeliveryOrder } from "@/lib/local-delivery";
+import { resolveIngredientSelections, type SelectedOptionSnapshot } from "@/lib/ingredient-options";
 
-const saleItemSchema = z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(999), discount: z.number().finite().min(0).optional() });
+const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
+const saleItemSchema = z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(999), discount: z.number().finite().min(0).optional(), selectedOptions: z.array(optionSelectionSchema).max(10).optional() });
 const paymentSchema = z.object({ method: z.string().min(2).max(40), amount: z.number().finite().positive(), receivedAmount: z.number().finite().positive().optional() });
 const completeSchema = z.object({ action: z.literal("COMPLETE"), channel: z.enum(SaleChannel).refine(channel => channel === "POS" || channel === "FLOOR" || channel === "DELIVERY"), items: z.array(saleItemSchema).min(1), payments: z.array(paymentSchema).min(1).max(10), discount: z.number().finite().min(0).default(0), discountReason: z.string().trim().min(3).max(200).optional(), table: z.number().int().positive().optional(), tabId: z.string().min(1).optional(), deliveryOrderId: z.string().min(1).optional(), idempotencyKey: z.string().uuid() });
 const cancelSchema = z.object({ action: z.literal("CANCEL"), saleId: z.string().min(1), reason: z.string().trim().min(3).max(200), idempotencyKey: z.string().uuid() });
 const refundSchema = z.object({ action: z.literal("REFUND"), saleId: z.string().min(1), amount: z.number().finite().positive(), payments: z.array(paymentSchema).min(1).max(10), restoreStock: z.boolean().default(false), reason: z.string().trim().min(3).max(200), idempotencyKey: z.string().uuid() });
 const actionSchema = z.discriminatedUnion("action", [completeSchema, cancelSchema, refundSchema]);
+
+class IngredientOptionError extends Error {}
 
 const paymentMethods: Record<string, PaymentMethod> = { Pix: "PIX", "Cartão de crédito": "CREDIT_CARD", "Cartão de débito": "DEBIT_CARD", Dinheiro: "CASH" };
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
@@ -72,14 +76,27 @@ export async function POST(request: Request) {
     if (data.deliveryOrderId && (!localDelivery || data.channel !== "DELIVERY" || localDelivery.saleId)) return Response.json({ error: "Pedido de delivery não encontrado ou já pago." }, { status: 409 });
     const localItems = localTab ? localTab.tab.items.filter(item => item.active && item.quantity > 0).map(item => ({ productId: item.productId, quantity: item.quantity })) : localDelivery ? localDelivery.items.map(item => ({ productId: item.productId, quantity: item.quantity })) : data.items;
     if (!localItems.length) return Response.json({ error: localDelivery ? "O pedido de delivery está vazio." : "A comanda está vazia." }, { status: 409 });
+    // Grupos de ingrediente só são resolvidos na venda direta do PDV nesta fatia (ver ADR 0022) —
+    // Salão e Delivery ainda não coletam a escolha, então itens vindos de lá seguem sem opções.
+    const directCatalogForOptions = !localTab && !localDelivery ? listLocalCatalog(session.establishment.id) : null;
+    const directResolved: { unitPrice: number; snapshot: SelectedOptionSnapshot[] }[] = [];
+    if (directCatalogForOptions) {
+      for (const item of data.items) {
+        const product = directCatalogForOptions.find(candidate => candidate.id === item.productId);
+        if (!product) return Response.json({ error: "Produto indisponível nesta unidade ou canal." }, { status: 409 });
+        const resolved = resolveIngredientSelections(product.ingredientGroups, item.selectedOptions);
+        if ("error" in resolved) return Response.json({ error: resolved.error }, { status: 400 });
+        directResolved.push({ unitPrice: roundMoney(product.price + resolved.priceDelta), snapshot: resolved.snapshot });
+      }
+    }
     const cash = getLocalOpenCashSession(session.establishment.id, session.user.id); if (!cash) return Response.json({ error: "Abra o caixa antes de finalizar uma venda." }, { status: 409 });
-    const result = completeLocalSale({ establishmentId: session.establishment.id, idempotencyKey: data.idempotencyKey, channel: data.channel, items: localItems, operatorId: session.user.id });
+    const result = completeLocalSale({ establishmentId: session.establishment.id, idempotencyKey: data.idempotencyKey, channel: data.channel, items: localItems.map(item => ({ productId: item.productId, quantity: item.quantity })), operatorId: session.user.id });
     if (result.status === "PRODUCT_NOT_FOUND") return Response.json({ error: "Produto indisponível nesta unidade ou canal." }, { status: 409 });
     if (result.status === "INSUFFICIENT_STOCK") return Response.json({ error: "Estoque insuficiente para concluir a venda." }, { status: 409 });
     if (result.status === "NOT_CONFIGURED") return Response.json({ error: "A ficha usa um item não configurado nesta unidade." }, { status: 409 });
     if (result.status !== "DUPLICATE") {
       const catalog = listLocalCatalog(session.establishment.id);
-      const items = localTab ? localTab.tab.items.filter(item => item.active && item.quantity > 0).map(item => ({ productId: item.productId, quantity: item.quantity, productName: item.productName, unitPrice: item.unitPrice })) : localDelivery ? localDelivery.items.map(item => ({ productId: item.productId, quantity: item.quantity, productName: item.productName, unitPrice: item.unitPrice })) : localItems.map(item => ({ ...item, productName: catalog.find(product => product.id === item.productId)?.name ?? "Produto", unitPrice: catalog.find(product => product.id === item.productId)?.price ?? 0 }));
+      const items = localTab ? localTab.tab.items.filter(item => item.active && item.quantity > 0).map(item => ({ productId: item.productId, quantity: item.quantity, productName: item.productName, unitPrice: item.unitPrice })) : localDelivery ? localDelivery.items.map(item => ({ productId: item.productId, quantity: item.quantity, productName: item.productName, unitPrice: item.unitPrice })) : localItems.map((item, index) => ({ productId: item.productId, quantity: item.quantity, productName: catalog.find(product => product.id === item.productId)?.name ?? "Produto", unitPrice: directResolved[index]?.unitPrice ?? catalog.find(product => product.id === item.productId)?.price ?? 0, selectedOptionsSnapshot: directResolved[index]?.snapshot }));
       const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
       const grossTotal = roundMoney(subtotal * (data.channel === "FLOOR" ? 1.1 : 1));
       if (data.discount > 0 && !session.canApplyDiscount) return Response.json({ error: "Você não tem permissão para aplicar descontos." }, { status: 403 });
@@ -128,18 +145,29 @@ export async function POST(request: Request) {
       if (tab?.items.some(item => Number(item.quantity) > Number(item.sentQuantity))) throw new Error("UNSENT_ITEMS");
       const deliveryOrder = data.deliveryOrderId ? await tx.deliveryOrder.findFirst({ where: { id: data.deliveryOrderId, establishmentId: actor.session.establishment.id, saleId: null }, include: { items: true } }) : null;
       if (data.deliveryOrderId && (!deliveryOrder || data.channel !== "DELIVERY")) throw new Error("DELIVERY_NOT_FOUND");
-      const requestedItems: { productId: string; quantity: number; lockedUnitPrice?: number }[] = tab ? tab.items.map(item => ({ productId: item.productId ?? "", quantity: Number(item.quantity), lockedUnitPrice: Number(item.unitPrice) })) : deliveryOrder ? deliveryOrder.items.map(item => ({ productId: item.productId ?? "", quantity: item.quantity, lockedUnitPrice: Number(item.unitPrice) })) : data.items;
+      // Grupos de ingrediente só são resolvidos na venda direta do PDV nesta fatia (ver ADR 0022) —
+      // Salão e Delivery herdam o preço já travado no item (TabItem/DeliveryOrderItem), sem opções.
+      const applyIngredientOptions = !tab && !deliveryOrder;
+      const requestedItems: { productId: string; quantity: number; lockedUnitPrice?: number; selectedOptions?: { groupId: string; optionIds: string[] }[] }[] = tab ? tab.items.map(item => ({ productId: item.productId ?? "", quantity: Number(item.quantity), lockedUnitPrice: Number(item.unitPrice) })) : deliveryOrder ? deliveryOrder.items.map(item => ({ productId: item.productId ?? "", quantity: item.quantity, lockedUnitPrice: Number(item.unitPrice) })) : data.items;
       if (!requestedItems.length || requestedItems.some(item => !item.productId)) throw new Error(deliveryOrder ? "DELIVERY_EMPTY" : "TAB_EMPTY");
-      const saleItems: { productId: string; productName: string; quantity: number; unitPrice: number; total: number; recipeSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull }[] = [];
+      const saleItems: { productId: string; productName: string; quantity: number; unitPrice: number; total: number; recipeSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull; selectedOptionsSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull }[] = [];
       const aggregated = new Map<string, { quantity: number; allowNegative: boolean; movements: { quantity: Prisma.Decimal; unitCost: Prisma.Decimal | null }[] }>();
 
       for (const requested of requestedItems) {
         const product = await tx.product.findFirst({
           where: { id: requested.productId, organizationId: actor.session.organization.id, active: true },
-          include: { variants: { where: { isDefault: true, active: true }, take: 1, include: { offerings: { where: { establishmentId: actor.session.establishment.id, channel: data.channel, active: true }, take: 1 }, recipes: { where: { establishmentId: actor.session.establishment.id, kind: "SALE", active: true }, take: 1, include: { components: { include: { inventoryItem: { include: { establishments: { where: { establishmentId: actor.session.establishment.id, active: true }, include: { movements: { select: { quantity: true, unitCost: true } } } } } } } } } } } } },
+          include: { ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } }, variants: { where: { isDefault: true, active: true }, take: 1, include: { offerings: { where: { establishmentId: actor.session.establishment.id, channel: data.channel, active: true }, take: 1 }, recipes: { where: { establishmentId: actor.session.establishment.id, kind: "SALE", active: true }, take: 1, include: { components: { include: { inventoryItem: { include: { establishments: { where: { establishmentId: actor.session.establishment.id, active: true }, include: { movements: { select: { quantity: true, unitCost: true } } } } } } } } } } } } },
         });
         const variant = product?.variants[0]; const offering = variant?.offerings[0];
         if (!product || !variant || !offering) throw new Error("PRODUCT_NOT_AVAILABLE");
+        let ingredientPriceDelta = 0;
+        let selectedOptionsSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull = Prisma.JsonNull;
+        if (applyIngredientOptions) {
+          const resolved = resolveIngredientSelections(product.ingredientGroups.map(group => ({ id: group.id, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) })), requested.selectedOptions);
+          if ("error" in resolved) throw new IngredientOptionError(resolved.error);
+          ingredientPriceDelta = resolved.priceDelta;
+          if (resolved.snapshot.length) selectedOptionsSnapshot = resolved.snapshot;
+        }
         const recipe = variant.recipes[0];
         const snapshotComponents: { inventoryItemId: string; name: string; baseUnit: string; quantity: number; wastePercent: number }[] = [];
         if (recipe) {
@@ -154,8 +182,8 @@ export async function POST(request: Request) {
             aggregated.set(configuration.id, { quantity: (current?.quantity ?? 0) + consumption.quantity, allowNegative: configuration.allowNegative, movements: configuration.movements });
           }
         }
-        const unitPrice = requested.lockedUnitPrice ?? Number(offering.price); const total = roundMoney(unitPrice * requested.quantity);
-        saleItems.push({ productId: product.id, productName: product.name, quantity: requested.quantity, unitPrice, total, recipeSnapshot: recipe ? { recipeId: recipe.id, recipeName: recipe.name, yieldQuantity: Number(recipe.yieldQuantity), components: snapshotComponents } : Prisma.JsonNull });
+        const unitPrice = requested.lockedUnitPrice ?? roundMoney(Number(offering.price) + ingredientPriceDelta); const total = roundMoney(unitPrice * requested.quantity);
+        saleItems.push({ productId: product.id, productName: product.name, quantity: requested.quantity, unitPrice, total, recipeSnapshot: recipe ? { recipeId: recipe.id, recipeName: recipe.name, yieldQuantity: Number(recipe.yieldQuantity), components: snapshotComponents } : Prisma.JsonNull, selectedOptionsSnapshot });
       }
 
       for (const [establishmentItemId, consumption] of aggregated) {
@@ -185,6 +213,7 @@ export async function POST(request: Request) {
     });
     return Response.json({ sale: { id: sale.id, total: Number(sale.total) } }, { status: 201 });
   } catch (error) {
+    if (error instanceof IngredientOptionError) return Response.json({ error: error.message }, { status: 400 });
     if (error instanceof Error && error.message === "PRODUCT_NOT_AVAILABLE") return Response.json({ error: "Produto indisponível nesta unidade ou canal." }, { status: 409 });
     if (error instanceof Error && error.message === "INVENTORY_NOT_CONFIGURED") return Response.json({ error: "A ficha usa um item não configurado nesta unidade." }, { status: 409 });
     if (error instanceof Error && error.message === "INSUFFICIENT_STOCK") return Response.json({ error: "Estoque insuficiente para concluir a venda." }, { status: 409 });
