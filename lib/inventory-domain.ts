@@ -46,3 +46,18 @@ export function resolvePhysicalCountAdjustment(input: { countedQuantity: number;
   if (!input.allowNegative && newBalance < 0) return { ok: false as const };
   return { ok: true as const, delta, newBalance };
 }
+
+/**
+ * Sugestão de quantidade a comprar para um item abaixo do mínimo, usada pela Lista de compras
+ * (sugestões automáticas). Fórmula simples: `minimumStock - balance`, arredondada para cima na
+ * mesma granularidade de 3 casas decimais usada pelo restante do estoque — arredondar para cima
+ * garante que a compra sugerida nunca fique abaixo do mínimo por causa de arredondamento (ex.:
+ * uma diferença de 0,0004 kg não pode virar sugestão de 0). Decisão documentada no ADR da
+ * Lista de compras; sujeita a revisão se o negócio precisar de lotes/embalagens fixas por
+ * fornecedor no futuro.
+ */
+export function suggestedPurchaseQuantity(minimumStock: number, balance: number) {
+  const missing = minimumStock - balance;
+  if (missing <= 0) return 0;
+  return Math.ceil(missing * 1000) / 1000;
+}

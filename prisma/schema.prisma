@@ -191,6 +191,7 @@ model User {
   settlementsCreated      SettlementRecord[]   @relation("SettlementCreatedBy")
   goodsReceiptNotesCreated GoodsReceiptNote[]
   purchaseOrdersCreated   PurchaseOrder[]
+  shoppingListItemsCreated ShoppingListItem[]
 }
 
 model Session {
@@ -267,6 +268,7 @@ model Establishment {
   settlementRecords SettlementRecord[]
   goodsReceiptNotes GoodsReceiptNote[]
   purchaseOrders    PurchaseOrder[]
+  shoppingListItems ShoppingListItem[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
@@ -837,6 +839,7 @@ model EstablishmentInventoryItem {
   movements       StockMovement[]
   goodsReceiptItems GoodsReceiptItem[]
   purchaseOrderItems PurchaseOrderItem[]
+  shoppingListItems ShoppingListItem[]
 
   @@unique([establishmentId, inventoryItemId])
   @@index([establishmentId, active])
@@ -929,6 +932,23 @@ model PurchaseOrderItem {
   inventoryItem     EstablishmentInventoryItem @relation(fields: [inventoryItemId], references: [id])
 
   @@index([orderId])
+  @@index([inventoryItemId])
+}
+
+model ShoppingListItem {
+  id              String                     @id @default(cuid())
+  establishmentId String
+  inventoryItemId String
+  desiredQuantity Decimal                    @db.Decimal(14, 3)
+  notes           String?
+  resolved        Boolean                    @default(false)
+  createdById     String
+  createdAt       DateTime                   @default(now())
+  establishment   Establishment              @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  inventoryItem   EstablishmentInventoryItem @relation(fields: [inventoryItemId], references: [id], onDelete: Cascade)
+  createdBy       User                       @relation(fields: [createdById], references: [id])
+
+  @@index([establishmentId, resolved])
   @@index([inventoryItemId])
 }
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDownToLine, ArrowRightLeft, Boxes, CheckCircle2, ClipboardCheck, ClipboardList, FileText, MapPin, Plus, ShoppingCart, TrendingDown, TrendingUp, X } from "lucide-react";
 import { GoodsReceiptNotes } from "./GoodsReceiptNotes";
 import { PurchaseOrders } from "./PurchaseOrders";
+import { ShoppingList } from "./ShoppingList";
 
 type BaseUnit = "GRAM" | "MILLILITER" | "UNIT";
 type TrackingMode = "AUTOMATIC" | "MANUAL" | "NONE";
@@ -21,7 +22,7 @@ type InventoryItem = {
 
 const unitLabels: Record<BaseUnit, string> = { GRAM: "g", MILLILITER: "ml", UNIT: "un" };
 
-type InventorySection = "items" | "purchase-orders" | "goods-receipts" | "count";
+type InventorySection = "items" | "purchase-orders" | "goods-receipts" | "count" | "shopping-list";
 
 export function InventoryManagement({ establishmentId, establishmentName }: { establishmentId: string; establishmentName: string }) {
   const [section, setSection] = useState<InventorySection>("items");
@@ -81,6 +82,7 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
         <button className={section === "purchase-orders" ? "active" : ""} onClick={() => setSection("purchase-orders")}><ShoppingCart size={14} />Ordens de compra</button>
         <button className={section === "goods-receipts" ? "active" : ""} onClick={() => setSection("goods-receipts")}><FileText size={14} />Notas de entrada</button>
         <button className={section === "count" ? "active" : ""} onClick={() => setSection("count")}><ClipboardList size={14} />Contagem de estoque</button>
+        <button className={section === "shopping-list" ? "active" : ""} onClick={() => setSection("shopping-list")}><ShoppingCart size={14} />Lista de compras</button>
       </nav>
       {section === "items" && <form className="inventory-create-form" onSubmit={create}>
         <label className="field"><span>Item</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Ex.: Milho" /></label>
@@ -99,6 +101,7 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
     {section === "purchase-orders" && <PurchaseOrders items={items} />}
     {section === "goods-receipts" && <GoodsReceiptNotes items={items} />}
     {section === "count" && <StockCountSession items={items.filter(item => item.configured)} loading={loading} error={error} establishmentName={establishmentName} onApplied={load} />}
+    {section === "shopping-list" && <ShoppingList items={items} />}
   </div>;
 }
 
