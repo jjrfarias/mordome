@@ -232,6 +232,7 @@ model Organization {
   financialCategories FinancialCategory[]
   financialEntries    FinancialEntry[]
   suppliers           Supplier[]
+  cancellationReasons CancellationReason[]
 }
 
 model Establishment {
@@ -1056,6 +1057,28 @@ model FinancialCategory {
 
   @@unique([organizationId, name, kind])
   @@index([organizationId, active])
+}
+
+// Motivos pré-definidos de cancelamento/reembolso (ver ADR 0029). Escopo por organização:
+// motivos tendem a ser os mesmos em todas as unidades de uma rede.
+enum CancellationReasonCategory {
+  SALE_CANCEL
+  ITEM_CANCEL
+  REFUND
+}
+
+model CancellationReason {
+  id             String                     @id @default(cuid())
+  organizationId String
+  category       CancellationReasonCategory
+  label          String
+  active         Boolean                    @default(true)
+  createdAt      DateTime                   @default(now())
+  updatedAt      DateTime                   @updatedAt
+  organization   Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, category, label])
+  @@index([organizationId, category, active])
 }
 
 model BankAccount {
