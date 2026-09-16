@@ -6,7 +6,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Search, ShoppingBag, UtensilsCrossed } from "lucide-react";
 
-type MenuProduct = { id: string; name: string; category: string; description: string | null; price: number };
+type MenuProduct = { id: string; name: string; category: string; description: string | null; price: number; imageUrl: string | null };
 type MenuData = { establishment: { name: string }; products: MenuProduct[] };
 
 const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -54,7 +54,8 @@ export default function PublicMenuPage() {
       {grouped.map(([category, products]) => <section className="public-menu-category" key={category}>
         <h2>{category}</h2>
         {products.map(product => <article className="public-menu-item" key={product.id}>
-          <div><b>{product.name}</b>{product.description && <p>{product.description}</p>}</div>
+          <div className="public-menu-item-photo">{product.imageUrl ? <img src={product.imageUrl} alt="" /> : <UtensilsCrossed />}</div>
+          <div className="public-menu-item-body"><b>{product.name}</b>{product.description && <p>{product.description}</p>}</div>
           <strong>{money(product.price)}</strong>
         </article>)}
       </section>)}

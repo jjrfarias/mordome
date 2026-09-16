@@ -19,6 +19,8 @@
 
 `Product`, `Category`, `ProductVariant`, `ProductOffering`, `IngredientGroup`, `IngredientOption`, `InventoryItem`, `InventoryConversion`, `EstablishmentInventoryItem`, `Recipe`, `RecipeComponent`, `DiningTable`, `Tab`, `TabItem`, `Order`, `OrderItem`, `OrderStatusHistory`, `CashSession`, `CashMovement`, `Sale`, `Payment`, `StockMovement`, `GoodsReceiptNote`, `GoodsReceiptItem`, `PurchaseOrder`, `PurchaseOrderItem`, `ShoppingListItem`, `EstablishmentIntegration`, `PrintTemplate` e `AuditEvent`.
 
+`Product.imageUrl` (opcional, ver ADR 0032): data URL base64 da foto do produto, já comprimida no navegador antes do envio (sem storage de objeto externo nesta fatia).
+
 ## Relações principais
 
 - Uma organização possui muitas unidades, associações e perfis.

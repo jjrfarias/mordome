@@ -12,6 +12,7 @@ export type LocalCatalogProduct = {
   price: number;
   channels: LocalCatalogChannel[];
   active: boolean;
+  imageUrl: string | null;
   ingredientGroups: LocalIngredientGroup[];
 };
 
@@ -22,30 +23,31 @@ type LocalCatalogRecord = Omit<LocalCatalogProduct, "price" | "channels" | "ingr
 
 const defaultEstablishments = ["parque-aeroporto", "anexo", "cavaleiros", "lagomar"];
 const catalogProducts: LocalCatalogRecord[] = [
-  { id: "p1", name: "X-Burger da Casa", category: "Lanches", active: true, offerings: new Map(defaultEstablishments.map(id => [id, { price: 28.9, channels: ["POS", "FLOOR"] }])), ingredientGroups: [] },
-  { id: "p2", name: "Batata rústica", category: "Porções", active: true, offerings: new Map(defaultEstablishments.map(id => [id, { price: 19.5, channels: ["POS", "FLOOR", "DELIVERY"] }])), ingredientGroups: [] },
-  { id: "p3", name: "Coca-Cola", category: "Bebidas", active: true, offerings: new Map(defaultEstablishments.map(id => [id, { price: 7, channels: ["POS", "FLOOR", "ONLINE", "DELIVERY"] }])), ingredientGroups: [] },
+  { id: "p1", name: "X-Burger da Casa", category: "Lanches", active: true, imageUrl: null, offerings: new Map(defaultEstablishments.map(id => [id, { price: 28.9, channels: ["POS", "FLOOR"] }])), ingredientGroups: [] },
+  { id: "p2", name: "Batata rústica", category: "Porções", active: true, imageUrl: null, offerings: new Map(defaultEstablishments.map(id => [id, { price: 19.5, channels: ["POS", "FLOOR", "DELIVERY"] }])), ingredientGroups: [] },
+  { id: "p3", name: "Coca-Cola", category: "Bebidas", active: true, imageUrl: null, offerings: new Map(defaultEstablishments.map(id => [id, { price: 7, channels: ["POS", "FLOOR", "ONLINE", "DELIVERY"] }])), ingredientGroups: [] },
 ];
 
 export function listLocalCatalog(establishmentId: string) {
   return catalogProducts.map(product => {
     const offering = product.offerings.get(establishmentId);
-    return { id: product.id, name: product.name, category: product.category, active: product.active, price: offering?.price ?? 0, channels: [...(offering?.channels ?? [])], ingredientGroups: product.ingredientGroups.map(group => ({ ...group, options: [...group.options] })) };
+    return { id: product.id, name: product.name, category: product.category, active: product.active, imageUrl: product.imageUrl, price: offering?.price ?? 0, channels: [...(offering?.channels ?? [])], ingredientGroups: product.ingredientGroups.map(group => ({ ...group, options: [...group.options] })) };
   });
 }
 
-export function createLocalCatalogProduct(establishmentId: string, input: Omit<LocalCatalogProduct, "id" | "active" | "ingredientGroups">) {
+export function createLocalCatalogProduct(establishmentId: string, input: { name: string; category: string; price: number; channels: LocalCatalogChannel[]; imageUrl?: string }) {
   if (catalogProducts.some(product => product.name.toLocaleLowerCase("pt-BR") === input.name.toLocaleLowerCase("pt-BR"))) return null;
-  const product: LocalCatalogRecord = { id: `local-product-${randomUUID()}`, name: input.name, category: input.category, active: true, offerings: new Map([[establishmentId, { price: input.price, channels: [...input.channels] }]]), ingredientGroups: [] };
+  const product: LocalCatalogRecord = { id: `local-product-${randomUUID()}`, name: input.name, category: input.category, active: true, imageUrl: input.imageUrl ?? null, offerings: new Map([[establishmentId, { price: input.price, channels: [...input.channels] }]]), ingredientGroups: [] };
   catalogProducts.push(product);
-  return { id: product.id, name: product.name, category: product.category, active: true, price: input.price, channels: [...input.channels], ingredientGroups: [] };
+  return { id: product.id, name: product.name, category: product.category, active: true, imageUrl: product.imageUrl, price: input.price, channels: [...input.channels], ingredientGroups: [] };
 }
 
-export function updateLocalCatalogProduct(establishmentId: string, productId: string, input: { price: number; channels: LocalCatalogChannel[] }) {
+export function updateLocalCatalogProduct(establishmentId: string, productId: string, input: { price: number; channels: LocalCatalogChannel[]; imageUrl?: string | null }) {
   const product = catalogProducts.find(item => item.id === productId);
   if (!product) return null;
   product.offerings.set(establishmentId, { price: input.price, channels: [...input.channels] });
-  return { id: product.id, name: product.name, category: product.category, active: product.active, price: input.price, channels: [...input.channels], ingredientGroups: product.ingredientGroups };
+  if (input.imageUrl !== undefined) product.imageUrl = input.imageUrl;
+  return { id: product.id, name: product.name, category: product.category, active: product.active, imageUrl: product.imageUrl, price: input.price, channels: [...input.channels], ingredientGroups: product.ingredientGroups };
 }
 
 export function listLocalIngredientGroups(productId: string) {

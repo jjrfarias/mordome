@@ -38,6 +38,7 @@ export async function GET(request: Request) {
     category: offering.variant.product.category?.name ?? "Sem categoria",
     price: Number(offering.price),
     active: true,
+    imageUrl: offering.variant.product.imageUrl,
     ingredientGroups: offering.variant.product.ingredientGroups.map(group => ({ id: group.id, productId: group.productId, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) })),
   })) });
 }

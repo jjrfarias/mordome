@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, ChevronDown, MapPin, PackagePlus, Plus, Save, Trash2, X } from "lucide-react";
+import { Check, ChevronDown, ImagePlus, MapPin, PackagePlus, Plus, Save, Trash2, UtensilsCrossed, X } from "lucide-react";
+import { compressImageFile } from "@/lib/image-compression";
 
 type Channel = "POS" | "FLOOR" | "ONLINE" | "DELIVERY";
-type CatalogProduct = { id: string; name: string; category: string; price: number; channels: Channel[]; active: boolean };
+type CatalogProduct = { id: string; name: string; category: string; price: number; channels: Channel[]; active: boolean; imageUrl: string | null };
 type IngredientOption = { id: string; name: string; priceDelta: number; active: boolean };
 type IngredientGroup = { id: string; productId: string; name: string; minSelections: number; maxSelections: number; active: boolean; options: IngredientOption[] };
 
@@ -22,6 +23,7 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
   const [category, setCategory] = useState("");
   const [price, setPrice] = useState("");
   const [selectedChannels, setSelectedChannels] = useState<Channel[]>(["POS", "FLOOR"]);
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -50,10 +52,10 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
     if (!canCreate || saving) return;
     setSaving(true); setError("");
     try {
-      const response = await fetch("/api/admin/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), category: category.trim(), price: numericPrice, channels: selectedChannels }) });
+      const response = await fetch("/api/admin/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), category: category.trim(), price: numericPrice, channels: selectedChannels, imageUrl: imageUrl ?? undefined }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível cadastrar o produto.");
-      setName(""); setCategory(""); setPrice(""); setSelectedChannels(["POS", "FLOOR"]);
+      setName(""); setCategory(""); setPrice(""); setSelectedChannels(["POS", "FLOOR"]); setImageUrl(null);
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível cadastrar o produto.");
@@ -71,6 +73,7 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
         <label className="field"><span>Categoria</span><input value={category} onChange={event => setCategory(event.target.value)} placeholder="Ex.: Cachorros-quentes" /></label>
         <label className="field"><span>Preço</span><div className="money-input"><span>R$</span><input inputMode="decimal" value={price} onChange={event => setPrice(event.target.value)} placeholder="0,00" /></div></label>
         <fieldset className="channel-field"><legend>Canais de venda</legend><div className="channel-options">{channels.map(channel => <button type="button" key={channel.id} className={selectedChannels.includes(channel.id) ? "active" : ""} onClick={() => toggleChannel(channel.id)}>{selectedChannels.includes(channel.id) && <Check />}{channel.label}</button>)}</div></fieldset>
+        <ProductImageField imageUrl={imageUrl} onChange={setImageUrl} />
         <button className="primary catalog-add" disabled={!canCreate || saving}><PackagePlus />{saving ? "Incluindo…" : "Incluir produto"}</button>
       </form>
     </section>
@@ -88,27 +91,58 @@ function CatalogRow({ product, onSaved }: { product: CatalogProduct; onSaved: ()
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [price, setPrice] = useState(product.price.toFixed(2).replace(".", ","));
   const [selectedChannels, setSelectedChannels] = useState<Channel[]>(product.channels);
+  const [imageUrl, setImageUrl] = useState<string | null>(product.imageUrl);
   const toggle = (channel: Channel) => setSelectedChannels(current => current.includes(channel) ? current.filter(item => item !== channel) : [...current, channel]);
   const save = async () => {
     const numericPrice = Number(price.replace(",", "."));
     if (!Number.isFinite(numericPrice) || numericPrice < 0 || selectedChannels.length === 0) return;
     setSaving(true);
-    const response = await fetch("/api/admin/catalog", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId: product.id, price: numericPrice, channels: selectedChannels }) });
+    const response = await fetch("/api/admin/catalog", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId: product.id, price: numericPrice, channels: selectedChannels, imageUrl: imageUrl ?? undefined }) });
     setSaving(false);
     if (response.ok) { setEditing(false); await onSaved(); }
   };
   return <article className="catalog-admin-row-wrap">
     <div className="catalog-admin-row">
-      <div className="catalog-product-identity"><span>{product.name.slice(0, 1).toUpperCase()}</span><div><small>{product.category}</small><strong>{product.name}</strong></div></div>
+      <div className="catalog-product-identity">
+        <span className="catalog-product-photo">{product.imageUrl ? <img src={product.imageUrl} alt="" /> : <UtensilsCrossed />}</span>
+        <div><small>{product.category}</small><strong>{product.name}</strong></div>
+      </div>
       <div className="catalog-channel-list">{channels.map(channel => <button type="button" disabled={!editing} key={channel.id} className={selectedChannels.includes(channel.id) ? "active" : ""} onClick={() => toggle(channel.id)}>{channel.label}</button>)}</div>
       <div className="catalog-row-price">{editing ? <div className="money-input compact"><span>R$</span><input inputMode="decimal" value={price} onChange={event => setPrice(event.target.value)} /></div> : <strong>{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(product.price)}</strong>}</div>
       <div className="catalog-row-actions">
-        {editing ? <><button type="button" className="secondary" onClick={() => { setEditing(false); setPrice(product.price.toFixed(2).replace(".", ",")); setSelectedChannels(product.channels); }}>Cancelar</button><button type="button" className="primary" disabled={saving || selectedChannels.length === 0} onClick={() => void save()}><Save />Salvar</button></> : <button type="button" className="secondary" onClick={() => setEditing(true)}>Editar oferta</button>}
+        {editing ? <><button type="button" className="secondary" onClick={() => { setEditing(false); setPrice(product.price.toFixed(2).replace(".", ",")); setSelectedChannels(product.channels); setImageUrl(product.imageUrl); }}>Cancelar</button><button type="button" className="primary" disabled={saving || selectedChannels.length === 0} onClick={() => void save()}><Save />Salvar</button></> : <button type="button" className="secondary" onClick={() => setEditing(true)}>Editar oferta</button>}
         <button type="button" className="secondary catalog-groups-toggle" onClick={() => setGroupsOpen(current => !current)}><ChevronDown style={{ transform: groupsOpen ? "rotate(180deg)" : undefined }} />Grupos de ingrediente</button>
       </div>
     </div>
+    {editing && <div className="catalog-row-image-edit"><ProductImageField imageUrl={imageUrl} onChange={setImageUrl} /></div>}
     {groupsOpen && <IngredientGroupsPanel productId={product.id} />}
   </article>;
+}
+
+function ProductImageField({ imageUrl, onChange }: { imageUrl: string | null; onChange: (value: string | null) => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    setBusy(true); setError("");
+    try {
+      const compressed = await compressImageFile(file);
+      onChange(compressed);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Não foi possível processar a imagem.");
+    } finally { setBusy(false); }
+  };
+  return <div className="product-image-field">
+    <div className="product-image-preview">{imageUrl ? <img src={imageUrl} alt="" /> : <UtensilsCrossed />}</div>
+    <div className="product-image-actions">
+      <label className="secondary product-image-upload">
+        <ImagePlus />{busy ? "Processando…" : imageUrl ? "Trocar foto" : "Adicionar foto"}
+        <input type="file" accept="image/*" hidden disabled={busy} onChange={event => void handleFile(event.target.files?.[0])} />
+      </label>
+      {imageUrl && <button type="button" className="secondary" disabled={busy} onClick={() => onChange(null)}>Remover foto</button>}
+    </div>
+    {error && <span className="product-image-error">{error}</span>}
+  </div>;
 }
 
 function IngredientGroupsPanel({ productId }: { productId: string }) {

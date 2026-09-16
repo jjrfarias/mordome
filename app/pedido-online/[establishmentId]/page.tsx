@@ -7,7 +7,7 @@ import { useParams } from "next/navigation";
 import { CheckCircle2, Minus, Plus, Search, ShoppingBag, UtensilsCrossed } from "lucide-react";
 import { MapPicker } from "@/components/operations/MapPicker";
 
-type MenuProduct = { id: string; name: string; category: string; description: string | null; price: number };
+type MenuProduct = { id: string; name: string; category: string; description: string | null; price: number; imageUrl: string | null };
 type MenuData = { establishment: { name: string }; products: MenuProduct[] };
 
 const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
@@ -83,7 +83,8 @@ export default function OnlineOrderPage() {
       {grouped.map(([category, products]) => <section className="public-menu-category" key={category}>
         <h2>{category}</h2>
         {products.map(product => <article className="public-menu-item" key={product.id}>
-          <div><b>{product.name}</b>{product.description && <p>{product.description}</p>}<p style={{ color: "var(--green)", fontWeight: 700, marginTop: 4 }}>{money(product.price)}</p></div>
+          <div className="public-menu-item-photo">{product.imageUrl ? <img src={product.imageUrl} alt="" /> : <UtensilsCrossed />}</div>
+          <div className="public-menu-item-body"><b>{product.name}</b>{product.description && <p>{product.description}</p>}<p style={{ color: "var(--green)", fontWeight: 700, marginTop: 4 }}>{money(product.price)}</p></div>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
             <button type="button" className="icon-button" style={{ width: 30, height: 30 }} disabled={!quantities[product.id]} onClick={() => setQuantity(product.id, (quantities[product.id] ?? 0) - 1)}><Minus style={{ width: 14 }} /></button>
             <strong style={{ minWidth: 18, textAlign: "center" }}>{quantities[product.id] ?? 0}</strong>

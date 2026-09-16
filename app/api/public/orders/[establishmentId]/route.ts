@@ -23,7 +23,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     const establishment = listLocalEstablishments().find(item => item.id === establishmentId && item.active);
     if (!establishment) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
     const products = listLocalCatalog(establishmentId).filter(product => product.active && product.channels.includes("DELIVERY"));
-    return Response.json({ establishment: { name: establishment.name }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: null, price: product.price })) });
+    return Response.json({ establishment: { name: establishment.name }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: null, price: product.price, imageUrl: product.imageUrl })) });
   }
 
   const establishment = await db.establishment.findFirst({ where: { id: establishmentId, active: true, organization: { active: true } } });
@@ -35,7 +35,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
   });
   return Response.json({
     establishment: { name: establishment.name },
-    products: offerings.map(offering => ({ id: offering.variant.product.id, name: offering.variant.product.name, category: offering.variant.product.category?.name ?? "Outros", description: offering.variant.product.description, price: Number(offering.price) })),
+    products: offerings.map(offering => ({ id: offering.variant.product.id, name: offering.variant.product.name, category: offering.variant.product.category?.name ?? "Outros", description: offering.variant.product.description, price: Number(offering.price), imageUrl: offering.variant.product.imageUrl })),
   });
 }
 

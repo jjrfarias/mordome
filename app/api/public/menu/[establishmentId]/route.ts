@@ -11,7 +11,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     const products = listLocalCatalog(establishmentId).filter(product => product.active && product.channels.includes("ONLINE"));
     return Response.json({
       establishment: { name: establishment.name },
-      products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: null, price: product.price })),
+      products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: null, price: product.price, imageUrl: product.imageUrl })),
     });
   }
 
@@ -32,6 +32,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
       category: offering.variant.product.category?.name ?? "Outros",
       description: offering.variant.product.description,
       price: Number(offering.price),
+      imageUrl: offering.variant.product.imageUrl,
     })),
   });
 }
