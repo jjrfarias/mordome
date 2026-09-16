@@ -1,15 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { convertToBaseUnit, resolvePhysicalCountAdjustment, stockBalance } from "./inventory-domain.ts";
+import { weightedAverageCost } from "./cmv.ts";
 
 export type LocalBaseUnit = "GRAM" | "MILLILITER" | "UNIT";
 export type LocalTrackingMode = "AUTOMATIC" | "MANUAL" | "NONE";
 export type LocalStockMovementType = "ENTRY" | "CONSUMPTION" | "LOSS" | "ADJUSTMENT" | "TRANSFER_IN" | "TRANSFER_OUT" | "REVERSAL" | "PRODUCTION_IN" | "PRODUCTION_OUT";
-export type LocalStockMovement = { id: string; type: LocalStockMovementType; quantity: number; reason?: string | null; sourceType?: string | null; createdAt: string };
+export type LocalStockMovement = { id: string; type: LocalStockMovementType; quantity: number; unitCost?: number | null; reason?: string | null; sourceType?: string | null; createdAt: string };
 type Configuration = { id: string; trackingMode: LocalTrackingMode; minimumStock: number; allowNegative: boolean; movements: LocalStockMovement[] };
 type InventoryRecord = { id: string; name: string; baseUnit: LocalBaseUnit; active: boolean; configurations: Map<string, Configuration> };
 
-function createMovement(type: LocalStockMovementType, quantity: number, reason?: string | null, sourceType?: string | null): LocalStockMovement {
-  return { id: `local-stock-movement-${randomUUID()}`, type, quantity, reason: reason ?? null, sourceType: sourceType ?? null, createdAt: new Date().toISOString() };
+function createMovement(type: LocalStockMovementType, quantity: number, reason?: string | null, sourceType?: string | null, unitCost?: number | null): LocalStockMovement {
+  return { id: `local-stock-movement-${randomUUID()}`, type, quantity, unitCost: unitCost ?? null, reason: reason ?? null, sourceType: sourceType ?? null, createdAt: new Date().toISOString() };
 }
 
 const items: InventoryRecord[] = [];
@@ -57,19 +58,21 @@ export function configureLocalInventoryItem(establishmentId: string, inventoryIt
   return listLocalInventory(establishmentId).find(row => row.id === inventoryItemId)!;
 }
 
-export function addLocalStockEntry(establishmentId: string, establishmentItemId: string, quantity: number, factorToBase: number, reason?: string) {
+export function addLocalStockEntry(establishmentId: string, establishmentItemId: string, quantity: number, factorToBase: number, reason?: string, totalCost?: number) {
   const item = items.find(row => row.configurations.get(establishmentId)?.id === establishmentItemId);
   const configuration = item?.configurations.get(establishmentId);
   if (!item || !configuration) return null;
-  configuration.movements.push(createMovement("ENTRY", convertToBaseUnit(quantity, factorToBase), reason ?? "Entrada de estoque", "MANUAL_ENTRY"));
+  const baseQuantity = convertToBaseUnit(quantity, factorToBase);
+  const unitCost = totalCost === undefined ? null : totalCost / baseQuantity;
+  configuration.movements.push(createMovement("ENTRY", baseQuantity, reason ?? "Entrada de estoque", "MANUAL_ENTRY", unitCost));
   return listLocalInventory(establishmentId).find(row => row.id === item.id)!;
 }
 
-export function addLocalStockEntryByEstablishmentItemId(establishmentId: string, establishmentItemId: string, baseQuantity: number) {
+export function addLocalStockEntryByEstablishmentItemId(establishmentId: string, establishmentItemId: string, baseQuantity: number, unitCost?: number) {
   const item = items.find(row => row.configurations.get(establishmentId)?.id === establishmentItemId);
   const configuration = item?.configurations.get(establishmentId);
   if (!item || !configuration) return null;
-  const movement = createMovement("ENTRY", baseQuantity, "Nota de entrada confirmada", "GOODS_RECEIPT_NOTE");
+  const movement = createMovement("ENTRY", baseQuantity, "Nota de entrada confirmada", "GOODS_RECEIPT_NOTE", unitCost ?? null);
   configuration.movements.push(movement);
   return { id: movement.id };
 }
@@ -172,6 +175,24 @@ export function reverseLocalRecipeConsumption(establishmentId: string, consumpti
     const configuration = items.find(candidate => candidate.id === consumption.inventoryItemId)?.configurations.get(establishmentId);
     if (configuration?.trackingMode === "AUTOMATIC") configuration.movements.push(createMovement("REVERSAL", consumption.quantity, "Estorno de venda", "SALE"));
   }
+}
+
+/**
+ * Custo médio ponderado "atual" de um item de estoque numa unidade, calculado a partir de todo
+ * o histórico de entradas (`ENTRY`) com custo registrado — usada pelo Relatório de CMV real
+ * (ver ADR 0026). `inventoryItemId` é o id do item de catálogo de estoque (`InventoryRecord.id`),
+ * o mesmo usado pelos componentes de receita (`RecipeComponentInput.inventoryItemId`), não o id
+ * da configuração por unidade (`establishmentItemId`). Retorna `null` quando o item não tem
+ * nenhuma entrada com custo registrado (nunca 0 — custo desconhecido é sinalizado, não mascarado).
+ */
+export function getLocalAverageCostByInventoryItemId(establishmentId: string, inventoryItemId: string): number | null {
+  const item = items.find(candidate => candidate.id === inventoryItemId);
+  const configuration = item?.configurations.get(establishmentId);
+  if (!configuration) return null;
+  const costedEntries = configuration.movements
+    .filter(movement => movement.type === "ENTRY" && typeof movement.unitCost === "number")
+    .map(movement => ({ quantity: movement.quantity, unitCost: movement.unitCost as number }));
+  return weightedAverageCost(costedEntries);
 }
 
 /**

@@ -35,6 +35,7 @@
 - Transferência de estoque gera sempre dois movimentos atômicos: `TRANSFER_OUT` na origem e `TRANSFER_IN` no destino.
 - Categoria financeira pertence à organização e é compartilhada entre suas unidades; conta bancária e forma de pagamento configurável pertencem ao estabelecimento.
 - Lançamento financeiro pertence ao estabelecimento (e referencia a organização), a uma categoria financeira obrigatória e, opcionalmente, a uma conta bancária e a uma forma de pagamento configurada.
+- CMV (Custo de Mercadoria Vendida) é um conceito calculado, não uma entidade persistida: para cada `SaleItem` com ficha técnica, o custo é a soma, por componente, da quantidade consumida × custo médio ponderado do insumo (`soma(quantidade × custoUnitário) / soma(quantidade)` sobre os `StockMovement` do tipo `ENTRY` com custo registrado). Custo médio é sempre "atual" (recalculado a cada consulta a partir de todo o histórico), não histórico por data de venda — ver ADR 0026 para a limitação. Item sem nenhuma entrada com custo é "desconhecido", nunca 0; produto sem ficha técnica fica fora do CMV.
 
 ## Invariantes
 

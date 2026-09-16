@@ -28,7 +28,7 @@ export async function POST(request: Request) {
     const session = await getLocalSession();
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
     if (!session.canManageStock) return Response.json({ error: "Acesso negado ao estoque." }, { status: 403 });
-    const result = confirmLocalGoodsReceiptNote(session.establishment.id, noteId, item => addLocalStockEntryByEstablishmentItemId(session.establishment.id, item.inventoryItemId, item.quantity));
+    const result = confirmLocalGoodsReceiptNote(session.establishment.id, noteId, item => addLocalStockEntryByEstablishmentItemId(session.establishment.id, item.inventoryItemId, item.quantity, item.unitCost));
     if (result === "NOT_FOUND") return Response.json({ error: "Nota de entrada não encontrada." }, { status: 404 });
     if (result === "ALREADY_CONFIRMED") return Response.json({ error: "Esta nota já foi confirmada." }, { status: 409 });
     if (result === "EMPTY") return Response.json({ error: "Adicione ao menos um item antes de confirmar." }, { status: 400 });

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDownToLine, ArrowRightLeft, Boxes, CheckCircle2, ClipboardCheck, ClipboardList, FileText, History, MapPin, Plus, ShoppingCart, TrendingDown, TrendingUp, X } from "lucide-react";
+import { AlertTriangle, ArrowDownToLine, ArrowRightLeft, Boxes, CheckCircle2, ClipboardCheck, ClipboardList, Calculator, FileText, History, MapPin, Plus, ShoppingCart, TrendingDown, TrendingUp, X } from "lucide-react";
 import { GoodsReceiptNotes } from "./GoodsReceiptNotes";
 import { PurchaseOrders } from "./PurchaseOrders";
 import { ShoppingList } from "./ShoppingList";
@@ -22,7 +22,7 @@ type InventoryItem = {
 
 const unitLabels: Record<BaseUnit, string> = { GRAM: "g", MILLILITER: "ml", UNIT: "un" };
 
-type InventorySection = "items" | "purchase-orders" | "goods-receipts" | "count" | "position-history" | "shopping-list";
+type InventorySection = "items" | "purchase-orders" | "goods-receipts" | "count" | "position-history" | "cmv-report" | "shopping-list";
 
 export function InventoryManagement({ establishmentId, establishmentName }: { establishmentId: string; establishmentName: string }) {
   const [section, setSection] = useState<InventorySection>("items");
@@ -83,6 +83,7 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
         <button className={section === "goods-receipts" ? "active" : ""} onClick={() => setSection("goods-receipts")}><FileText size={14} />Notas de entrada</button>
         <button className={section === "count" ? "active" : ""} onClick={() => setSection("count")}><ClipboardList size={14} />Contagem de estoque</button>
         <button className={section === "position-history" ? "active" : ""} onClick={() => setSection("position-history")}><History size={14} />Histórico de posição</button>
+        <button className={section === "cmv-report" ? "active" : ""} onClick={() => setSection("cmv-report")}><Calculator size={14} />Relatório de CMV</button>
         <button className={section === "shopping-list" ? "active" : ""} onClick={() => setSection("shopping-list")}><ShoppingCart size={14} />Lista de compras</button>
       </nav>
       {section === "items" && <form className="inventory-create-form" onSubmit={create}>
@@ -103,6 +104,7 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
     {section === "goods-receipts" && <GoodsReceiptNotes items={items} />}
     {section === "count" && <StockCountSession items={items.filter(item => item.configured)} loading={loading} error={error} establishmentName={establishmentName} onApplied={load} />}
     {section === "position-history" && <StockPositionHistory items={items.filter(item => item.configured)} loading={loading} error={error} establishmentName={establishmentName} />}
+    {section === "cmv-report" && <CmvReportTab />}
     {section === "shopping-list" && <ShoppingList items={items} />}
   </div>;
 }
@@ -313,6 +315,111 @@ function StockPositionHistory({ items, loading, error, establishmentName }: { it
         <div className="position-history-balance"><small>Saldo após</small><strong>{movement.runningBalance.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {unit}</strong></div>
       </article>)}
     </div>}
+  </section>;
+}
+
+const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+const percent = (value: number | null) => (value === null ? "—" : `${value.toLocaleString("pt-BR", { maximumFractionDigits: 1 })}%`);
+
+type CmvProductRow = { productId: string | null; productName: string; quantity: number; revenue: number; cmv: number; cmvPercent: number | null; hasUnknownCost: boolean };
+type CmvProductWithoutRecipeRow = { productId: string | null; productName: string; quantity: number; revenue: number };
+type CmvReportData = {
+  revenueTotal: number; cmvTotal: number; cmvPercent: number | null; grossMargin: number; marginPercent: number | null; hasUnknownCost: boolean;
+  products: CmvProductRow[]; productsWithoutRecipe: CmvProductWithoutRecipeRow[]; from: string; to: string;
+};
+
+/**
+ * Relatório de CMV real (ver ADR 0026): CMV é calculado com o custo médio ponderado ATUAL de cada
+ * insumo (não o custo histórico do dia da venda) — uma aproximação aceita nesta fatia, sinalizada
+ * também na tela. Produtos sem ficha técnica aparecem à parte, pois não há como saber seu custo.
+ */
+function CmvReportTab() {
+  const today = new Date();
+  const [from, setFrom] = useState(toDateInputValue(startOfMonthValue(today)));
+  const [to, setTo] = useState(toDateInputValue(today));
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [data, setData] = useState<CmvReportData | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true); setError("");
+    try {
+      const response = await fetch(`/api/admin/inventory/cmv-report?from=${from}&to=${to}`, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "Não foi possível carregar o relatório de CMV.");
+      setData(body);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar o relatório de CMV."); } finally { setLoading(false); }
+  }, [from, to]);
+
+  useEffect(() => { queueMicrotask(() => { void load(); }); }, [load]);
+
+  const applyShortcut = (shortcut: "today" | "week" | "month") => {
+    const now = new Date();
+    if (shortcut === "today") { setFrom(toDateInputValue(now)); setTo(toDateInputValue(now)); }
+    if (shortcut === "week") { setFrom(toDateInputValue(startOfWeekValue(now))); setTo(toDateInputValue(now)); }
+    if (shortcut === "month") { setFrom(toDateInputValue(startOfMonthValue(now))); setTo(toDateInputValue(now)); }
+  };
+
+  return <section className="cmv-report">
+    <div className="panel settings-shell">
+      <div className="settings-shell-header"><div><span className="section-kicker">Custo real das vendas</span><h2>Relatório de CMV</h2></div></div>
+      <p className="section-note">CMV = custo dos insumos efetivamente consumidos pelas vendas do período, pelo custo médio ponderado ATUAL de cada item (não o custo histórico do dia da venda — ver limitação abaixo). Compara com a receita para mostrar a margem bruta real.</p>
+      <div className="settings-form">
+        <label className="field"><span>De</span><input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
+        <label className="field"><span>Até</span><input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
+      </div>
+      <nav className="settings-tabs">
+        <button type="button" onClick={() => applyShortcut("today")}>Hoje</button>
+        <button type="button" onClick={() => applyShortcut("week")}>Esta semana</button>
+        <button type="button" onClick={() => applyShortcut("month")}>Este mês</button>
+      </nav>
+    </div>
+
+    {loading && <div className="empty"><span>Carregando relatório de CMV…</span></div>}
+    {error && <div className="auth-error" role="alert">{error}</div>}
+
+    {!loading && !error && data && <>
+      <section className="panel settings-shell">
+        <div className="metric-cards">
+          <div className="role-card"><b>Receita</b><p className="section-note">{money(data.revenueTotal)}</p></div>
+          <div className="role-card"><b>CMV</b><p className="section-note">{money(data.cmvTotal)}</p></div>
+          <div className="role-card"><b>CMV%</b><p className="section-note">{percent(data.cmvPercent)}</p></div>
+          <div className="role-card"><b>Margem bruta</b><p className="section-note">{money(data.grossMargin)}</p></div>
+          <div className="role-card"><b>Margem%</b><p className="section-note">{percent(data.marginPercent)}</p></div>
+        </div>
+        {data.hasUnknownCost && <div className="cmv-warning"><AlertTriangle size={16} />Um ou mais produtos usam insumos sem nenhuma entrada de custo registrada — o CMV desses produtos está subestimado (só soma os componentes com custo conhecido). Registre o custo nas próximas entradas de estoque para corrigir.</div>}
+      </section>
+
+      <section className="panel settings-shell">
+        <div className="settings-shell-header"><div><h2>Detalhamento por produto</h2></div></div>
+        {data.products.length === 0 && <div className="empty small"><span>Nenhuma venda com ficha técnica neste período.</span></div>}
+        {data.products.length > 0 && <div className="cmv-product-table">
+          <div className="cmv-product-row cmv-product-head"><span>Produto</span><span>Qtd.</span><span>Receita</span><span>CMV</span><span>CMV%</span></div>
+          {data.products.map(product => <div key={product.productId ?? product.productName} className={`cmv-product-row ${product.hasUnknownCost ? "cmv-unknown" : ""}`}>
+            <span>{product.productName}{product.hasUnknownCost && <em className="cmv-unknown-badge"><AlertTriangle size={12} />custo parcial</em>}</span>
+            <span>{product.quantity.toLocaleString("pt-BR")}</span>
+            <span>{money(product.revenue)}</span>
+            <span>{money(product.cmv)}</span>
+            <span>{percent(product.cmvPercent)}</span>
+          </div>)}
+        </div>}
+      </section>
+
+      {data.productsWithoutRecipe.length > 0 && <section className="panel settings-shell">
+        <div className="settings-shell-header"><div><h2>Vendas sem ficha técnica</h2></div></div>
+        <p className="section-note">Estes produtos não têm ficha técnica cadastrada nesta unidade — não é possível calcular o custo deles, então ficam fora do CMV acima. Cadastre a ficha técnica em &quot;Fichas técnicas&quot; para passar a rastrear o custo.</p>
+        <div className="cmv-product-table">
+          <div className="cmv-product-row cmv-product-head"><span>Produto</span><span>Qtd.</span><span>Receita</span><span /><span /></div>
+          {data.productsWithoutRecipe.map(product => <div key={product.productId ?? product.productName} className="cmv-product-row cmv-unknown">
+            <span>{product.productName}</span>
+            <span>{product.quantity.toLocaleString("pt-BR")}</span>
+            <span>{money(product.revenue)}</span>
+            <span>—</span>
+            <span>—</span>
+          </div>)}
+        </div>
+      </section>}
+    </>}
   </section>;
 }
 
