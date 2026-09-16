@@ -67,6 +67,28 @@ Para adicionar um relatório novo no futuro: criar sua constante de permissão e
 0018), e registrar o relatório em `lib/reports/registry.ts`. Nenhuma outra peça do framework
 (navegação, exportação, tabela) precisa mudar.
 
+## Permissão por dashboard individual (ADR 0042)
+
+Dashboards (`lib/dashboards/registry.ts`) é um módulo diferente de Relatórios (tela visual com
+gráficos, sem tabela genérica nem exportação), mas segue o MESMO padrão granular de permissão:
+cada dashboard do catálogo tem sua própria chave `dashboards.<slug>.view`
+(`dashboards.sales_tracking.view` para "Acompanhamento de vendas",
+`dashboards.multi_store_tracking.view` para "Acompanhamento de vendas multilojas"). A tela única
+`components/admin/DashboardsWorkspace.tsx` filtra o catálogo diretamente por
+`session.permissionKeys`, via `listAvailableDashboards(permissionKeys)`, e cada rota de API
+(`GET /api/admin/dashboards/sales-tracking`, `GET /api/admin/dashboards/multi-store-tracking`)
+repete a verificação no servidor antes de responder.
+
+O dashboard multilojas não introduz nenhum mecanismo de acesso novo: ele consolida exatamente as
+unidades listadas em `session.establishments` (já filtrado por `EstablishmentAccess` no modo
+servidor, e pelo `allowedIds` do usuário no modo local) — o mesmo array já usado pelo seletor de
+unidade em `app/page.tsx`. Um usuário com acesso a menos de todas as unidades da organização nunca
+vê, nem no gráfico comparativo nem no ranking, as unidades que não tem acesso.
+
+Migração: mesmo padrão das anteriores — inserir as duas permissões na tabela `Permission` e
+conceder a todo `CustomRole` com `systemTemplate = true`. Em modo local, as duas chaves foram
+adicionadas ao array padrão de `permissionKeys` em `lib/local-auth.ts`.
+
 ## Perfis modelo
 
 Administrador, gerente, atendente, caixa e cozinha são modelos clonáveis, não regras rígidas. O proprietário pode criar “Atendente + resumo financeiro” selecionando capacidades específicas.

@@ -287,6 +287,39 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
   auditoria/movimentos/histórico de status locais).
 - Fora desta fatia (ficam para o futuro, reaproveitando o mesmo framework): cupons gerados, DRE.
 
+## Dashboards — dois dashboards de vendas (ver ADR 0042)
+
+- Módulo NOVO e DIFERENTE de Relatórios: Dashboards é uma tela VISUAL com gráficos
+  (`recharts`) para acompanhamento rápido do dia a dia, sem tabela genérica nem exportação
+  Excel/PDF — Relatórios continua sendo a tela tabular/exportável para análise/auditoria
+  (ver ADR 0033). Item de primeiro nível "Dashboards" na sidebar, visível com qualquer
+  permissão `dashboards.*.view`.
+- Tela única "Dashboards" (`components/admin/DashboardsWorkspace.tsx`), mesmo espírito de
+  navegação do `ReportsWorkspace.tsx` (catálogo central em `lib/dashboards/registry.ts`,
+  filtrado por `session.permissionKeys`), mas cada dashboard é um componente próprio com seus
+  próprios gráficos.
+- Permissão granular por dashboard: `dashboards.sales_tracking.view` e
+  `dashboards.multi_store_tracking.view` — ver `docs/AUTORIZACAO.md`.
+- Dashboard **Acompanhamento de vendas** (unidade ativa da sessão,
+  `components/admin/dashboards/SalesTrackingDashboard.tsx`): cards de KPI (faturamento,
+  vendas e ticket médio do dia escolhido — hoje por padrão, com atalho Ontem ou seletor de
+  data única, já que dashboard olha para UM dia por vez, diferente do `PeriodFilter` de
+  intervalo dos relatórios), gráfico de barras de faturamento por HORA do dia (0h-23h, sempre
+  as 24 horas, mesmo sem venda em algumas) e gráfico de pizza de faturamento por CANAL
+  (POS/FLOOR/DELIVERY/ONLINE). Rota `GET /api/admin/dashboards/sales-tracking?date=`.
+- Dashboard **Acompanhamento de vendas multilojas** (consolida as unidades acessíveis à sessão,
+  `components/admin/dashboards/MultiStoreTrackingDashboard.tsx`): KPIs consolidados, gráfico de
+  barras comparando faturamento do dia POR UNIDADE (uma unidade sem vendas no dia aparece com
+  zero, nunca é omitida do comparativo) e ranking de unidades por faturamento. Rota
+  `GET /api/admin/dashboards/multi-store-tracking?date=`. Consolida somente as unidades que a
+  PRÓPRIA sessão enxerga (`session.establishments`) — um usuário com acesso a menos de todas
+  as unidades da organização nunca vê as demais.
+- Cálculo puro e compartilhado (Prisma/local) em `lib/dashboards/sales-tracking.ts`
+  (`buildHourlyRevenue`, `buildChannelRevenue`, `buildSalesTrackingKpis`, `buildStoreRevenue`,
+  `summarizeMultiStore`), reaproveitando o mesmo `SaleRecord` de `lib/reports/sales.ts` — não
+  duplica a lógica de "resumo do dia" já existente em `/api/operations/summary`.
+- Biblioteca de gráficos: `recharts` (ver ADR 0042 para a justificativa).
+
 ## Histórico e auditoria — primeira fatia implementada
 
 - Linha do tempo central por organização, respeitando as unidades autorizadas ao usuário.
