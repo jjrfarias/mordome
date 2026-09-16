@@ -5,6 +5,7 @@ import { buildSalesByPeriodRows, buildRevenueByDayRows, summarizeSalesByPeriod, 
 import { buildStaffPerformanceRows } from "../lib/reports/staff-performance.ts";
 import { buildPaymentMethodsRows, summarizePaymentMethods } from "../lib/reports/payment-methods.ts";
 import { buildSalesByDeliveryAreaRows, summarizeSalesByDeliveryArea, NO_DELIVERY_AREA_LABEL } from "../lib/reports/sales-by-delivery-area.ts";
+import { buildItemsSoldRows, summarizeItemsSold } from "../lib/reports/items-sold.ts";
 import { buildExcelBuffer, buildPdfBuffer } from "../lib/reports/export.ts";
 import { listLocalSalesForReport } from "../lib/local-finance.ts";
 import { recordLocalAudit } from "../lib/local-audit.ts";
@@ -26,8 +27,11 @@ test("registro de relatorios filtra pelas permissoes da sessao", () => {
   const onlySalesByDeliveryArea = listAvailableReports(["reports.sales_by_delivery_area.view"]);
   assert.deepEqual(onlySalesByDeliveryArea.map(report => report.id), ["sales-by-delivery-area"]);
 
-  const all = listAvailableReports(["reports.sales_by_period.view", "reports.revenue_by_day.view", "reports.performance_by_staff.view", "reports.payment_methods.view", "reports.sales_by_delivery_area.view", "outra.permissao"]);
-  assert.deepEqual(all.map(report => report.id).sort(), ["payment-methods", "performance-by-staff", "revenue-by-day", "sales-by-delivery-area", "sales-by-period"]);
+  const onlyItemsSold = listAvailableReports(["reports.items_sold.view"]);
+  assert.deepEqual(onlyItemsSold.map(report => report.id), ["items-sold"]);
+
+  const all = listAvailableReports(["reports.sales_by_period.view", "reports.revenue_by_day.view", "reports.performance_by_staff.view", "reports.payment_methods.view", "reports.sales_by_delivery_area.view", "reports.items_sold.view", "outra.permissao"]);
+  assert.deepEqual(all.map(report => report.id).sort(), ["items-sold", "payment-methods", "performance-by-staff", "revenue-by-day", "sales-by-delivery-area", "sales-by-period"]);
 });
 
 const sales: SaleRecord[] = [
@@ -316,6 +320,79 @@ test("relatorios locais propagam area de entrega/taxa para vendas por area de en
   assert.equal(rowsB.length, 1);
   assert.equal(rowsB[0]?.areaName, "Outra loja");
   assert.equal(rowsB[0]?.productsTotal, 999);
+});
+
+const itemsSoldSales: SaleRecord[] = [
+  { id: "is1", completedAt: "2026-09-01T10:00:00.000Z", channel: "POS", table: null, payment: "Dinheiro", subtotal: 100, discount: 0, total: 100, refunded: 0, items: [{ productName: "Hot Dog Simples", quantity: 2, unitPrice: 20 }, { productName: "Refrigerante", quantity: 2, unitPrice: 5 }] },
+  { id: "is2", completedAt: "2026-09-01T11:00:00.000Z", channel: "FLOOR", table: 3, payment: "Cartão", subtotal: 60, discount: 0, total: 60, refunded: 0, items: [{ productName: "Hot Dog Simples", quantity: 1, unitPrice: 25 }] },
+  // Venda totalmente reembolsada nao entra no relatorio (ja excluida na origem dos SaleRecord).
+  { id: "is3", completedAt: "2026-09-02T09:00:00.000Z", channel: "DELIVERY", table: null, payment: "Pix", subtotal: 500, discount: 0, total: 500, refunded: 0, items: [{ productName: "Combo Família", quantity: 5, unitPrice: 100 }] },
+];
+
+test("itens vendidos: agrega por produto, calcula receita, preco medio e ranking por receita decrescente", () => {
+  const rows = buildItemsSoldRows(itemsSoldSales);
+
+  assert.equal(rows.length, 3);
+
+  // Combo Familia: 5 x 100 = 500 -> maior receita, rank 1.
+  assert.equal(rows[0]?.productName, "Combo Família");
+  assert.equal(rows[0]?.rank, 1);
+  assert.equal(rows[0]?.quantity, 5);
+  assert.equal(rows[0]?.revenue, 500);
+  assert.equal(rows[0]?.averagePrice, 100);
+
+  // Hot Dog Simples: (2 x 20) + (1 x 25) = 65 receita, 3 unidades -> preco medio ponderado 65/3.
+  const hotDog = rows.find(row => row.productName === "Hot Dog Simples");
+  assert.ok(hotDog);
+  assert.equal(hotDog?.quantity, 3);
+  assert.equal(hotDog?.revenue, 65);
+  assert.equal(hotDog?.averagePrice, 65 / 3);
+
+  const soda = rows.find(row => row.productName === "Refrigerante");
+  assert.equal(soda?.quantity, 2);
+  assert.equal(soda?.revenue, 10);
+  assert.equal(soda?.averagePrice, 5);
+
+  // Ordenado por receita decrescente: Combo Familia (500) > Hot Dog Simples (65) > Refrigerante (10).
+  assert.deepEqual(rows.map(row => row.productName), ["Combo Família", "Hot Dog Simples", "Refrigerante"]);
+  assert.deepEqual(rows.map(row => row.rank), [1, 2, 3]);
+
+  const summary = summarizeItemsSold(rows);
+  assert.equal(summary.quantity, 5 + 3 + 2);
+  assert.equal(summary.revenue, 500 + 65 + 10);
+});
+
+test("itens vendidos: sem vendas no periodo nao gera linhas", () => {
+  const rows = buildItemsSoldRows([]);
+  assert.equal(rows.length, 0);
+  const summary = summarizeItemsSold(rows);
+  assert.equal(summary.quantity, 0);
+  assert.equal(summary.revenue, 0);
+});
+
+test("relatorios locais propagam itens de venda para itens vendidos, isolado por estabelecimento", () => {
+  const orgId = `org-${crypto.randomUUID()}`;
+  const storeA = `store-${crypto.randomUUID()}`;
+  const storeB = `store-${crypto.randomUUID()}`;
+  const from = "2026-09-01T00:00:00.000Z";
+  const to = "2026-09-30T23:59:59.999Z";
+
+  recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-is-1", after: { channel: "POS", subtotal: 40, discount: 0, total: 40, items: [{ productName: "Hot Dog Simples", quantity: 2, unitPrice: 20 }], payments: [{ method: "CASH", amount: 40 }] } });
+  recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-is-2", after: { channel: "DELIVERY", subtotal: 100, discount: 0, total: 100, items: [{ productName: "Combo Família", quantity: 1, unitPrice: 100 }], payments: [{ method: "PIX", amount: 100 }] } });
+  recordLocalAudit({ organizationId: orgId, establishmentId: storeB, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-is-3", after: { channel: "POS", subtotal: 999, discount: 0, total: 999, items: [{ productName: "Produto da loja B", quantity: 1, unitPrice: 999 }], payments: [{ method: "CASH", amount: 999 }] } });
+
+  const salesA = listLocalSalesForReport(orgId, storeA, from, to);
+  assert.equal(salesA.length, 2);
+  const rowsA = buildItemsSoldRows(salesA);
+  assert.equal(rowsA.find(row => row.productName === "Hot Dog Simples")?.revenue, 40);
+  assert.equal(rowsA.find(row => row.productName === "Combo Família")?.revenue, 100);
+  assert.equal(rowsA.some(row => row.productName === "Produto da loja B"), false); // isolamento: venda da loja B nao entra
+
+  const salesB = listLocalSalesForReport(orgId, storeB, from, to);
+  const rowsB = buildItemsSoldRows(salesB);
+  assert.equal(rowsB.length, 1);
+  assert.equal(rowsB[0]?.productName, "Produto da loja B");
+  assert.equal(rowsB[0]?.revenue, 999);
 });
 
 test("exportacao Excel e PDF nao lanca erro com dados validos ou vazios", async () => {

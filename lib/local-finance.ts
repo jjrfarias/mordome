@@ -215,7 +215,7 @@ export function listLocalSalesForReport(organizationId: string, establishmentId:
   const records: SaleRecord[] = [];
   for (const event of completedEvents) {
     if (cancelledIds.has(event.entityId)) continue;
-    const after = event.after as { channel?: string; table?: number; payments?: { method: string; amount?: number }[]; discount?: number; subtotal?: number; total?: number; deliveryAreaId?: string | null; deliveryAreaName?: string | null; deliveryFee?: number } | undefined;
+    const after = event.after as { channel?: string; table?: number; payments?: { method: string; amount?: number }[]; discount?: number; subtotal?: number; total?: number; deliveryAreaId?: string | null; deliveryAreaName?: string | null; deliveryFee?: number; items?: { productName?: string; quantity?: number; unitPrice?: number }[] } | undefined;
     const total = after?.total ?? 0;
     const refunded = refundedBySale.get(event.entityId) ?? 0;
     if (total > 0 && refunded >= total) continue;
@@ -246,6 +246,10 @@ export function listLocalSalesForReport(organizationId: string, establishmentId:
       deliveryAreaId: after?.deliveryAreaId ?? null,
       deliveryAreaName: after?.deliveryAreaName ?? null,
       deliveryFee: after?.deliveryFee ?? 0,
+      // Itens da venda (nome/quantidade/preço), já gravados no evento SALE_COMPLETE por todo canal
+      // (`app/api/operations/sales/route.ts`) — reaproveitados sem nenhuma estrutura nova pelo
+      // relatório de Itens vendidos (ADR 0037).
+      items: after?.items?.map(item => ({ productName: item.productName ?? "Produto", quantity: item.quantity ?? 0, unitPrice: item.unitPrice ?? 0 })) ?? [],
     });
   }
   return records;

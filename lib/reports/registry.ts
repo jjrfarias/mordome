@@ -1,4 +1,4 @@
-import { REPORTS_PAYMENT_METHODS_VIEW, REPORTS_PERFORMANCE_BY_STAFF_VIEW, REPORTS_REVENUE_BY_DAY_VIEW, REPORTS_SALES_BY_DELIVERY_AREA_VIEW, REPORTS_SALES_BY_PERIOD_VIEW } from "../permissions.ts";
+import { REPORTS_ITEMS_SOLD_VIEW, REPORTS_PAYMENT_METHODS_VIEW, REPORTS_PERFORMANCE_BY_STAFF_VIEW, REPORTS_REVENUE_BY_DAY_VIEW, REPORTS_SALES_BY_DELIVERY_AREA_VIEW, REPORTS_SALES_BY_PERIOD_VIEW } from "../permissions.ts";
 
 // Catálogo central de relatórios (ADR 0033 — framework de relatórios). Para adicionar um relatório
 // novo no futuro: (1) criar sua permissão em `lib/permissions.ts` seguindo `reports.<slug>.view`,
@@ -50,6 +50,13 @@ export const REPORTS_REGISTRY: ReportDefinition[] = [
     label: "Vendas por área de entrega",
     description: "Agrupa os pedidos de delivery concluídos no período por área de entrega, com quantidade de pedidos, valor de produtos, taxas de entrega cobradas e valor total geral.",
     permissionKey: REPORTS_SALES_BY_DELIVERY_AREA_VIEW,
+    category: "Vendas",
+  },
+  {
+    id: "items-sold",
+    label: "Itens vendidos",
+    description: "Ranking de produtos mais vendidos no período por faturamento, com quantidade total vendida, receita total e preço médio praticado.",
+    permissionKey: REPORTS_ITEMS_SOLD_VIEW,
     category: "Vendas",
   },
 ];

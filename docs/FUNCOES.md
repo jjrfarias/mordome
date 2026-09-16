@@ -218,13 +218,19 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
   entrega cobradas (`Sale.deliveryFee`) e valor total geral (produtos + taxa). Pedidos sem área
   vinculada aparecem numa linha própria "Sem área definida", nunca descartados. Ordenado por valor
   total geral decrescente.
+- Relatório **Itens vendidos** (ver ADR 0037): agrupa os itens (`SaleItem`) das vendas concluídas no
+  período por PRODUTO (nome gravado no momento da venda) — posição no ranking, quantidade total
+  vendida, receita total (soma bruta de `quantity × unitPrice`, sem descontar reembolso) e preço
+  médio praticado (receita total / quantidade). Sem restrição de canal. Ordenado por receita total
+  decrescente (ranking dos produtos mais vendidos por faturamento).
 - Todos por `establishmentId` da sessão ativa, com rota GET dedicada
   (`/api/admin/reports/sales-by-period`, `/api/admin/reports/revenue-by-day`,
-  `/api/admin/reports/staff-performance`, `/api/admin/reports/payment-methods`), suportando modo
+  `/api/admin/reports/staff-performance`, `/api/admin/reports/payment-methods`,
+  `/api/admin/reports/sales-by-delivery-area`, `/api/admin/reports/items-sold`), suportando modo
   Prisma (produção) e modo local
   (`lib/local-finance.ts`, a partir do log de auditoria).
 - Fora desta fatia (ficam para o futuro, reaproveitando o mesmo framework): cupons gerados, DRE,
-  itens consumidos/vendidos, tempo de produção/status, vendas por área de entrega.
+  tempo de produção/status.
 
 ## Histórico e auditoria — primeira fatia implementada
 

@@ -30,6 +30,10 @@ export type SaleRecord = {
   deliveryAreaId?: string | null;
   deliveryAreaName?: string | null;
   deliveryFee?: number;
+  // Itens da venda (`SaleItem`), com o nome do produto e o preço praticado no momento da venda
+  // (snapshot). Opcional porque só o relatório de Itens vendidos (ADR 0037) os usa — os demais
+  // relatórios ignoram e continuam agregando pela venda como um todo.
+  items?: { productName: string; quantity: number; unitPrice: number }[];
 };
 
 export type SalesByPeriodRow = {
