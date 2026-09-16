@@ -230,6 +230,15 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
   inclui `LOSS`/`ADJUSTMENT`/outros tipos, só consumo real por venda. Não é o Relatório de CMV
   (ADR 0026): este é sobre QUANTIDADE de insumo, não sobre custo/dinheiro. Ordenado por quantidade
   consumida decrescente.
+- Relatório **DRE Gerencial** (ver ADR 0040): demonstração de resultado simplificada e GERENCIAL
+  (não contábil/fiscal — sem impostos nem depreciação) que CRUZA três fontes já existentes: vendas
+  concluídas do período (`Sale.total`/`Sale.discount`/`Refund.amount`), o Relatório de CMV (ADR
+  0026, `buildCmvReport`) e lançamentos financeiros pagos por categoria (mesma agregação do Fluxo
+  de caixa, ADR 0016). Fórmula: Receita bruta − Descontos − Reembolsos = Receita líquida − CMV =
+  Lucro bruto − Despesas operacionais + Outras receitas = Resultado do período. Não recalcula
+  nenhuma das três fontes, só as consulta e monta a demonstração linha a linha
+  (`lib/reports/dre.ts`, `buildDreReport`). Exibida como lista de linhas com subtotais/resultado
+  destacados, não como `ReportTable` — ainda com exportação Excel/PDF.
 - Relatórios **Tempo de produção** e **Tempo por status** (ver ADR 0039): construídos juntos, sobre a
   mesma fonte — histórico de status de cada pedido de cozinha (`OrderStatusHistory`/
   `LocalOrder.statusHistory`), extração compartilhada em `lib/reports/order-timing.ts`.

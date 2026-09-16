@@ -41,6 +41,14 @@
 - `PrintTemplate` pertence à unidade (`@@unique([establishmentId])`, um único registro por estabelecimento) e controla apenas a aparência do recibo de venda impresso (cabeçalho, rodapé, exibir documento, largura do papel) — não afeta a lógica de itens/total nem o recibo da cozinha (ver ADR 0031).
 - A Simulação de CMV (ver ADR 0027) é o mesmo conceito de custo aplicado a um cenário HIPOTÉTICO em vez de uma venda real: uma lista de componentes simulados (que pode coincidir com uma `Recipe` existente ou ser inventada do zero) + um preço de venda simulado (que pode coincidir com a `ProductOffering` atual ou não) — nada disso é persistido, é só um cálculo efêmero client-side sobre os mesmos custos médios já usados no Relatório de CMV.
 - O Relatório "Itens consumidos" (ver ADR 0038) NÃO é o Relatório de CMV: agrega os mesmos movimentos `StockMovement` do tipo `CONSUMPTION`, mas soma QUANTIDADE FÍSICA de insumo (g/ml/un), sem cruzar com `unitCost` nem calcular custo/margem em dinheiro.
+- O Relatório "DRE Gerencial" (ver ADR 0040) é, como o Relatório de CMV, um conceito calculado sob
+  demanda, não uma entidade persistida: soma Receita bruta (`Sale.total`), Descontos
+  (`Sale.discount`) e Reembolsos (`Refund.amount`) das vendas concluídas do período, subtrai o
+  CMV do mesmo período (reaproveitando `buildCmvReport`, sem recalcular custo médio de novo) para
+  chegar em Lucro bruto, e então soma/subtrai lançamentos financeiros pagos (`FinancialEntry`,
+  `status = PAID`) por categoria (EXPENSE reduz, INCOME soma) para o Resultado do período. É
+  GERENCIAL, não contábil/fiscal: nenhum imposto (ICMS, PIS/COFINS, IRPJ/CSLL) nem depreciação
+  entram na conta.
 - Os Relatórios "Tempo de produção" e "Tempo por status" (ver ADR 0039) são calculados a partir do mesmo histórico de transições de `OrderStatusHistory`/`LocalOrder.statusHistory`, via extração pura compartilhada (`lib/reports/order-timing.ts`): "Tempo de produção" é o intervalo entre o envio à cozinha (primeiro evento, `RECEIVED`, equivalente a `Order.sentAt`) e o primeiro `READY` de cada pedido; "Tempo por status" é a média agregada da duração de cada transição consecutiva, por status de origem (`RECEIVED`, `PREPARING`, `READY` — os únicos com uma "próxima etapa" a medir). Pedido sem transição para `READY` no período fica fora do tempo de produção (não há instante de conclusão a medir), mas uma transição que termina em `CANCELLED` ainda conta para o tempo por status (o pedido genuinamente esperou aquele tempo no status de origem).
 
 ## Invariantes

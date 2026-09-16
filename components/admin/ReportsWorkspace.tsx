@@ -12,6 +12,7 @@ import { ItemsSoldReport } from "@/components/admin/reports/ItemsSoldReport";
 import { ItemsConsumedReport } from "@/components/admin/reports/ItemsConsumedReport";
 import { ProductionTimeReport } from "@/components/admin/reports/ProductionTimeReport";
 import { TimeByStatusReport } from "@/components/admin/reports/TimeByStatusReport";
+import { DreReport } from "@/components/admin/reports/DreReport";
 
 // Componente por relatório: adicione uma entrada aqui ao registrar um novo relatório em
 // `lib/reports/registry.ts`. É o único outro ponto que muda ao adicionar um relatório.
@@ -25,6 +26,7 @@ const REPORT_COMPONENTS: Record<string, ComponentType> = {
   "items-consumed": ItemsConsumedReport,
   "production-time": ProductionTimeReport,
   "time-by-status": TimeByStatusReport,
+  "dre": DreReport,
 };
 
 export function ReportsWorkspace({ permissionKeys }: { permissionKeys: string[] }) {

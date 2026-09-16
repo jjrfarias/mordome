@@ -3,6 +3,11 @@ import { listLocalAudit } from "./local-audit.ts";
 import { listLocalCashMovementsForEstablishment } from "./local-cash.ts";
 import { summarizeCashFlow, type CashFlowItem } from "./cashflow.ts";
 import type { SaleRecord } from "./reports/sales.ts";
+import { buildCmvReport, type CmvSaleItemInput } from "./cmv.ts";
+import { getLocalAverageCostByInventoryItemId } from "./local-inventory.ts";
+import { listLocalRecipes } from "./local-recipes.ts";
+import { calculateRecipeConsumption } from "./inventory-domain.ts";
+import { buildDreReport, type DreReport } from "./reports/dre.ts";
 
 type FinancialCategoryKind = "INCOME" | "EXPENSE";
 type FinancialEntryStatus = "PENDING" | "PAID";
@@ -253,4 +258,60 @@ export function listLocalSalesForReport(organizationId: string, establishmentId:
     });
   }
   return records;
+}
+
+// DRE Gerencial/Financeira simplificada (ADR 0040), modo local. Reaproveita, sem recalcular:
+// - `listLocalSalesForReport` para Receita bruta (soma de `total`), Descontos (soma de `discount`)
+//   e Reembolsos (soma de `refunded`) — mesmos campos já usados por todos os outros relatórios de
+//   vendas desta série, já isolados por estabelecimento e já excluindo canceladas/totalmente
+//   reembolsadas.
+// - A mesma reconstituição de consumo por ficha técnica ATUAL usada pela rota de CMV
+//   (`app/api/admin/inventory/cmv-report/route.ts`, modo local) para chamar `buildCmvReport`
+//   (`lib/cmv.ts`) — nenhuma lógica de CMV é reimplementada aqui.
+// - `listLocalFinancialCategories`/`listLocalFinancialEntries` para separar lançamentos pagos por
+//   categoria INCOME (Outras receitas) e EXPENSE (Despesas operacionais) — mesmo padrão já usado
+//   por `computeLocalCashFlow` acima, sem nenhuma tabela nova.
+export function computeLocalDre(organizationId: string, establishmentId: string, from: string, to: string): DreReport {
+  const sales = listLocalSalesForReport(organizationId, establishmentId, from, to);
+  // sale.total já é líquido de desconto; some o desconto de volta para reconstituir a receita
+  // bruta pré-desconto, senão o desconto seria contado duas vezes na Receita líquida.
+  const grossRevenue = sales.reduce((sum, sale) => sum + sale.total + sale.discount, 0);
+  const discounts = sales.reduce((sum, sale) => sum + sale.discount, 0);
+  const refunds = sales.reduce((sum, sale) => sum + sale.refunded, 0);
+
+  // CMV: mesma reconstituição usada pela rota de CMV em modo local — ficha técnica ATUAL do
+  // produto aplicada aos itens de cada evento SALE_COMPLETE do período (não há recipeSnapshot por
+  // venda em modo local, ver ADR 0026, decisão 6).
+  const recipes = listLocalRecipes(establishmentId);
+  const cancelledIds = new Set(listLocalAudit({ organizationId, establishmentId, action: "SALE_CANCEL", limit: 5000 }).map(event => event.entityId));
+  const completedEvents = listLocalAudit({ organizationId, establishmentId, action: "SALE_COMPLETE", limit: 5000 })
+    .filter(event => event.createdAt >= from && event.createdAt <= to)
+    .filter(event => !cancelledIds.has(event.entityId));
+
+  const cmvSaleItems: CmvSaleItemInput[] = [];
+  for (const event of completedEvents) {
+    const after = event.after as { items?: { productId: string; productName: string; quantity: number; unitPrice: number }[] } | undefined;
+    for (const item of after?.items ?? []) {
+      const recipe = recipes.find(candidate => candidate.productId === item.productId);
+      const revenue = item.unitPrice * item.quantity;
+      if (!recipe) { cmvSaleItems.push({ productId: item.productId, productName: item.productName, quantity: item.quantity, revenue, recipe: null }); continue; }
+      const components = calculateRecipeConsumption(recipe.components.map(component => ({ inventoryItemId: component.inventoryItemId, quantity: component.quantity, wastePercent: component.wastePercent })), item.quantity, recipe.yieldQuantity);
+      cmvSaleItems.push({ productId: item.productId, productName: item.productName, quantity: item.quantity, revenue, recipe: { components } });
+    }
+  }
+  const cmvReport = buildCmvReport(cmvSaleItems, inventoryItemId => getLocalAverageCostByInventoryItemId(establishmentId, inventoryItemId));
+
+  // Despesas operacionais / Outras receitas: lançamentos financeiros pagos no período, separados
+  // por categoria INCOME/EXPENSE — mesma lógica de `computeLocalCashFlow`.
+  const categories = new Map(listLocalFinancialCategories(organizationId).map(category => [category.id, category]));
+  let operatingExpenses = 0;
+  let otherIncome = 0;
+  for (const entry of listLocalFinancialEntries(establishmentId, { status: "PAID" })) {
+    if (!entry.paidAt || entry.paidAt < from || entry.paidAt > to) continue;
+    const category = categories.get(entry.categoryId);
+    if (category?.kind === "INCOME") otherIncome += entry.amount;
+    else operatingExpenses += entry.amount;
+  }
+
+  return buildDreReport({ grossRevenue, discounts, refunds, cmv: cmvReport.cmvTotal, operatingExpenses, otherIncome });
 }

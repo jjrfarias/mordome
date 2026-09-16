@@ -1,4 +1,4 @@
-import { REPORTS_ITEMS_CONSUMED_VIEW, REPORTS_ITEMS_SOLD_VIEW, REPORTS_PAYMENT_METHODS_VIEW, REPORTS_PERFORMANCE_BY_STAFF_VIEW, REPORTS_PRODUCTION_TIME_VIEW, REPORTS_REVENUE_BY_DAY_VIEW, REPORTS_SALES_BY_DELIVERY_AREA_VIEW, REPORTS_SALES_BY_PERIOD_VIEW, REPORTS_TIME_BY_STATUS_VIEW } from "../permissions.ts";
+import { REPORTS_DRE_VIEW, REPORTS_ITEMS_CONSUMED_VIEW, REPORTS_ITEMS_SOLD_VIEW, REPORTS_PAYMENT_METHODS_VIEW, REPORTS_PERFORMANCE_BY_STAFF_VIEW, REPORTS_PRODUCTION_TIME_VIEW, REPORTS_REVENUE_BY_DAY_VIEW, REPORTS_SALES_BY_DELIVERY_AREA_VIEW, REPORTS_SALES_BY_PERIOD_VIEW, REPORTS_TIME_BY_STATUS_VIEW } from "../permissions.ts";
 
 // Catálogo central de relatórios (ADR 0033 — framework de relatórios). Para adicionar um relatório
 // novo no futuro: (1) criar sua permissão em `lib/permissions.ts` seguindo `reports.<slug>.view`,
@@ -6,7 +6,7 @@ import { REPORTS_ITEMS_CONSUMED_VIEW, REPORTS_ITEMS_SOLD_VIEW, REPORTS_PAYMENT_M
 // rota `GET /api/admin/reports/<id>` e o componente de conteúdo, (4) referenciar o componente no
 // mapa `REPORT_COMPONENTS` de `components/admin/ReportsWorkspace.tsx`. Nenhuma outra tela precisa
 // mudar — a navegação e a filtragem por permissão já são genéricas.
-export type ReportCategory = "Vendas";
+export type ReportCategory = "Vendas" | "Financeiro";
 
 export type ReportDefinition = {
   id: string;
@@ -79,6 +79,13 @@ export const REPORTS_REGISTRY: ReportDefinition[] = [
     description: "Tempo médio agregado que os pedidos passam em cada etapa da cozinha (Recebido, Em preparo, Pronto) no período.",
     permissionKey: REPORTS_TIME_BY_STATUS_VIEW,
     category: "Vendas",
+  },
+  {
+    id: "dre",
+    label: "DRE Gerencial",
+    description: "Demonstração de Resultado do Exercício simplificada e gerencial do período: receita líquida, CMV, lucro bruto, despesas operacionais, outras receitas e resultado. Não substitui uma DRE contábil/fiscal (sem impostos nem depreciação).",
+    permissionKey: REPORTS_DRE_VIEW,
+    category: "Financeiro",
   },
 ];
 

@@ -47,6 +47,18 @@
 .cmv-unknown-badge{display:inline-flex;align-items:center;gap:4px;margin-left:8px;padding:2px 7px;border-radius:999px;background:rgba(217,119,6,.14);color:#8a5518;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
 .cmv-sim-component-cost{grid-column:1/-1;margin-top:-2px;color:var(--muted);font-size:10px;font-weight:700}
 @media(max-width:900px){.cmv-product-row{grid-template-columns:1fr 1fr}.cmv-product-row.cmv-product-head{display:none}}
+.dre-lines{display:grid;border:1px solid var(--line);border-radius:13px;overflow:hidden;background:var(--paper)}
+.dre-line{display:flex;justify-content:space-between;align-items:center;gap:14px;padding:13px 20px;font-size:12px}
+.dre-line+.dre-line{border-top:1px dashed var(--line)}
+.dre-line strong{font-variant-numeric:tabular-nums}
+.dre-line strong.negative{color:#a64538}
+.dre-line-subtotal{background:#f4f2ea;font-weight:700}
+.dre-line-subtotal span,.dre-line-subtotal strong{font-weight:700}
+.dre-line-result{background:var(--mint);padding:18px 20px}
+.dre-line-result span{font-weight:700;text-transform:uppercase;letter-spacing:.04em;font-size:10px;color:var(--green)}
+.dre-line-result strong{font-family:var(--font-fraunces),serif;font-size:20px;color:var(--green)}
+.dre-line-result strong.negative{color:#a64538}
+@media(max-width:600px){.dre-line{padding:11px 14px;font-size:11px}}
 .shopping-list{display:grid;gap:18px}
 .shopping-list-bar{display:grid;grid-template-columns:auto minmax(220px,320px) auto;align-items:end;gap:14px;padding:14px 18px;border:1px solid var(--line);border-radius:13px;background:var(--paper)}.shopping-list-bar>div{display:grid;gap:3px}.shopping-list-bar>div span{color:var(--muted);font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}.shopping-list-bar>div strong{font-family:var(--font-fraunces),serif;font-size:20px}
 .shopping-list-section-title{display:flex;align-items:center;gap:7px;margin:0 0 9px;color:#625e58;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
