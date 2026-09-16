@@ -106,6 +106,13 @@ O histórico de status e seus responsáveis está implementado. Planejado: atual
 - Nos três fluxos, o campo de texto livre de motivo foi trocado por um seletor (`components/operations/ReasonSelect.tsx`) que busca os motivos ativos da categoria e sempre inclui uma opção final "Outro (digite o motivo)", que revela um campo de texto livre como fallback. Se não houver nenhum motivo cadastrado ainda, o campo de texto livre aparece direto, sem bloquear o cancelamento. O texto final enviado ao servidor continua sendo uma string livre — nenhum contrato de API dos endpoints de cancelamento existentes mudou.
 - Roteirização (cálculo de rota/tempo estimado via serviço externo) segue pendente — ver ADR 0014.
 
+## Turnos — escala de trabalho da equipe (implementado, ver ADR 0030)
+
+- Cadastro de turnos de trabalho (`WorkShift`, escopo por estabelecimento, permissão `establishments.manage`): nome, horário de início/fim (`HH:mm`) e dias da semana em que ocorre. **Não é o turno de caixa** (`CashSession`, abertura/fechamento de caixa por operador) — é a escala/horário de trabalho da equipe, sem relação com dinheiro ou vendas.
+- Atribuição de usuários a turnos (`WorkShiftAssignment`, relação N:N por `OrganizationMembership`, mesma unidade de identidade usada por `EstablishmentAccess`/`MembershipRole`): um usuário pode ter zero, um ou mais turnos. Atribuir o mesmo usuário duas vezes ao mesmo turno é idempotente (não gera erro nem duplicidade).
+- Gerenciado em nova sub-aba "Turnos" em Configurações (`components/admin/WorkShiftsManagement.tsx`), com seletor de dias da semana em chips clicáveis e uma lista de checkboxes por turno para atribuir/desatribuir a equipe da unidade; nunca excluído, apenas inativado.
+- Sem lógica de negócio automática associada nesta fatia: não há controle de ponto, cálculo de horas trabalhadas, nem bloqueio de operações fora do turno cadastrado — é a base para funcionalidades futuras desse tipo.
+
 ## Mordomê Continuidade — proposta futura
 
 - Recurso opcional por estabelecimento para operação em nuvem + servidor local.

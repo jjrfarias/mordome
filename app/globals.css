@@ -268,3 +268,10 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 .delivery-order-summary-row{display:flex;align-items:center;justify-content:space-between;padding:4px 0;font-size:11px;color:var(--muted)}
 .delivery-order-summary-row.total{border-top:1px solid var(--line);margin-top:4px;padding-top:8px;font-size:13px;color:var(--green);font-weight:800}
 .delivery-order-summary-row b{color:inherit}
+
+/* Turnos de trabalho (escala da equipe, ver ADR 0030) */
+.settings-form .work-shift-days{grid-column:1/-1}
+.work-shift-team{margin-top:14px;padding-top:14px;border-top:1px solid var(--line);display:grid;gap:8px}
+.work-shift-team-row{display:flex;align-items:center;gap:9px;font-size:12px;font-weight:400;text-transform:none;letter-spacing:normal;color:var(--ink)}
+.work-shift-team-row input{width:auto;min-height:auto}
+.work-shift-team-row small{color:var(--muted);font-size:10px}

@@ -271,6 +271,7 @@ model Establishment {
   purchaseOrders    PurchaseOrder[]
   shoppingListItems ShoppingListItem[]
   deliveryAreas     DeliveryArea[]
+  workShifts        WorkShift[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
@@ -343,6 +344,7 @@ model OrganizationMembership {
   roles          MembershipRole[]
   accesses       EstablishmentAccess[]
   overrides      UserPermissionOverride[]
+  workShifts     WorkShiftAssignment[]
 
   @@unique([organizationId, userId])
   @@index([userId, status])
@@ -551,6 +553,38 @@ model DeliveryArea {
 
   @@unique([establishmentId, name])
   @@index([establishmentId, active])
+}
+
+// Turno de trabalho da equipe (escala), ver ADR 0030. Não confundir com CashSession
+// (turno de caixa por operador) — este model é sobre horário/escala de trabalho dos
+// funcionários, sem qualquer lógica de negócio automática associada ainda.
+model WorkShift {
+  id              String                @id @default(cuid())
+  establishmentId String
+  name            String
+  startTime       String
+  endTime         String
+  daysOfWeek      String
+  active          Boolean               @default(true)
+  createdAt       DateTime              @default(now())
+  updatedAt       DateTime              @updatedAt
+  establishment   Establishment         @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  assignments     WorkShiftAssignment[]
+
+  @@unique([establishmentId, name])
+  @@index([establishmentId, active])
+}
+
+model WorkShiftAssignment {
+  id           String                 @id @default(cuid())
+  workShiftId  String
+  membershipId String
+  createdAt    DateTime               @default(now())
+  workShift    WorkShift              @relation(fields: [workShiftId], references: [id], onDelete: Cascade)
+  membership   OrganizationMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([workShiftId, membershipId])
+  @@index([membershipId])
 }
 
 model CourierLocation {
