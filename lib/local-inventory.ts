@@ -3,8 +3,14 @@ import { convertToBaseUnit, resolvePhysicalCountAdjustment, stockBalance } from 
 
 export type LocalBaseUnit = "GRAM" | "MILLILITER" | "UNIT";
 export type LocalTrackingMode = "AUTOMATIC" | "MANUAL" | "NONE";
-type Configuration = { id: string; trackingMode: LocalTrackingMode; minimumStock: number; allowNegative: boolean; movements: number[] };
+export type LocalStockMovementType = "ENTRY" | "CONSUMPTION" | "LOSS" | "ADJUSTMENT" | "TRANSFER_IN" | "TRANSFER_OUT" | "REVERSAL" | "PRODUCTION_IN" | "PRODUCTION_OUT";
+export type LocalStockMovement = { id: string; type: LocalStockMovementType; quantity: number; reason?: string | null; sourceType?: string | null; createdAt: string };
+type Configuration = { id: string; trackingMode: LocalTrackingMode; minimumStock: number; allowNegative: boolean; movements: LocalStockMovement[] };
 type InventoryRecord = { id: string; name: string; baseUnit: LocalBaseUnit; active: boolean; configurations: Map<string, Configuration> };
+
+function createMovement(type: LocalStockMovementType, quantity: number, reason?: string | null, sourceType?: string | null): LocalStockMovement {
+  return { id: `local-stock-movement-${randomUUID()}`, type, quantity, reason: reason ?? null, sourceType: sourceType ?? null, createdAt: new Date().toISOString() };
+}
 
 const items: InventoryRecord[] = [];
 const completedTransfers = new Set<string>();
@@ -29,7 +35,7 @@ export function listLocalInventory(establishmentId: string) {
       trackingMode: configuration?.trackingMode ?? "AUTOMATIC",
       minimumStock: configuration?.minimumStock ?? 0,
       allowNegative: configuration?.allowNegative ?? true,
-      balance: configuration ? stockBalance(configuration.movements.map(quantity => ({ quantity }))) : 0,
+      balance: configuration ? stockBalance(configuration.movements) : 0,
       conversions: defaultConversions(item.baseUnit),
     };
   });
@@ -51,11 +57,11 @@ export function configureLocalInventoryItem(establishmentId: string, inventoryIt
   return listLocalInventory(establishmentId).find(row => row.id === inventoryItemId)!;
 }
 
-export function addLocalStockEntry(establishmentId: string, establishmentItemId: string, quantity: number, factorToBase: number) {
+export function addLocalStockEntry(establishmentId: string, establishmentItemId: string, quantity: number, factorToBase: number, reason?: string) {
   const item = items.find(row => row.configurations.get(establishmentId)?.id === establishmentItemId);
   const configuration = item?.configurations.get(establishmentId);
   if (!item || !configuration) return null;
-  configuration.movements.push(convertToBaseUnit(quantity, factorToBase));
+  configuration.movements.push(createMovement("ENTRY", convertToBaseUnit(quantity, factorToBase), reason ?? "Entrada de estoque", "MANUAL_ENTRY"));
   return listLocalInventory(establishmentId).find(row => row.id === item.id)!;
 }
 
@@ -63,47 +69,48 @@ export function addLocalStockEntryByEstablishmentItemId(establishmentId: string,
   const item = items.find(row => row.configurations.get(establishmentId)?.id === establishmentItemId);
   const configuration = item?.configurations.get(establishmentId);
   if (!item || !configuration) return null;
-  configuration.movements.push(baseQuantity);
-  return { id: `local-stock-movement-${randomUUID()}` };
+  const movement = createMovement("ENTRY", baseQuantity, "Nota de entrada confirmada", "GOODS_RECEIPT_NOTE");
+  configuration.movements.push(movement);
+  return { id: movement.id };
 }
 
-export function transferLocalStock(input: { sourceEstablishmentId: string; destinationEstablishmentId: string; establishmentItemId: string; quantity: number; factorToBase: number; idempotencyKey: string }) {
+export function transferLocalStock(input: { sourceEstablishmentId: string; destinationEstablishmentId: string; establishmentItemId: string; quantity: number; factorToBase: number; idempotencyKey: string; reason?: string }) {
   if (input.sourceEstablishmentId === input.destinationEstablishmentId) return "SAME_ESTABLISHMENT" as const;
   if (completedTransfers.has(input.idempotencyKey)) return "DUPLICATE" as const;
   const item = items.find(row => row.configurations.get(input.sourceEstablishmentId)?.id === input.establishmentItemId);
   const source = item?.configurations.get(input.sourceEstablishmentId);
   if (!item || !source) return "NOT_FOUND" as const;
   const baseQuantity = convertToBaseUnit(input.quantity, input.factorToBase);
-  const sourceBalance = stockBalance(source.movements.map(quantity => ({ quantity })));
+  const sourceBalance = stockBalance(source.movements);
   if (baseQuantity > sourceBalance) return "INSUFFICIENT_STOCK" as const;
   let destination = item.configurations.get(input.destinationEstablishmentId);
   if (!destination) {
     destination = { id: `local-stock-${randomUUID()}`, trackingMode: source.trackingMode, minimumStock: source.minimumStock, allowNegative: source.allowNegative, movements: [] };
     item.configurations.set(input.destinationEstablishmentId, destination);
   }
-  source.movements.push(-baseQuantity);
-  destination.movements.push(baseQuantity);
+  source.movements.push(createMovement("TRANSFER_OUT", -baseQuantity, input.reason, "STOCK_TRANSFER"));
+  destination.movements.push(createMovement("TRANSFER_IN", baseQuantity, input.reason, "STOCK_TRANSFER"));
   completedTransfers.add(input.idempotencyKey);
   return { source: listLocalInventory(input.sourceEstablishmentId).find(row => row.id === item.id)!, destination: listLocalInventory(input.destinationEstablishmentId).find(row => row.id === item.id)! };
 }
 
-export function adjustLocalStock(input: { establishmentId: string; establishmentItemId: string; kind: "LOSS" | "INTERNAL_CONSUMPTION" | "PHYSICAL_COUNT"; quantity: number; factorToBase: number; idempotencyKey: string }) {
+export function adjustLocalStock(input: { establishmentId: string; establishmentItemId: string; kind: "LOSS" | "INTERNAL_CONSUMPTION" | "PHYSICAL_COUNT"; quantity: number; factorToBase: number; idempotencyKey: string; reason?: string }) {
   if (completedAdjustments.has(input.idempotencyKey)) return "DUPLICATE" as const;
   const item = items.find(row => row.configurations.get(input.establishmentId)?.id === input.establishmentItemId);
   const configuration = item?.configurations.get(input.establishmentId);
   if (!item || !configuration) return "NOT_FOUND" as const;
-  const balance = stockBalance(configuration.movements.map(quantity => ({ quantity })));
+  const balance = stockBalance(configuration.movements);
   if (input.kind === "PHYSICAL_COUNT") {
     const outcome = resolvePhysicalCountAdjustment({ countedQuantity: input.quantity, factorToBase: input.factorToBase, balance, allowNegative: configuration.allowNegative });
     if (!outcome.ok) return "INSUFFICIENT_STOCK" as const;
-    configuration.movements.push(outcome.delta);
+    configuration.movements.push(createMovement("ADJUSTMENT", outcome.delta, input.reason, "PHYSICAL_COUNT"));
     completedAdjustments.add(input.idempotencyKey);
     return { delta: outcome.delta, balance: outcome.newBalance };
   }
   const converted = convertToBaseUnit(input.quantity, input.factorToBase);
   const delta = -converted;
   if (!configuration.allowNegative && balance + delta < 0) return "INSUFFICIENT_STOCK" as const;
-  configuration.movements.push(delta);
+  configuration.movements.push(createMovement(input.kind === "LOSS" ? "LOSS" : "CONSUMPTION", delta, input.reason, input.kind));
   completedAdjustments.add(input.idempotencyKey);
   return { delta, balance: balance + delta };
 }
@@ -116,7 +123,7 @@ const completedBulkPhysicalCounts = new Set<string>();
  * (`adjustLocalStock`). Todos os itens são validados antes de qualquer mutação —
  * se um falhar (item inexistente ou estoque negativo não permitido), nada é aplicado.
  */
-export function applyLocalBulkPhysicalCount(establishmentId: string, items: { establishmentItemId: string; countedQuantity: number; factorToBase: number }[], idempotencyKey?: string) {
+export function applyLocalBulkPhysicalCount(establishmentId: string, items: { establishmentItemId: string; countedQuantity: number; factorToBase: number }[], idempotencyKey?: string, reason?: string) {
   if (idempotencyKey) {
     if (completedBulkPhysicalCounts.has(idempotencyKey)) return "DUPLICATE" as const;
   }
@@ -124,13 +131,13 @@ export function applyLocalBulkPhysicalCount(establishmentId: string, items: { es
   for (const entry of items) {
     const record = itemsFindByEstablishmentItemId(establishmentId, entry.establishmentItemId);
     if (!record) return { failedEstablishmentItemId: entry.establishmentItemId, reason: "NOT_FOUND" } as const;
-    const balance = stockBalance(record.configuration.movements.map(quantity => ({ quantity })));
+    const balance = stockBalance(record.configuration.movements);
     const outcome = resolvePhysicalCountAdjustment({ countedQuantity: entry.countedQuantity, factorToBase: entry.factorToBase, balance, allowNegative: record.configuration.allowNegative });
     if (!outcome.ok) return { failedEstablishmentItemId: entry.establishmentItemId, reason: "NEGATIVE_STOCK" } as const;
     resolved.push({ configuration: record.configuration, establishmentItemId: entry.establishmentItemId, delta: outcome.delta, newBalance: outcome.newBalance });
   }
   for (const entry of resolved) {
-    if (entry.delta !== 0) entry.configuration.movements.push(entry.delta);
+    if (entry.delta !== 0) entry.configuration.movements.push(createMovement("ADJUSTMENT", entry.delta, reason, "PHYSICAL_COUNT"));
   }
   if (idempotencyKey) completedBulkPhysicalCounts.add(idempotencyKey);
   return resolved.filter(entry => entry.delta !== 0).map(entry => ({ establishmentItemId: entry.establishmentItemId, delta: entry.delta, balance: entry.newBalance }));
@@ -153,16 +160,38 @@ export function applyLocalRecipeConsumption(establishmentId: string, consumption
   for (const entry of resolved) {
     const configuration = entry.configuration!;
     if (configuration.trackingMode !== "AUTOMATIC") continue;
-    const balance = stockBalance(configuration.movements.map(quantity => ({ quantity })));
+    const balance = stockBalance(configuration.movements);
     if (!configuration.allowNegative && balance < entry.consumption.quantity) return "INSUFFICIENT_STOCK" as const;
   }
-  for (const entry of resolved) if (entry.configuration!.trackingMode === "AUTOMATIC") entry.configuration!.movements.push(-entry.consumption.quantity);
+  for (const entry of resolved) if (entry.configuration!.trackingMode === "AUTOMATIC") entry.configuration!.movements.push(createMovement("CONSUMPTION", -entry.consumption.quantity, "Consumo por venda", "SALE"));
   return "APPLIED" as const;
 }
 
 export function reverseLocalRecipeConsumption(establishmentId: string, consumptions: { inventoryItemId: string; quantity: number }[]) {
   for (const consumption of consumptions) {
     const configuration = items.find(candidate => candidate.id === consumption.inventoryItemId)?.configurations.get(establishmentId);
-    if (configuration?.trackingMode === "AUTOMATIC") configuration.movements.push(consumption.quantity);
+    if (configuration?.trackingMode === "AUTOMATIC") configuration.movements.push(createMovement("REVERSAL", consumption.quantity, "Estorno de venda", "SALE"));
   }
+}
+
+/**
+ * Consulta somente-leitura: histórico de posição de estoque de um item num período,
+ * com saldo acumulado (running balance) calculado a partir do saldo de abertura do
+ * período (soma de tudo antes de `from`). Não grava nada — usada pela tela "Histórico
+ * de posição" (ver ADR 0025).
+ */
+export function getLocalStockPositionHistory(establishmentId: string, establishmentItemId: string, from: Date, to: Date) {
+  const record = itemsFindByEstablishmentItemId(establishmentId, establishmentItemId);
+  if (!record) return null;
+  const sorted = [...record.configuration.movements].sort((a, b) => a.createdAt.localeCompare(b.createdAt));
+  const openingBalance = stockBalance(sorted.filter(movement => new Date(movement.createdAt) < from));
+  const periodMovements = sorted.filter(movement => { const at = new Date(movement.createdAt); return at >= from && at <= to; });
+  let running = openingBalance;
+  const rows = periodMovements.map(movement => {
+    running = Math.round((running + movement.quantity) * 1000) / 1000;
+    return { id: movement.id, type: movement.type, quantity: movement.quantity, reason: movement.reason ?? null, sourceType: movement.sourceType ?? null, createdAt: movement.createdAt, runningBalance: running };
+  });
+  const totalIn = periodMovements.filter(movement => movement.quantity > 0).reduce((sum, movement) => sum + movement.quantity, 0);
+  const totalOut = periodMovements.filter(movement => movement.quantity < 0).reduce((sum, movement) => sum + movement.quantity, 0);
+  return { openingBalance, closingBalance: running, totalIn: Math.round(totalIn * 1000) / 1000, totalOut: Math.round(totalOut * 1000) / 1000, movements: rows };
 }

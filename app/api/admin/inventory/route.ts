@@ -75,7 +75,7 @@ export async function POST(request: Request) {
     }
     if (data.action === "BULK_PHYSICAL_COUNT") {
       if (!session.canAdjustStock) return Response.json({ error: "Você não tem permissão para ajustar o estoque." }, { status: 403 });
-      const result = applyLocalBulkPhysicalCount(session.establishment.id, data.items, data.idempotencyKey);
+      const result = applyLocalBulkPhysicalCount(session.establishment.id, data.items, data.idempotencyKey, data.reason);
       if (result === "DUPLICATE") return Response.json({ error: "Esta contagem já foi registrada." }, { status: 409 });
       if (typeof result === "object" && "failedEstablishmentItemId" in result) {
         const message = result.reason === "NOT_FOUND" ? `Item de estoque "${result.failedEstablishmentItemId}" não encontrado nesta unidade.` : `Não foi possível ajustar o item ${result.failedEstablishmentItemId}: o ajuste deixaria o estoque negativo.`;
@@ -96,7 +96,7 @@ export async function POST(request: Request) {
       recordLocalAudit({ ...localBase, action: "STOCK_TRANSFER", entityType: "InventoryItem", entityId: data.establishmentItemId, reason: data.reason, after: { destinationEstablishmentId: data.destinationEstablishmentId, quantity: data.quantity, factorToBase: data.factorToBase } });
       return Response.json({ transfer }, { status: 201 });
     }
-    const result = data.action === "CREATE_ITEM" ? createLocalInventoryItem(session.establishment.id, data) : data.action === "CONFIGURE_ITEM" ? configureLocalInventoryItem(session.establishment.id, data.inventoryItemId) : addLocalStockEntry(session.establishment.id, data.establishmentItemId, data.quantity, data.factorToBase);
+    const result = data.action === "CREATE_ITEM" ? createLocalInventoryItem(session.establishment.id, data) : data.action === "CONFIGURE_ITEM" ? configureLocalInventoryItem(session.establishment.id, data.inventoryItemId) : addLocalStockEntry(session.establishment.id, data.establishmentItemId, data.quantity, data.factorToBase, data.reason);
     if (!result) return Response.json({ error: data.action === "CREATE_ITEM" ? "Já existe um item com esse nome." : "Item de estoque não encontrado." }, { status: data.action === "CREATE_ITEM" ? 409 : 404 });
     recordLocalAudit({ ...localBase, action: data.action === "ENTRY" ? "STOCK_ENTRY" : data.action === "CONFIGURE_ITEM" ? "STOCK_CONFIGURE" : "CREATE", entityType: data.action === "ENTRY" ? "StockMovement" : "InventoryItem", entityId: result.id, reason: data.action === "ENTRY" ? data.reason ?? "Entrada de estoque" : data.action === "CONFIGURE_ITEM" ? "Item habilitado na unidade" : "Cadastro de item de estoque", after: data });
     return Response.json({ item: result }, { status: data.action === "CREATE_ITEM" ? 201 : 200 });

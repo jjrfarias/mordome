@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDownToLine, ArrowRightLeft, Boxes, CheckCircle2, ClipboardCheck, ClipboardList, FileText, MapPin, Plus, ShoppingCart, TrendingDown, TrendingUp, X } from "lucide-react";
+import { ArrowDownToLine, ArrowRightLeft, Boxes, CheckCircle2, ClipboardCheck, ClipboardList, FileText, History, MapPin, Plus, ShoppingCart, TrendingDown, TrendingUp, X } from "lucide-react";
 import { GoodsReceiptNotes } from "./GoodsReceiptNotes";
 import { PurchaseOrders } from "./PurchaseOrders";
 import { ShoppingList } from "./ShoppingList";
@@ -22,7 +22,7 @@ type InventoryItem = {
 
 const unitLabels: Record<BaseUnit, string> = { GRAM: "g", MILLILITER: "ml", UNIT: "un" };
 
-type InventorySection = "items" | "purchase-orders" | "goods-receipts" | "count" | "shopping-list";
+type InventorySection = "items" | "purchase-orders" | "goods-receipts" | "count" | "position-history" | "shopping-list";
 
 export function InventoryManagement({ establishmentId, establishmentName }: { establishmentId: string; establishmentName: string }) {
   const [section, setSection] = useState<InventorySection>("items");
@@ -82,6 +82,7 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
         <button className={section === "purchase-orders" ? "active" : ""} onClick={() => setSection("purchase-orders")}><ShoppingCart size={14} />Ordens de compra</button>
         <button className={section === "goods-receipts" ? "active" : ""} onClick={() => setSection("goods-receipts")}><FileText size={14} />Notas de entrada</button>
         <button className={section === "count" ? "active" : ""} onClick={() => setSection("count")}><ClipboardList size={14} />Contagem de estoque</button>
+        <button className={section === "position-history" ? "active" : ""} onClick={() => setSection("position-history")}><History size={14} />Histórico de posição</button>
         <button className={section === "shopping-list" ? "active" : ""} onClick={() => setSection("shopping-list")}><ShoppingCart size={14} />Lista de compras</button>
       </nav>
       {section === "items" && <form className="inventory-create-form" onSubmit={create}>
@@ -101,6 +102,7 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
     {section === "purchase-orders" && <PurchaseOrders items={items} />}
     {section === "goods-receipts" && <GoodsReceiptNotes items={items} />}
     {section === "count" && <StockCountSession items={items.filter(item => item.configured)} loading={loading} error={error} establishmentName={establishmentName} onApplied={load} />}
+    {section === "position-history" && <StockPositionHistory items={items.filter(item => item.configured)} loading={loading} error={error} establishmentName={establishmentName} />}
     {section === "shopping-list" && <ShoppingList items={items} />}
   </div>;
 }
@@ -193,6 +195,123 @@ function StockCountSession({ items, loading, error, establishmentName, onApplied
         {saveError && <span className="inline-error">{saveError}</span>}
         <button className="primary wide" disabled={saving || reason.trim().length < 3} onClick={() => void confirm()}>{saving ? "Aplicando…" : "Aplicar ajustes"}</button>
       </div>
+    </div>}
+  </section>;
+}
+
+type StockMovementType = "ENTRY" | "CONSUMPTION" | "LOSS" | "ADJUSTMENT" | "TRANSFER_IN" | "TRANSFER_OUT" | "REVERSAL" | "PRODUCTION_IN" | "PRODUCTION_OUT";
+type PositionHistoryRow = { id: string; type: StockMovementType; quantity: number; reason: string | null; sourceType: string | null; createdAt: string; runningBalance: number };
+type PositionHistoryData = { openingBalance: number; closingBalance: number; totalIn: number; totalOut: number; movements: PositionHistoryRow[] };
+
+const movementTypeLabels: Record<StockMovementType, string> = {
+  ENTRY: "Entrada",
+  CONSUMPTION: "Consumo",
+  LOSS: "Perda",
+  ADJUSTMENT: "Ajuste",
+  TRANSFER_IN: "Transferência (entrada)",
+  TRANSFER_OUT: "Transferência (saída)",
+  REVERSAL: "Estorno",
+  PRODUCTION_IN: "Produção (entrada)",
+  PRODUCTION_OUT: "Produção (saída)",
+};
+
+function toDateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function startOfWeekValue(reference: Date) {
+  const date = new Date(reference);
+  date.setDate(date.getDate() - date.getDay());
+  return date;
+}
+
+function startOfMonthValue(reference: Date) {
+  return new Date(reference.getFullYear(), reference.getMonth(), 1);
+}
+
+function StockPositionHistory({ items, loading, error, establishmentName }: { items: InventoryItem[]; loading: boolean; error: string; establishmentName: string }) {
+  const today = new Date();
+  const [establishmentItemId, setEstablishmentItemId] = useState(items[0]?.establishmentItemId ?? "");
+  const [from, setFrom] = useState(toDateInputValue(startOfMonthValue(today)));
+  const [to, setTo] = useState(toDateInputValue(today));
+  const [data, setData] = useState<PositionHistoryData | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
+
+  useEffect(() => {
+    queueMicrotask(() => {
+      if (!establishmentItemId && items[0]?.establishmentItemId) setEstablishmentItemId(items[0].establishmentItemId);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items]);
+
+  const load = useCallback(async () => {
+    if (!establishmentItemId) { setData(null); return; }
+    setHistoryLoading(true); setHistoryError("");
+    try {
+      const response = await fetch(`/api/admin/inventory/position-history?establishmentItemId=${establishmentItemId}&from=${from}&to=${to}`, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error ?? "Não foi possível carregar o histórico de posição.");
+      setData(body);
+    } catch (cause) {
+      setHistoryError(cause instanceof Error ? cause.message : "Não foi possível carregar o histórico de posição.");
+    } finally { setHistoryLoading(false); }
+  }, [establishmentItemId, from, to]);
+
+  useEffect(() => { queueMicrotask(() => { void load(); }); }, [load]);
+
+  const applyShortcut = (shortcut: "today" | "week" | "month") => {
+    const now = new Date();
+    if (shortcut === "today") { setFrom(toDateInputValue(now)); setTo(toDateInputValue(now)); }
+    if (shortcut === "week") { setFrom(toDateInputValue(startOfWeekValue(now))); setTo(toDateInputValue(now)); }
+    if (shortcut === "month") { setFrom(toDateInputValue(startOfMonthValue(now))); setTo(toDateInputValue(now)); }
+  };
+
+  const selectedItem = items.find(item => item.establishmentItemId === establishmentItemId);
+  const unit = selectedItem ? unitLabels[selectedItem.baseUnit] : "";
+
+  if (loading) return <div className="empty"><span>Carregando estoque…</span></div>;
+  if (error) return <div className="auth-error" role="alert">{error}</div>;
+  if (items.length === 0) return <div className="big-empty"><History /><h2>Nenhum item configurado</h2><p>Ative itens de estoque em {establishmentName} para consultar o histórico de posição.</p></div>;
+
+  return <section className="position-history">
+    <div className="panel settings-shell">
+      <div className="settings-shell-header"><div><span className="section-kicker">Consulta somente leitura</span><h2>Histórico de posição</h2></div></div>
+      <p className="section-note">Mostra, movimento a movimento, como o saldo de um item de estoque mudou no período — diferente da tela de Contagem, que serve para registrar ajustes.</p>
+      <div className="settings-form">
+        <label className="field"><span>Item</span><select value={establishmentItemId} onChange={event => setEstablishmentItemId(event.target.value)}>{items.map(item => <option key={item.establishmentItemId} value={item.establishmentItemId ?? ""}>{item.name}</option>)}</select></label>
+        <label className="field"><span>De</span><input type="date" value={from} onChange={event => setFrom(event.target.value)} /></label>
+        <label className="field"><span>Até</span><input type="date" value={to} onChange={event => setTo(event.target.value)} /></label>
+      </div>
+      <nav className="settings-tabs">
+        <button type="button" onClick={() => applyShortcut("today")}>Hoje</button>
+        <button type="button" onClick={() => applyShortcut("week")}>Esta semana</button>
+        <button type="button" onClick={() => applyShortcut("month")}>Este mês</button>
+      </nav>
+    </div>
+
+    {historyLoading && <div className="empty"><span>Carregando histórico…</span></div>}
+    {historyError && <div className="auth-error" role="alert">{historyError}</div>}
+
+    {!historyLoading && !historyError && data && <div className="stock-count-summary">
+      <div><span>Saldo inicial</span><strong>{data.openingBalance.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {unit}</strong></div>
+      <div><span>Saldo final</span><strong>{data.closingBalance.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {unit}</strong></div>
+      <div><span>Entradas no período</span><strong className="surplus">+{data.totalIn.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {unit}</strong></div>
+      <div><span>Saídas no período</span><strong className="shortage">{data.totalOut.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {unit}</strong></div>
+    </div>}
+
+    {!historyLoading && !historyError && data && data.movements.length === 0 && <div className="empty small"><span>Nenhuma movimentação deste item no período.</span></div>}
+    {!historyLoading && !historyError && data && data.movements.length > 0 && <div className="position-history-list">
+      {data.movements.map(movement => <article key={movement.id} className="position-history-row">
+        <div className="position-history-date"><span>{new Date(movement.createdAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</span></div>
+        <div className="position-history-type"><strong>{movementTypeLabels[movement.type]}</strong></div>
+        <div className={`position-history-quantity ${movement.quantity >= 0 ? "surplus" : "shortage"}`}>
+          {movement.quantity >= 0 ? <TrendingUp size={13} /> : <TrendingDown size={13} />}
+          {movement.quantity >= 0 ? "+" : ""}{movement.quantity.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {unit}
+        </div>
+        <div className="position-history-reason"><span>{movement.reason ?? "—"}</span></div>
+        <div className="position-history-balance"><small>Saldo após</small><strong>{movement.runningBalance.toLocaleString("pt-BR", { maximumFractionDigits: 3 })} {unit}</strong></div>
+      </article>)}
     </div>}
   </section>;
 }

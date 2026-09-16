@@ -31,6 +31,14 @@
 .stock-count-preview{margin:16px 0;padding:0;list-style:none;display:grid;gap:7px;max-height:220px;overflow:auto}.stock-count-preview li{display:flex;justify-content:space-between;gap:10px;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:#faf7f0;font-size:11px}.stock-count-preview strong.surplus{color:#2f6b47}.stock-count-preview strong.shortage{color:#a64538}
 @media(max-width:900px){.stock-count-summary{grid-template-columns:1fr 1fr}.stock-count-summary .primary{grid-column:1/-1}.stock-count-row{grid-template-columns:1fr}}
 .panel-hint{margin:4px 0 0;color:var(--muted);font-size:10px}
+.stock-count-summary strong.surplus{color:#2f6b47}.stock-count-summary strong.shortage{color:#a64538}
+.position-history-list{display:grid;gap:8px}.position-history-row{display:grid;grid-template-columns:130px 170px 130px 1fr 130px;align-items:center;gap:14px;padding:12px 16px;border:1px solid var(--line);border-radius:12px;background:var(--paper)}
+.position-history-date span{color:var(--muted);font-size:10px}
+.position-history-type strong{font-size:11px}
+.position-history-quantity{display:inline-flex;align-items:center;gap:4px;font-size:11px;font-weight:700}.position-history-quantity.surplus{color:#2f6b47}.position-history-quantity.shortage{color:#a64538}
+.position-history-reason span{color:var(--muted);font-size:10px}
+.position-history-balance{display:grid;justify-items:end;gap:2px}.position-history-balance small{color:var(--muted);font-size:8px;text-transform:uppercase;letter-spacing:.06em}.position-history-balance strong{font-family:var(--font-fraunces),serif;font-size:14px}
+@media(max-width:900px){.position-history-row{grid-template-columns:1fr 1fr}.position-history-reason{grid-column:1/-1}.position-history-balance{justify-items:start}}
 .shopping-list{display:grid;gap:18px}
 .shopping-list-bar{display:grid;grid-template-columns:auto minmax(220px,320px) auto;align-items:end;gap:14px;padding:14px 18px;border:1px solid var(--line);border-radius:13px;background:var(--paper)}.shopping-list-bar>div{display:grid;gap:3px}.shopping-list-bar>div span{color:var(--muted);font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}.shopping-list-bar>div strong{font-family:var(--font-fraunces),serif;font-size:20px}
 .shopping-list-section-title{display:flex;align-items:center;gap:7px;margin:0 0 9px;color:#625e58;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em}
