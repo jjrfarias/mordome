@@ -1,4 +1,4 @@
-import { REPORTS_PERFORMANCE_BY_STAFF_VIEW, REPORTS_REVENUE_BY_DAY_VIEW, REPORTS_SALES_BY_PERIOD_VIEW } from "../permissions.ts";
+import { REPORTS_PAYMENT_METHODS_VIEW, REPORTS_PERFORMANCE_BY_STAFF_VIEW, REPORTS_REVENUE_BY_DAY_VIEW, REPORTS_SALES_BY_PERIOD_VIEW } from "../permissions.ts";
 
 // Catálogo central de relatórios (ADR 0033 — framework de relatórios). Para adicionar um relatório
 // novo no futuro: (1) criar sua permissão em `lib/permissions.ts` seguindo `reports.<slug>.view`,
@@ -36,6 +36,13 @@ export const REPORTS_REGISTRY: ReportDefinition[] = [
     label: "Desempenho por atendente/garçom",
     description: "Ranking de vendas por pessoa no período, separado por Atendentes (PDV) e Garçons (Salão). Não calcula comissão — ver Acertos para isso.",
     permissionKey: REPORTS_PERFORMANCE_BY_STAFF_VIEW,
+    category: "Vendas",
+  },
+  {
+    id: "payment-methods",
+    label: "Vendas por forma de pagamento",
+    description: "Agrupa os pagamentos das vendas concluídas no período por forma (Pix, cartão, dinheiro), com quantidade, valor total recebido e participação percentual.",
+    permissionKey: REPORTS_PAYMENT_METHODS_VIEW,
     category: "Vendas",
   },
 ];

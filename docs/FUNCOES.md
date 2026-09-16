@@ -205,13 +205,20 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
   vendido, decrescente. Pessoa sem vendas no período não aparece. Usa o mesmo critério de
   `Sale.operatorId` já usado por Acertos (ADR 0018) para identificar o operador, mas é **apenas uma
   visão de desempenho — não calcula comissão** (isso continua sendo só em Financeiro → Acertos).
+- Relatório **Vendas por forma de pagamento** (ver ADR 0035): agrupa os pagamentos individuais
+  (`Payment.method`/`Payment.amount`) das vendas concluídas no período por forma de pagamento (Pix,
+  cartão de crédito/débito, dinheiro, outro) — quantidade de pagamentos, valor total recebido e %
+  de participação sobre o total geral. Agrega por PAGAMENTO, não por venda: uma venda com mais de
+  um pagamento (split) contribui em cada forma envolvida. Sem restrição de canal (PDV, Salão e
+  Delivery participam igualmente) e sem rateio de reembolso por forma de pagamento. Ordenado por
+  valor total recebido decrescente.
 - Todos por `establishmentId` da sessão ativa, com rota GET dedicada
   (`/api/admin/reports/sales-by-period`, `/api/admin/reports/revenue-by-day`,
-  `/api/admin/reports/staff-performance`), suportando modo Prisma (produção) e modo local
+  `/api/admin/reports/staff-performance`, `/api/admin/reports/payment-methods`), suportando modo
+  Prisma (produção) e modo local
   (`lib/local-finance.ts`, a partir do log de auditoria).
 - Fora desta fatia (ficam para o futuro, reaproveitando o mesmo framework): cupons gerados, DRE,
-  itens consumidos/vendidos, tempo de produção/status, vendas por área de entrega/forma de
-  pagamento.
+  itens consumidos/vendidos, tempo de produção/status, vendas por área de entrega.
 
 ## Histórico e auditoria — primeira fatia implementada
 

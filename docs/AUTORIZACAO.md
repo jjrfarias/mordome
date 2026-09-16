@@ -44,9 +44,10 @@ Os nomes são contratos internos e só devem mudar por migração explícita.
 Os relatórios (`lib/reports/registry.ts`) introduzem uma granularidade nova: em vez de uma
 permissão única "ver relatórios", **cada relatório do catálogo tem sua própria chave** de
 permissão, no padrão `reports.<slug>.view` (ex. `reports.sales_by_period.view`,
-`reports.revenue_by_day.view`, `reports.performance_by_staff.view`). Isso permite que um perfil
-enxergue "Vendas por período" sem ter acesso a "Faturamento por dia" ou "Desempenho por atendente/
-garçom", e vice-versa — decisão de produto explícita do dono.
+`reports.revenue_by_day.view`, `reports.performance_by_staff.view`,
+`reports.payment_methods.view`). Isso permite que um perfil enxergue "Vendas por período" sem ter
+acesso a "Faturamento por dia", "Desempenho por atendente/garçom" ou "Vendas por forma de
+pagamento", e vice-versa — decisão de produto explícita do dono.
 
 A tela única de relatórios (`components/admin/ReportsWorkspace.tsx`) não usa nenhuma flag booleana
 dedicada na sessão para isso: ela filtra o catálogo central diretamente pelo array

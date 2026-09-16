@@ -19,6 +19,10 @@ export type SaleRecord = {
   // relatórios de Vendas por período/Faturamento por dia (ADR 0033) simplesmente os ignoram.
   operatorId?: string | null;
   operatorName?: string | null;
+  // Pagamentos individuais da venda (uma venda pode ter mais de um, "split"). Opcional porque só o
+  // relatório de Vendas por forma de pagamento (ADR 0035) os usa — os demais relatórios ignoram e
+  // continuam usando o campo `payment` (string já concatenada, ex. "PIX + CASH") para exibição.
+  payments?: { method: string; amount: number }[];
 };
 
 export type SalesByPeriodRow = {

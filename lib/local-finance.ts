@@ -215,7 +215,7 @@ export function listLocalSalesForReport(organizationId: string, establishmentId:
   const records: SaleRecord[] = [];
   for (const event of completedEvents) {
     if (cancelledIds.has(event.entityId)) continue;
-    const after = event.after as { channel?: string; table?: number; payments?: { method: string }[]; discount?: number; subtotal?: number; total?: number } | undefined;
+    const after = event.after as { channel?: string; table?: number; payments?: { method: string; amount?: number }[]; discount?: number; subtotal?: number; total?: number } | undefined;
     const total = after?.total ?? 0;
     const refunded = refundedBySale.get(event.entityId) ?? 0;
     if (total > 0 && refunded >= total) continue;
@@ -235,6 +235,11 @@ export function listLocalSalesForReport(organizationId: string, establishmentId:
       // log de auditoria (ADR 0033), então reaproveitamos actorId/actorName daqui (ADR 0034).
       operatorId: event.actorId,
       operatorName: event.actorName,
+      // Pagamentos individuais (método + valor) já vêm prontos no próprio evento SALE_COMPLETE
+      // (`payments` gravado por `app/api/operations/sales/route.ts` ao chamar `resolvePayments`),
+      // reaproveitados sem nenhuma estrutura nova para o relatório de Vendas por forma de pagamento
+      // (ADR 0035).
+      payments: after?.payments?.map(payment => ({ method: payment.method, amount: payment.amount ?? 0 })) ?? [],
     });
   }
   return records;

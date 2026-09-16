@@ -3,6 +3,7 @@ import test from "node:test";
 import { listAvailableReports, REPORTS_REGISTRY } from "../lib/reports/registry.ts";
 import { buildSalesByPeriodRows, buildRevenueByDayRows, summarizeSalesByPeriod, summarizeRevenueByDay, type SaleRecord } from "../lib/reports/sales.ts";
 import { buildStaffPerformanceRows } from "../lib/reports/staff-performance.ts";
+import { buildPaymentMethodsRows, summarizePaymentMethods } from "../lib/reports/payment-methods.ts";
 import { buildExcelBuffer, buildPdfBuffer } from "../lib/reports/export.ts";
 import { listLocalSalesForReport } from "../lib/local-finance.ts";
 import { recordLocalAudit } from "../lib/local-audit.ts";
@@ -18,8 +19,11 @@ test("registro de relatorios filtra pelas permissoes da sessao", () => {
   const onlyStaffPerformance = listAvailableReports(["reports.performance_by_staff.view"]);
   assert.deepEqual(onlyStaffPerformance.map(report => report.id), ["performance-by-staff"]);
 
-  const all = listAvailableReports(["reports.sales_by_period.view", "reports.revenue_by_day.view", "reports.performance_by_staff.view", "outra.permissao"]);
-  assert.deepEqual(all.map(report => report.id).sort(), ["performance-by-staff", "revenue-by-day", "sales-by-period"]);
+  const onlyPaymentMethods = listAvailableReports(["reports.payment_methods.view"]);
+  assert.deepEqual(onlyPaymentMethods.map(report => report.id), ["payment-methods"]);
+
+  const all = listAvailableReports(["reports.sales_by_period.view", "reports.revenue_by_day.view", "reports.performance_by_staff.view", "reports.payment_methods.view", "outra.permissao"]);
+  assert.deepEqual(all.map(report => report.id).sort(), ["payment-methods", "performance-by-staff", "revenue-by-day", "sales-by-period"]);
 });
 
 const sales: SaleRecord[] = [
@@ -151,6 +155,81 @@ test("relatorios locais propagam o operador da venda (mesmo criterio de Sale.ope
   const salesB = listLocalSalesForReport(orgId, storeB, from, to);
   assert.equal(salesB.length, 1);
   assert.equal(salesB[0]?.operatorId, "user-ana");
+});
+
+const paymentMethodSales: SaleRecord[] = [
+  { id: "pm1", completedAt: "2026-09-01T10:00:00.000Z", channel: "POS", table: null, payment: "Dinheiro", subtotal: 100, discount: 0, total: 100, refunded: 0, payments: [{ method: "CASH", amount: 100 }] },
+  // Venda com split: metade Pix, metade cartão de crédito - deve aparecer em AMBAS as formas.
+  { id: "pm2", completedAt: "2026-09-01T11:00:00.000Z", channel: "FLOOR", table: 2, payment: "Pix + Cartão de crédito", subtotal: 200, discount: 0, total: 200, refunded: 0, payments: [{ method: "PIX", amount: 100 }, { method: "CREDIT_CARD", amount: 100 }] },
+  { id: "pm3", completedAt: "2026-09-01T12:00:00.000Z", channel: "DELIVERY", table: null, payment: "Pix", subtotal: 50, discount: 0, total: 50, refunded: 0, payments: [{ method: "PIX", amount: 50 }] },
+];
+
+test("vendas por forma de pagamento: agrega por pagamento individual, venda com split aparece nas duas formas", () => {
+  const rows = buildPaymentMethodsRows(paymentMethodSales);
+
+  const cash = rows.find(row => row.method === "CASH");
+  const pix = rows.find(row => row.method === "PIX");
+  const creditCard = rows.find(row => row.method === "CREDIT_CARD");
+
+  assert.ok(cash);
+  assert.ok(pix);
+  assert.ok(creditCard);
+
+  assert.equal(cash?.paymentsCount, 1);
+  assert.equal(cash?.totalAmount, 100);
+
+  // Pix aparece com dois pagamentos: o split da venda pm2 (100) + a venda pm3 inteira (50).
+  assert.equal(pix?.paymentsCount, 2);
+  assert.equal(pix?.totalAmount, 150);
+  assert.equal(pix?.methodLabel, "Pix");
+
+  assert.equal(creditCard?.paymentsCount, 1);
+  assert.equal(creditCard?.totalAmount, 100);
+  assert.equal(creditCard?.methodLabel, "Cartão de crédito");
+
+  // Ordenado por valor total recebido decrescente: Pix (150) > Cartão de crédito (100) = Dinheiro (100).
+  assert.equal(rows[0]?.method, "PIX");
+
+  const totalAmount = 100 + 150 + 100; // CASH + PIX + CREDIT_CARD
+  assert.equal(pix ? Math.round(pix.share * 1000) / 1000 : null, Math.round((150 / totalAmount) * 1000) / 1000);
+
+  const summary = summarizePaymentMethods(rows);
+  assert.equal(summary.paymentsCount, 1 + 2 + 1);
+  assert.equal(summary.totalAmount, totalAmount);
+});
+
+test("vendas por forma de pagamento: sem pagamentos no periodo nao gera linhas", () => {
+  const rows = buildPaymentMethodsRows([]);
+  assert.equal(rows.length, 0);
+  const summary = summarizePaymentMethods(rows);
+  assert.equal(summary.paymentsCount, 0);
+  assert.equal(summary.totalAmount, 0);
+});
+
+test("relatorios locais propagam pagamentos individuais (metodo+valor) para vendas por forma de pagamento, isolado por estabelecimento", () => {
+  const orgId = `org-${crypto.randomUUID()}`;
+  const storeA = `store-${crypto.randomUUID()}`;
+  const storeB = `store-${crypto.randomUUID()}`;
+  const from = "2026-09-01T00:00:00.000Z";
+  const to = "2026-09-30T23:59:59.999Z";
+
+  recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-pm-1", after: { channel: "POS", subtotal: 100, discount: 0, total: 100, payments: [{ method: "CASH", amount: 100 }] } });
+  recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-pm-2", after: { channel: "FLOOR", subtotal: 200, discount: 0, total: 200, payments: [{ method: "PIX", amount: 120 }, { method: "DEBIT_CARD", amount: 80 }] } });
+  recordLocalAudit({ organizationId: orgId, establishmentId: storeB, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-pm-3", after: { channel: "POS", subtotal: 999, discount: 0, total: 999, payments: [{ method: "CASH", amount: 999 }] } });
+
+  const salesA = listLocalSalesForReport(orgId, storeA, from, to);
+  assert.equal(salesA.length, 2);
+  const rowsA = buildPaymentMethodsRows(salesA);
+  assert.equal(rowsA.find(row => row.method === "CASH")?.totalAmount, 100);
+  assert.equal(rowsA.find(row => row.method === "PIX")?.totalAmount, 120);
+  assert.equal(rowsA.find(row => row.method === "DEBIT_CARD")?.totalAmount, 80);
+  assert.equal(rowsA.some(row => row.totalAmount === 999), false); // isolamento: venda da loja B nao entra
+
+  const salesB = listLocalSalesForReport(orgId, storeB, from, to);
+  const rowsB = buildPaymentMethodsRows(salesB);
+  assert.equal(rowsB.length, 1);
+  assert.equal(rowsB[0]?.method, "CASH");
+  assert.equal(rowsB[0]?.totalAmount, 999);
 });
 
 test("exportacao Excel e PDF nao lanca erro com dados validos ou vazios", async () => {
