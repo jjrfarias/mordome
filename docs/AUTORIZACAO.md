@@ -47,11 +47,11 @@ permissão, no padrão `reports.<slug>.view` (ex. `reports.sales_by_period.view`
 `reports.revenue_by_day.view`, `reports.performance_by_staff.view`,
 `reports.payment_methods.view`, `reports.sales_by_delivery_area.view`,
 `reports.items_sold.view`, `reports.items_consumed.view`, `reports.production_time.view`,
-`reports.time_by_status.view`, `reports.dre.view`). Isso permite que um perfil enxergue "Vendas por
-período" sem ter acesso a "Faturamento por dia", "Desempenho por atendente/garçom", "Vendas por
-forma de pagamento", "Vendas por área de entrega", "Itens vendidos", "Itens consumidos", "Tempo de
-produção", "Tempo por status" ou "DRE Gerencial", e vice-versa — decisão de produto explícita do
-dono.
+`reports.time_by_status.view`, `reports.dre.view`, `reports.coupons_generated.view`). Isso permite
+que um perfil enxergue "Vendas por período" sem ter acesso a "Faturamento por dia", "Desempenho por
+atendente/garçom", "Vendas por forma de pagamento", "Vendas por área de entrega", "Itens vendidos",
+"Itens consumidos", "Tempo de produção", "Tempo por status", "DRE Gerencial" ou "Cupons gerados", e
+vice-versa — decisão de produto explícita do dono.
 
 A tela única de relatórios (`components/admin/ReportsWorkspace.tsx`) não usa nenhuma flag booleana
 dedicada na sessão para isso: ela filtra o catálogo central diretamente pelo array

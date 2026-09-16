@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, Boxes, Building2, FlaskConical, LayoutGrid, ListTree, Plug, Users, Wallet, Ban, Clock } from "lucide-react";
+import { BookOpen, Boxes, Building2, FlaskConical, LayoutGrid, ListTree, Plug, Users, Wallet, Ban, Clock, Ticket } from "lucide-react";
 import { CatalogManagement } from "@/components/admin/CatalogManagement";
 import { EstablishmentsManagement } from "@/components/admin/EstablishmentsManagement";
 import { InventoryManagement } from "@/components/admin/InventoryManagement";
@@ -11,8 +11,9 @@ import { SalonManagement } from "@/components/admin/SalonManagement";
 import { FinanceManagement } from "@/components/admin/FinanceManagement";
 import { CancellationReasonsManagement } from "@/components/admin/CancellationReasonsManagement";
 import { WorkShiftsManagement } from "@/components/admin/WorkShiftsManagement";
+import { CouponsManagement } from "@/components/admin/CouponsManagement";
 
-type SettingsSection = "catalog" | "inventory" | "recipes" | "establishments" | "users" | "integrations" | "stations" | "salon" | "finance" | "cancellationReasons" | "workShifts";
+type SettingsSection = "catalog" | "inventory" | "recipes" | "establishments" | "users" | "integrations" | "stations" | "salon" | "finance" | "cancellationReasons" | "workShifts" | "coupons";
 
 type SettingsWorkspaceProps = {
   activeEstablishmentId: string;
@@ -45,6 +46,7 @@ export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentNa
       {canManageStock && <button className={section === "inventory" ? "active" : ""} onClick={() => setSection("inventory")}><Boxes />Estoque</button>}
       {canManageRecipes && <button className={section === "recipes" ? "active" : ""} onClick={() => setSection("recipes")}><FlaskConical />Fichas técnicas</button>}
       {canManageCatalog && <button className={section === "stations" ? "active" : ""} onClick={() => setSection("stations")}><ListTree />Filas de preparo</button>}
+      {canManageCatalog && <button className={section === "coupons" ? "active" : ""} onClick={() => setSection("coupons")}><Ticket />Cupons de desconto</button>}
       {canManageFloor && <button className={section === "salon" ? "active" : ""} onClick={() => setSection("salon")}><LayoutGrid />Salão</button>}
       {(canManageFinance || canManageFinanceEntries || canViewFinanceCashflow || canManageSettlements) && <button className={section === "finance" ? "active" : ""} onClick={() => setSection("finance")}><Wallet />Financeiro</button>}
       {canManageEstablishments && <button className={section === "establishments" ? "active" : ""} onClick={() => setSection("establishments")}><Building2 />Estabelecimentos</button>}
@@ -63,6 +65,7 @@ export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentNa
     {section === "users" && (canViewUsers || canManageRoles) && <UsersManagement activeEstablishmentId={activeEstablishmentId} canViewUsers={canViewUsers} canCreateUsers={canCreateUsers} canDisableUsers={canDisableUsers} canResetUserPassword={canResetUserPassword} canManageRoles={canManageRoles} onAccessChanged={onChanged} />}
     {section === "integrations" && canManageIntegrations && <IntegrationsManagement activeEstablishmentId={activeEstablishmentId} onChanged={onChanged} />}
     {section === "stations" && canManageCatalog && <StationsManagement activeEstablishmentId={activeEstablishmentId} />}
+    {section === "coupons" && canManageCatalog && <CouponsManagement />}
     {section === "finance" && (canManageFinance || canManageFinanceEntries || canViewFinanceCashflow || canManageSettlements) && <FinanceManagement activeEstablishmentId={activeEstablishmentId} canManageFinance={canManageFinance} canManageFinanceEntries={canManageFinanceEntries} canViewFinanceCashflow={canViewFinanceCashflow} canManageSettlements={canManageSettlements} />}
   </div>;
 }

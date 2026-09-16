@@ -49,6 +49,13 @@
   `status = PAID`) por categoria (EXPENSE reduz, INCOME soma) para o Resultado do período. É
   GERENCIAL, não contábil/fiscal: nenhum imposto (ICMS, PIS/COFINS, IRPJ/CSLL) nem depreciação
   entram na conta.
+- Cupom de desconto (`Coupon`, ver ADR 0041) pertence à organização, mesmo padrão de
+  `FinancialCategory`/`CancellationReason` — vale para toda a rede, não para uma unidade isolada.
+  Cada uso efetivo em uma venda concluída gera um `CouponRedemption` (cupom, venda, estabelecimento,
+  desconto aplicado), que por sua vez pertence ao estabelecimento onde a venda ocorreu — é esse
+  registro, não `Sale`, que amarra "qual cupom gerou qual desconto". `Sale` continua com apenas
+  `discount`/`discountReason` (sem `couponId`): o cupom é uma forma alternativa de preencher esses
+  dois campos já existentes, não uma nova dimensão da venda.
 - Os Relatórios "Tempo de produção" e "Tempo por status" (ver ADR 0039) são calculados a partir do mesmo histórico de transições de `OrderStatusHistory`/`LocalOrder.statusHistory`, via extração pura compartilhada (`lib/reports/order-timing.ts`): "Tempo de produção" é o intervalo entre o envio à cozinha (primeiro evento, `RECEIVED`, equivalente a `Order.sentAt`) e o primeiro `READY` de cada pedido; "Tempo por status" é a média agregada da duração de cada transição consecutiva, por status de origem (`RECEIVED`, `PREPARING`, `READY` — os únicos com uma "próxima etapa" a medir). Pedido sem transição para `READY` no período fica fora do tempo de produção (não há instante de conclusão a medir), mas uma transição que termina em `CANCELLED` ainda conta para o tempo por status (o pedido genuinamente esperou aquele tempo no status de origem).
 
 ## Invariantes

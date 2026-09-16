@@ -1,4 +1,4 @@
-import { REPORTS_DRE_VIEW, REPORTS_ITEMS_CONSUMED_VIEW, REPORTS_ITEMS_SOLD_VIEW, REPORTS_PAYMENT_METHODS_VIEW, REPORTS_PERFORMANCE_BY_STAFF_VIEW, REPORTS_PRODUCTION_TIME_VIEW, REPORTS_REVENUE_BY_DAY_VIEW, REPORTS_SALES_BY_DELIVERY_AREA_VIEW, REPORTS_SALES_BY_PERIOD_VIEW, REPORTS_TIME_BY_STATUS_VIEW } from "../permissions.ts";
+import { REPORTS_COUPONS_GENERATED_VIEW, REPORTS_DRE_VIEW, REPORTS_ITEMS_CONSUMED_VIEW, REPORTS_ITEMS_SOLD_VIEW, REPORTS_PAYMENT_METHODS_VIEW, REPORTS_PERFORMANCE_BY_STAFF_VIEW, REPORTS_PRODUCTION_TIME_VIEW, REPORTS_REVENUE_BY_DAY_VIEW, REPORTS_SALES_BY_DELIVERY_AREA_VIEW, REPORTS_SALES_BY_PERIOD_VIEW, REPORTS_TIME_BY_STATUS_VIEW } from "../permissions.ts";
 
 // Catálogo central de relatórios (ADR 0033 — framework de relatórios). Para adicionar um relatório
 // novo no futuro: (1) criar sua permissão em `lib/permissions.ts` seguindo `reports.<slug>.view`,
@@ -86,6 +86,13 @@ export const REPORTS_REGISTRY: ReportDefinition[] = [
     description: "Demonstração de Resultado do Exercício simplificada e gerencial do período: receita líquida, CMV, lucro bruto, despesas operacionais, outras receitas e resultado. Não substitui uma DRE contábil/fiscal (sem impostos nem depreciação).",
     permissionKey: REPORTS_DRE_VIEW,
     category: "Financeiro",
+  },
+  {
+    id: "coupons-generated",
+    label: "Cupons gerados",
+    description: "Lista todos os cupons de desconto cadastrados até o período, com validade, limite de usos, usos totais, usos no período e valor total de desconto concedido através de cada um.",
+    permissionKey: REPORTS_COUPONS_GENERATED_VIEW,
+    category: "Vendas",
   },
 ];
 

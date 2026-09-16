@@ -233,6 +233,7 @@ model Organization {
   financialEntries    FinancialEntry[]
   suppliers           Supplier[]
   cancellationReasons CancellationReason[]
+  coupons             Coupon[]
 }
 
 model Establishment {
@@ -273,6 +274,7 @@ model Establishment {
   deliveryAreas     DeliveryArea[]
   workShifts        WorkShift[]
   printTemplate     PrintTemplate?
+  couponRedemptions CouponRedemption[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
@@ -494,6 +496,7 @@ model Sale {
   refunds         Refund[]
   tab             Tab?
   deliveryOrder   DeliveryOrder?
+  couponRedemption CouponRedemption?
 
   @@index([organizationId, establishmentId, completedAt])
   @@index([cashSessionId, status])
@@ -1126,6 +1129,56 @@ model CancellationReason {
 
   @@unique([organizationId, category, label])
   @@index([organizationId, category, active])
+}
+
+// Cupons de desconto (ver ADR 0041). Escopo por organização, mesmo padrão de
+// `FinancialCategory`/`CancellationReason`: cupons tendem a valer para toda a rede, não para uma
+// unidade isolada. `discountValue` é percentual (0-100) quando `discountType = PERCENT`, ou um
+// valor fixo em R$ quando `discountType = FIXED`. `validFrom`/`validUntil` nulos significam "sem
+// validade" (nunca expira) naquela ponta. `maxUses` nulo significa uso ilimitado. Nunca excluído,
+// só inativado (`active = false`), mesmo padrão de todos os cadastros do sistema.
+enum CouponDiscountType {
+  PERCENT
+  FIXED
+}
+
+model Coupon {
+  id             String             @id @default(cuid())
+  organizationId String
+  code           String
+  discountType   CouponDiscountType
+  discountValue  Decimal            @db.Decimal(12, 2)
+  validFrom      DateTime?
+  validUntil     DateTime?
+  maxUses        Int?
+  usesCount      Int                @default(0)
+  active         Boolean            @default(true)
+  createdAt      DateTime           @default(now())
+  updatedAt      DateTime           @updatedAt
+  organization   Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  redemptions    CouponRedemption[]
+
+  @@unique([organizationId, code])
+  @@index([organizationId, active])
+}
+
+// Registro de cada uso de cupom em uma venda concluída (ver ADR 0041, decisão sobre relatório
+// detalhado). Alimenta o relatório "Cupons gerados" (quantos usos e quanto de desconto no
+// período), sem duplicar `Sale.discount`/`Sale.discountReason` — a venda continua registrando o
+// desconto normalmente, e este registro só amarra "qual cupom gerou qual parte desse desconto".
+model CouponRedemption {
+  id              String        @id @default(cuid())
+  couponId        String
+  saleId          String
+  establishmentId String
+  discountApplied Decimal       @db.Decimal(12, 2)
+  createdAt       DateTime      @default(now())
+  coupon          Coupon        @relation(fields: [couponId], references: [id], onDelete: Cascade)
+  sale            Sale          @relation(fields: [saleId], references: [id], onDelete: Cascade)
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  @@unique([saleId])
+  @@index([couponId, createdAt])
 }
 
 model BankAccount {

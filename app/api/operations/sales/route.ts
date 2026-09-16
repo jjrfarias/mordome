@@ -13,11 +13,13 @@ import { closeLocalTab, getLocalOpenTab } from "@/lib/local-floor";
 import { attachLocalDeliverySale, getLocalDeliveryOrder } from "@/lib/local-delivery";
 import { getLocalDeliveryArea } from "@/lib/local-delivery-areas";
 import { resolveIngredientSelections, type SelectedOptionSnapshot } from "@/lib/ingredient-options";
+import { validateCoupon, normalizeCouponCode, type CouponRecord } from "@/lib/coupons";
+import { findLocalCouponByCode, redeemLocalCoupon } from "@/lib/local-coupons";
 
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const saleItemSchema = z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(999), discount: z.number().finite().min(0).optional(), selectedOptions: z.array(optionSelectionSchema).max(10).optional() });
 const paymentSchema = z.object({ method: z.string().min(2).max(40), amount: z.number().finite().positive(), receivedAmount: z.number().finite().positive().optional() });
-const completeSchema = z.object({ action: z.literal("COMPLETE"), channel: z.enum(SaleChannel).refine(channel => channel === "POS" || channel === "FLOOR" || channel === "DELIVERY"), items: z.array(saleItemSchema).min(1), payments: z.array(paymentSchema).min(1).max(10), discount: z.number().finite().min(0).default(0), discountReason: z.string().trim().min(3).max(200).optional(), table: z.number().int().positive().optional(), tabId: z.string().min(1).optional(), deliveryOrderId: z.string().min(1).optional(), idempotencyKey: z.string().uuid() });
+const completeSchema = z.object({ action: z.literal("COMPLETE"), channel: z.enum(SaleChannel).refine(channel => channel === "POS" || channel === "FLOOR" || channel === "DELIVERY"), items: z.array(saleItemSchema).min(1), payments: z.array(paymentSchema).min(1).max(10), discount: z.number().finite().min(0).default(0), discountReason: z.string().trim().min(3).max(200).optional(), couponCode: z.string().trim().min(1).max(40).optional(), table: z.number().int().positive().optional(), tabId: z.string().min(1).optional(), deliveryOrderId: z.string().min(1).optional(), idempotencyKey: z.string().uuid() });
 const cancelSchema = z.object({ action: z.literal("CANCEL"), saleId: z.string().min(1), reason: z.string().trim().min(3).max(200), idempotencyKey: z.string().uuid() });
 const refundSchema = z.object({ action: z.literal("REFUND"), saleId: z.string().min(1), amount: z.number().finite().positive(), payments: z.array(paymentSchema).min(1).max(10), restoreStock: z.boolean().default(false), reason: z.string().trim().min(3).max(200), idempotencyKey: z.string().uuid() });
 const actionSchema = z.discriminatedUnion("action", [completeSchema, cancelSchema, refundSchema]);
@@ -102,11 +104,26 @@ export async function POST(request: Request) {
       const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
       const deliveryFee = localDelivery?.deliveryFee ?? 0;
       const grossTotal = roundMoney(subtotal * (data.channel === "FLOOR" ? 1.1 : 1) + deliveryFee);
-      if (data.discount > 0 && !session.canApplyDiscount) return Response.json({ error: "Você não tem permissão para aplicar descontos." }, { status: 403 });
-      if (data.discount > grossTotal) return Response.json({ error: "O desconto não pode superar o total da venda." }, { status: 400 });
-      if (data.discount > 0 && !data.discountReason) return Response.json({ error: "Informe o motivo do desconto." }, { status: 400 });
-      if (grossTotal > 0 && data.discount / grossTotal > 0.1 && !session.canOverrideDiscount) return Response.json({ error: "Desconto acima de 10% exige um perfil autorizador." }, { status: 403 });
-      const total = roundMoney(grossTotal - data.discount); const payments = resolvePayments(data.payments);
+      // Cupom (ADR 0041): forma alternativa e assistida de preencher `discount`/`discountReason` —
+      // quando informado, substitui o que o cliente tenha mandado nesses dois campos, recalculado
+      // aqui no servidor (nunca confiando no desconto que o cliente já tenha calculado sozinho).
+      let appliedCoupon: ReturnType<typeof findLocalCouponByCode> = null;
+      let resolvedDiscount = data.discount;
+      let resolvedDiscountReason = data.discountReason;
+      if (data.couponCode) {
+        const coupon = findLocalCouponByCode(session.organization.id, normalizeCouponCode(data.couponCode));
+        const record: CouponRecord | null = coupon && { id: coupon.id, code: coupon.code, discountType: coupon.discountType, discountValue: coupon.discountValue, validFrom: coupon.validFrom, validUntil: coupon.validUntil, maxUses: coupon.maxUses, usesCount: coupon.usesCount, active: coupon.active };
+        const result = validateCoupon(record, subtotal);
+        if (!result.ok) return Response.json({ error: "Cupom inválido para esta venda." }, { status: 400 });
+        appliedCoupon = coupon;
+        resolvedDiscount = result.discount;
+        resolvedDiscountReason = `Cupom ${result.coupon.code}`;
+      }
+      if (resolvedDiscount > 0 && !session.canApplyDiscount) return Response.json({ error: "Você não tem permissão para aplicar descontos." }, { status: 403 });
+      if (resolvedDiscount > grossTotal) return Response.json({ error: "O desconto não pode superar o total da venda." }, { status: 400 });
+      if (resolvedDiscount > 0 && !resolvedDiscountReason) return Response.json({ error: "Informe o motivo do desconto." }, { status: 400 });
+      if (grossTotal > 0 && resolvedDiscount / grossTotal > 0.1 && !session.canOverrideDiscount) return Response.json({ error: "Desconto acima de 10% exige um perfil autorizador." }, { status: 403 });
+      const total = roundMoney(grossTotal - resolvedDiscount); const payments = resolvePayments(data.payments);
       if (roundMoney(payments.reduce((sum, payment) => sum + payment.amount, 0)) !== total) return Response.json({ error: "A soma dos pagamentos deve ser igual ao total da venda." }, { status: 400 });
       if (payments.some(payment => payment.method !== "CASH" && payment.receivedAmount !== undefined)) return Response.json({ error: "Valor recebido e troco são permitidos apenas em dinheiro." }, { status: 400 });
       for (const payment of payments) registerLocalCashSale(cash.id, payment.method as LocalPaymentMethod, payment.amount);
@@ -116,7 +133,8 @@ export async function POST(request: Request) {
         // relatório de Vendas por área de entrega (ADR 0036) — pedidos sem área ficam com
         // `deliveryAreaId: null`, tratados como "Sem área definida" pelo relatório.
         const deliveryArea = localDelivery?.deliveryAreaId ? getLocalDeliveryArea(session.establishment.id, localDelivery.deliveryAreaId) : null;
-        recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "SALE_COMPLETE", entityType: "Sale", entityId: result.sale.id, reason: localTab ? `Fechamento da mesa ${localTab.table.number}` : localDelivery ? `Pedido de delivery para ${localDelivery.customerName}` : "Venda direta no PDV", after: { channel: data.channel, table: localTab?.table.number, tabId: localTab?.tab.id, deliveryOrderId: localDelivery?.id, deliveryAreaId: localDelivery?.deliveryAreaId ?? null, deliveryAreaName: deliveryArea?.name ?? null, deliveryFee, payments, discount: data.discount, discountReason: data.discountReason, items, subtotal, total, cashSessionId: cash.id }, ...requestAuditMetadata(request) });
+        recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "SALE_COMPLETE", entityType: "Sale", entityId: result.sale.id, reason: localTab ? `Fechamento da mesa ${localTab.table.number}` : localDelivery ? `Pedido de delivery para ${localDelivery.customerName}` : "Venda direta no PDV", after: { channel: data.channel, table: localTab?.table.number, tabId: localTab?.tab.id, deliveryOrderId: localDelivery?.id, deliveryAreaId: localDelivery?.deliveryAreaId ?? null, deliveryAreaName: deliveryArea?.name ?? null, deliveryFee, payments, discount: resolvedDiscount, discountReason: resolvedDiscountReason, couponCode: appliedCoupon?.code ?? null, items, subtotal, total, cashSessionId: cash.id }, ...requestAuditMetadata(request) });
+        if (appliedCoupon) redeemLocalCoupon(session.organization.id, appliedCoupon.id, { saleId: result.sale.id, establishmentId: session.establishment.id, discountApplied: resolvedDiscount });
         if (data.tabId) {
           const closed = closeLocalTab({ establishmentId: session.establishment.id, tabId: data.tabId, saleId: result.sale.id });
           if (closed !== "TAB_NOT_FOUND") recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "TAB_CLOSE", entityType: "Tab", entityId: closed.tab.id, reason: `Comanda da mesa ${closed.table.number} fechada`, before: { status: "OPEN" }, after: { status: "PAID", saleId: result.sale.id }, ...requestAuditMetadata(request) });
@@ -208,16 +226,35 @@ export async function POST(request: Request) {
       const serviceAmount = data.channel === "FLOOR" ? roundMoney(subtotal * Number(establishment.serviceRate) / 100) : 0;
       const deliveryFee = deliveryOrder?.deliveryFee ? Number(deliveryOrder.deliveryFee) : 0;
       const grossTotal = roundMoney(subtotal + serviceAmount + deliveryFee);
-      if (data.discount > 0 && !actor.session.canApplyDiscount) throw new Error("DISCOUNT_FORBIDDEN");
-      if (data.discount > grossTotal) throw new Error("DISCOUNT_INVALID");
-      if (data.discount > 0 && !data.discountReason) throw new Error("DISCOUNT_REASON_REQUIRED");
-      if (grossTotal > 0 && data.discount / grossTotal > 0.1 && !actor.session.canOverrideDiscount) throw new Error("DISCOUNT_APPROVAL_REQUIRED");
-      const total = roundMoney(grossTotal - data.discount); const payments = resolvePayments(data.payments);
+      // Cupom (ADR 0041): mesma decisão do modo local — substitui `discount`/`discountReason`
+      // recalculado no servidor a partir do cupom cadastrado, nunca confiando em desconto que o
+      // cliente já tenha calculado sozinho.
+      let appliedCoupon: Awaited<ReturnType<typeof tx.coupon.findFirst>> = null;
+      let resolvedDiscount = data.discount;
+      let resolvedDiscountReason = data.discountReason;
+      if (data.couponCode) {
+        const coupon = await tx.coupon.findFirst({ where: { organizationId: actor.session.organization.id, code: normalizeCouponCode(data.couponCode) } });
+        const record: CouponRecord | null = coupon && { id: coupon.id, code: coupon.code, discountType: coupon.discountType, discountValue: Number(coupon.discountValue), validFrom: coupon.validFrom?.toISOString() ?? null, validUntil: coupon.validUntil?.toISOString() ?? null, maxUses: coupon.maxUses, usesCount: coupon.usesCount, active: coupon.active };
+        const result = validateCoupon(record, subtotal);
+        if (!result.ok) throw new Error("COUPON_INVALID");
+        appliedCoupon = coupon;
+        resolvedDiscount = result.discount;
+        resolvedDiscountReason = `Cupom ${result.coupon.code}`;
+      }
+      if (resolvedDiscount > 0 && !actor.session.canApplyDiscount) throw new Error("DISCOUNT_FORBIDDEN");
+      if (resolvedDiscount > grossTotal) throw new Error("DISCOUNT_INVALID");
+      if (resolvedDiscount > 0 && !resolvedDiscountReason) throw new Error("DISCOUNT_REASON_REQUIRED");
+      if (grossTotal > 0 && resolvedDiscount / grossTotal > 0.1 && !actor.session.canOverrideDiscount) throw new Error("DISCOUNT_APPROVAL_REQUIRED");
+      const total = roundMoney(grossTotal - resolvedDiscount); const payments = resolvePayments(data.payments);
       if (roundMoney(payments.reduce((sum, payment) => sum + payment.amount, 0)) !== total) throw new Error("PAYMENT_MISMATCH");
       if (payments.some(payment => payment.method !== "CASH" && payment.receivedAmount !== undefined)) throw new Error("CHANGE_ONLY_CASH");
-      const created = await tx.sale.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, cashSessionId: cash.id, operatorId: actor.session.user.id, channel: data.channel, subtotal, discount: data.discount, serviceAmount, deliveryFee, total, idempotencyKey: data.idempotencyKey, items: { create: saleItems }, payments: { create: payments } } });
-      await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "SALE_COMPLETE", entityType: "Sale", entityId: created.id, reason: tab ? `Fechamento da mesa ${tab.table.number}` : deliveryOrder ? `Pedido de delivery para ${deliveryOrder.customerName}` : "Venda direta no PDV", after: { channel: data.channel, table: tab?.table.number, tabId: tab?.id, deliveryOrderId: deliveryOrder?.id, payments, discount: data.discount, discountReason: data.discountReason, items: saleItems.map(item => ({ productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, total: item.total })), subtotal, serviceAmount, total, cashSessionId: cash.id }, ...requestAuditMetadata(request) } });
-      if (data.discount > 0) await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "DISCOUNT_APPLY", entityType: "Sale", entityId: created.id, reason: data.discountReason!, after: { amount: data.discount, percent: grossTotal ? roundMoney(data.discount / grossTotal * 100) : 0 }, ...requestAuditMetadata(request) } });
+      const created = await tx.sale.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, cashSessionId: cash.id, operatorId: actor.session.user.id, channel: data.channel, subtotal, discount: resolvedDiscount, serviceAmount, deliveryFee, total, idempotencyKey: data.idempotencyKey, items: { create: saleItems }, payments: { create: payments } } });
+      await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "SALE_COMPLETE", entityType: "Sale", entityId: created.id, reason: tab ? `Fechamento da mesa ${tab.table.number}` : deliveryOrder ? `Pedido de delivery para ${deliveryOrder.customerName}` : "Venda direta no PDV", after: { channel: data.channel, table: tab?.table.number, tabId: tab?.id, deliveryOrderId: deliveryOrder?.id, payments, discount: resolvedDiscount, discountReason: resolvedDiscountReason, couponCode: appliedCoupon?.code ?? null, items: saleItems.map(item => ({ productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, total: item.total })), subtotal, serviceAmount, total, cashSessionId: cash.id }, ...requestAuditMetadata(request) } });
+      if (resolvedDiscount > 0) await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "DISCOUNT_APPLY", entityType: "Sale", entityId: created.id, reason: resolvedDiscountReason!, after: { amount: resolvedDiscount, percent: grossTotal ? roundMoney(resolvedDiscount / grossTotal * 100) : 0 }, ...requestAuditMetadata(request) } });
+      if (appliedCoupon) {
+        await tx.couponRedemption.create({ data: { couponId: appliedCoupon.id, saleId: created.id, establishmentId: actor.session.establishment.id, discountApplied: resolvedDiscount } });
+        await tx.coupon.update({ where: { id: appliedCoupon.id }, data: { usesCount: { increment: 1 } } });
+      }
       if (tab) { await tx.tab.update({ where: { id: tab.id }, data: { status: "PAID", closedAt: new Date(), saleId: created.id } }); await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "TAB_CLOSE", entityType: "Tab", entityId: tab.id, reason: `Comanda da mesa ${tab.table.number} fechada`, before: { status: "OPEN" }, after: { status: "PAID", saleId: created.id, tableNumber: tab.table.number }, ...requestAuditMetadata(request) } }); }
       if (deliveryOrder) { await tx.deliveryOrder.update({ where: { id: deliveryOrder.id }, data: { status: "DELIVERED", saleId: created.id } }); await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: deliveryOrder.id, reason: "Pedido de delivery pago e concluído", before: { status: deliveryOrder.status }, after: { status: "DELIVERED", saleId: created.id }, ...requestAuditMetadata(request) } }); }
       return created;
@@ -238,6 +275,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "DISCOUNT_INVALID") return Response.json({ error: "O desconto não pode superar o total da venda." }, { status: 400 });
     if (error instanceof Error && error.message === "DISCOUNT_REASON_REQUIRED") return Response.json({ error: "Informe o motivo do desconto." }, { status: 400 });
     if (error instanceof Error && error.message === "DISCOUNT_APPROVAL_REQUIRED") return Response.json({ error: "Desconto acima de 10% exige um perfil autorizador." }, { status: 403 });
+    if (error instanceof Error && error.message === "COUPON_INVALID") return Response.json({ error: "Cupom inválido para esta venda." }, { status: 400 });
     if (error instanceof Error && error.message === "PAYMENT_MISMATCH") return Response.json({ error: "A soma dos pagamentos deve ser igual ao total da venda." }, { status: 400 });
     if (error instanceof Error && error.message === "CHANGE_ONLY_CASH") return Response.json({ error: "Valor recebido e troco são permitidos apenas em dinheiro." }, { status: 400 });
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") { const existing = await db.sale.findUnique({ where: { idempotencyKey: data.idempotencyKey } }); return Response.json({ sale: existing ? { id: existing.id, total: Number(existing.total) } : null }); }

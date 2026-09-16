@@ -4,7 +4,7 @@ import { Minus, Plus } from "lucide-react";
 import { money } from "@/lib/domain";
 
 export type SalePayment = { method: string; amount: number; receivedAmount?: number };
-export type SaleCheckout = { payments: SalePayment[]; discount: number; discountReason?: string };
+export type SaleCheckout = { payments: SalePayment[]; discount: number; discountReason?: string; couponCode?: string };
 
 const methods = ["Pix", "Cartão de crédito", "Cartão de débito", "Dinheiro"];
 const numeric = (value: string) => Number(value.replace(",", ".")) || 0;

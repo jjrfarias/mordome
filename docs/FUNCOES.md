@@ -107,6 +107,30 @@ O histórico de status e seus responsáveis está implementado. Planejado: atual
 - Nos três fluxos, o campo de texto livre de motivo foi trocado por um seletor (`components/operations/ReasonSelect.tsx`) que busca os motivos ativos da categoria e sempre inclui uma opção final "Outro (digite o motivo)", que revela um campo de texto livre como fallback. Se não houver nenhum motivo cadastrado ainda, o campo de texto livre aparece direto, sem bloquear o cancelamento. O texto final enviado ao servidor continua sendo uma string livre — nenhum contrato de API dos endpoints de cancelamento existentes mudou.
 - Roteirização (cálculo de rota/tempo estimado via serviço externo) segue pendente — ver ADR 0014.
 
+## Cupons de desconto (implementado, ver ADR 0041)
+
+- Cadastro de cupons de desconto (`Coupon`, escopo por organização — vale para toda a rede,
+  permissão `catalog.manage`): código único por organização, tipo de desconto (`PERCENT` 0-100% ou
+  `FIXED` em R$), validade opcional (`validFrom`/`validUntil` — sem validade nunca expira daquela
+  ponta), limite de usos opcional (`maxUses` nulo = ilimitado) e contador de usos (`usesCount`).
+  Nunca excluído, apenas inativado. Gerenciado em nova sub-seção "Cupons de desconto" em
+  Configurações (`components/admin/CouponsManagement.tsx`).
+- Integrado apenas ao PDV nesta fatia (Salão e Delivery ficam de fora, pendência futura): o
+  operador digita o código antes de finalizar a venda, o PDV valida assistidamente
+  (`POST /api/operations/coupons/validate`) e, se o cupom estiver utilizável (ativo, dentro da
+  validade, dentro do limite de usos), aplica automaticamente como o `discount`/`discountReason`
+  que já existem na finalização de venda (`app/api/operations/sales/route.ts`) — o cupom é só uma
+  forma alternativa e assistida de preencher esse desconto, sem novo campo em `Sale`. O servidor
+  sempre recalcula o desconto do cupom no momento de finalizar a venda (nunca confia no valor já
+  calculado pelo cliente na validação).
+- Cada uso efetivo em uma venda concluída incrementa `Coupon.usesCount` e cria um
+  `CouponRedemption` (cupom, venda, estabelecimento, valor de desconto aplicado) — consultado pelo
+  relatório "Cupons gerados". A validação isolada (sem finalizar a venda) não incrementa nada.
+- Relatório **Cupons gerados** (ver ADR 0041, permissão `reports.coupons_generated.view`): lista
+  todos os cupons cadastrados até o fim do período ("gerados" = criados, não só os usados), com
+  validade, limite, usos totais (histórico) e usos/desconto concedido especificamente dentro do
+  período consultado.
+
 ## Turnos — escala de trabalho da equipe (implementado, ver ADR 0030)
 
 - Cadastro de turnos de trabalho (`WorkShift`, escopo por estabelecimento, permissão `establishments.manage`): nome, horário de início/fim (`HH:mm`) e dias da semana em que ocorre. **Não é o turno de caixa** (`CashSession`, abertura/fechamento de caixa por operador) — é a escala/horário de trabalho da equipe, sem relação com dinheiro ou vendas.
@@ -242,6 +266,8 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
 - Relatórios **Tempo de produção** e **Tempo por status** (ver ADR 0039): construídos juntos, sobre a
   mesma fonte — histórico de status de cada pedido de cozinha (`OrderStatusHistory`/
   `LocalOrder.statusHistory`), extração compartilhada em `lib/reports/order-timing.ts`.
+- Relatório **Cupons gerados** (ver ADR 0041): construído junto com o cadastro de cupons de
+  desconto (`Coupon`/`CouponRedemption`) — ver seção própria acima.
   - **Tempo de produção**: por PEDIDO enviado no período (`Order.sentAt`), tempo entre o envio à
     cozinha e ele ficar pronto (primeira transição para `READY`) — identificador curto, mesa,
     horário de envio, horário de pronto e tempo decorrido. Resumo com tempo médio do período.
