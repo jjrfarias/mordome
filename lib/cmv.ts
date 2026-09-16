@@ -1,5 +1,6 @@
 /**
- * Cálculo puro do Relatório de CMV real (Custo de Mercadoria Vendida) — ver ADR 0026.
+ * Cálculo puro do Relatório de CMV real (Custo de Mercadoria Vendida) — ver ADR 0026 — e da
+ * Análise/simulação de CMV (ver ADR 0027, `calculateCmvSimulation` mais abaixo).
  *
  * Limitações assumidas nesta fatia (ver ADR para detalhes):
  * - Custo médio ponderado "atual" (todo o histórico de entradas com custo, não só o período do
@@ -8,6 +9,8 @@
  * - Vendas de produto sem ficha técnica não entram no CMV (custo desconhecido para o produto
  *   inteiro), mas aparecem separadamente com quantidade e receita.
  */
+
+import { calculateRecipeConsumption } from "./inventory-domain.ts";
 
 const roundMoney = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
@@ -130,5 +133,58 @@ export function buildCmvReport(saleItems: ReadonlyArray<CmvSaleItemInput>, resol
     hasUnknownCost,
     products,
     productsWithoutRecipe: [...withoutRecipeMap.values()].sort((a, b) => b.revenue - a.revenue),
+  };
+}
+
+/**
+ * Análise/simulação de CMV (ver ADR 0027) — diferente de `buildCmvReport`, que olha vendas JÁ
+ * OCORRIDAS: esta função calcula o CMV PROJETADO de uma ficha técnica (real ou hipotética, ainda
+ * não salva) para uma única unidade vendida, com um preço de venda simulado (que pode ou não ser
+ * o preço atual do produto). Nada aqui é persistido — é puramente uma calculadora "e se".
+ *
+ * Reaproveita `calculateRecipeConsumption` (`lib/inventory-domain.ts`, mesma fórmula de perda
+ * técnica e rendimento usada no consumo real de venda) para achar a quantidade consumida de cada
+ * componente, e a mesma regra de "custo desconhecido nunca é mascarado como zero" de
+ * `calculateSaleItemCmv`.
+ */
+export type CmvSimulationComponentInput = { inventoryItemId: string; inventoryItemName: string; baseUnit: string; quantity: number; wastePercent: number };
+export type CmvSimulationComponentResult = { inventoryItemId: string; inventoryItemName: string; baseUnit: string; consumedQuantity: number; averageCost: number | null; cost: number };
+export type CmvSimulationResult = {
+  components: CmvSimulationComponentResult[];
+  cmvTotal: number;
+  hasUnknownCost: boolean;
+  salePrice: number;
+  cmvPercent: number | null;
+  grossMargin: number;
+  marginPercent: number | null;
+};
+
+export function calculateCmvSimulation(components: ReadonlyArray<CmvSimulationComponentInput>, yieldQuantity: number, salePrice: number, resolveAverageCost: (inventoryItemId: string) => number | null): CmvSimulationResult {
+  const safeYield = Number.isFinite(yieldQuantity) && yieldQuantity > 0 ? yieldQuantity : 1;
+  const safeSalePrice = Number.isFinite(salePrice) && salePrice >= 0 ? salePrice : 0;
+
+  let cmvTotal = 0;
+  let hasUnknownCost = false;
+  const results: CmvSimulationComponentResult[] = components
+    .filter(component => Number.isFinite(component.quantity) && component.quantity > 0)
+    .map(component => {
+      const [consumed] = calculateRecipeConsumption([{ inventoryItemId: component.inventoryItemId, quantity: component.quantity, wastePercent: component.wastePercent }], 1, safeYield);
+      const averageCost = resolveAverageCost(component.inventoryItemId);
+      const cost = averageCost === null ? 0 : roundMoney(consumed.quantity * averageCost);
+      if (averageCost === null) hasUnknownCost = true;
+      else cmvTotal += cost;
+      return { inventoryItemId: component.inventoryItemId, inventoryItemName: component.inventoryItemName, baseUnit: component.baseUnit, consumedQuantity: consumed.quantity, averageCost, cost };
+    });
+
+  cmvTotal = roundMoney(cmvTotal);
+  const grossMargin = roundMoney(safeSalePrice - cmvTotal);
+  return {
+    components: results,
+    cmvTotal,
+    hasUnknownCost,
+    salePrice: safeSalePrice,
+    cmvPercent: safeSalePrice > 0 ? roundMoney((cmvTotal / safeSalePrice) * 100) : null,
+    grossMargin,
+    marginPercent: safeSalePrice > 0 ? roundMoney((grossMargin / safeSalePrice) * 100) : null,
   };
 }

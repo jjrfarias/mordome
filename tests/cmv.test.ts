@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildCmvReport, calculateSaleItemCmv, weightedAverageCost } from "../lib/cmv.ts";
+import { buildCmvReport, calculateCmvSimulation, calculateSaleItemCmv, weightedAverageCost } from "../lib/cmv.ts";
 import { getLocalAverageCostByInventoryItemId, addLocalStockEntry, createLocalInventoryItem, configureLocalInventoryItem } from "../lib/local-inventory.ts";
 
 test("custo médio ponderado com múltiplas entradas de custos diferentes", () => {
@@ -112,4 +112,72 @@ test("configureLocalInventoryItem também reflete custo desconhecido sem entrada
   if (!created) throw new Error("unexpected null");
   configureLocalInventoryItem(establishmentId, created.id);
   assert.equal(getLocalAverageCostByInventoryItemId(establishmentId, created.id), null);
+});
+
+test("simulação de CMV: múltiplos componentes com custo conhecido calcula CMV%, margem e margem% corretamente", () => {
+  // Pão: 100g a R$0,02/g = 2. Salsicha: 80g a R$0,05/g = 4. Total CMV = 6. Preço simulado = 12.
+  const result = calculateCmvSimulation(
+    [
+      { inventoryItemId: "pao", inventoryItemName: "Pão", baseUnit: "GRAM", quantity: 100, wastePercent: 0 },
+      { inventoryItemId: "salsicha", inventoryItemName: "Salsicha", baseUnit: "GRAM", quantity: 80, wastePercent: 0 },
+    ],
+    1,
+    12,
+    id => (id === "pao" ? 0.02 : 0.05),
+  );
+  assert.equal(result.cmvTotal, 6);
+  assert.equal(result.hasUnknownCost, false);
+  assert.equal(result.cmvPercent, 50);
+  assert.equal(result.grossMargin, 6);
+  assert.equal(result.marginPercent, 50);
+});
+
+test("simulação de CMV: wastePercent aumenta a quantidade consumida e o custo do componente", () => {
+  // 100g com 10% de perda técnica = 110g consumidos, a R$0,02/g = 2.2.
+  const result = calculateCmvSimulation(
+    [{ inventoryItemId: "pao", inventoryItemName: "Pão", baseUnit: "GRAM", quantity: 100, wastePercent: 10 }],
+    1,
+    10,
+    () => 0.02,
+  );
+  assert.equal(result.components[0].consumedQuantity, 110);
+  assert.equal(result.components[0].cost, 2.2);
+  assert.equal(result.cmvTotal, 2.2);
+});
+
+test("simulação de CMV: componente sem custo conhecido não é mascarado como zero e sinaliza custo parcial", () => {
+  const result = calculateCmvSimulation(
+    [
+      { inventoryItemId: "pao", inventoryItemName: "Pão", baseUnit: "GRAM", quantity: 100, wastePercent: 0 },
+      { inventoryItemId: "molho-misterioso", inventoryItemName: "Molho misterioso", baseUnit: "GRAM", quantity: 10, wastePercent: 0 },
+    ],
+    1,
+    10,
+    id => (id === "pao" ? 0.02 : null),
+  );
+  assert.equal(result.hasUnknownCost, true);
+  assert.equal(result.cmvTotal, 2); // só soma o componente conhecido, nunca finge que o desconhecido custou 0
+  const unknownComponent = result.components.find(component => component.inventoryItemId === "molho-misterioso");
+  assert.equal(unknownComponent?.averageCost, null);
+  assert.equal(unknownComponent?.cost, 0);
+});
+
+test("simulação de CMV: alterar o preço simulado recalcula a margem sem mudar o CMV", () => {
+  const components = [{ inventoryItemId: "pao", inventoryItemName: "Pão", baseUnit: "GRAM", quantity: 100, wastePercent: 0 }];
+  const cheap = calculateCmvSimulation(components, 1, 4, () => 0.02); // CMV=2, preço=4 -> 50%
+  const expensive = calculateCmvSimulation(components, 1, 10, () => 0.02); // CMV=2, preço=10 -> 20%
+  assert.equal(cheap.cmvTotal, expensive.cmvTotal);
+  assert.equal(cheap.cmvPercent, 50);
+  assert.equal(expensive.cmvPercent, 20);
+  assert.equal(cheap.marginPercent, 50);
+  assert.equal(expensive.marginPercent, 80);
+});
+
+test("simulação de CMV: produto sem ficha técnica existente começa do zero sem erro (lista vazia)", () => {
+  const result = calculateCmvSimulation([], 1, 25, () => null);
+  assert.equal(result.components.length, 0);
+  assert.equal(result.cmvTotal, 0);
+  assert.equal(result.hasUnknownCost, false);
+  assert.equal(result.cmvPercent, 0);
+  assert.equal(result.marginPercent, 100);
 });

@@ -45,6 +45,7 @@
 .cmv-product-row.cmv-product-head{background:transparent;border:none;padding:0 16px;color:var(--muted);font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
 .cmv-product-row.cmv-unknown{border-left:3px solid var(--orange)}
 .cmv-unknown-badge{display:inline-flex;align-items:center;gap:4px;margin-left:8px;padding:2px 7px;border-radius:999px;background:rgba(217,119,6,.14);color:#8a5518;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.cmv-sim-component-cost{grid-column:1/-1;margin-top:-2px;color:var(--muted);font-size:10px;font-weight:700}
 @media(max-width:900px){.cmv-product-row{grid-template-columns:1fr 1fr}.cmv-product-row.cmv-product-head{display:none}}
 .shopping-list{display:grid;gap:18px}
 .shopping-list-bar{display:grid;grid-template-columns:auto minmax(220px,320px) auto;align-items:end;gap:14px;padding:14px 18px;border:1px solid var(--line);border-radius:13px;background:var(--paper)}.shopping-list-bar>div{display:grid;gap:3px}.shopping-list-bar>div span{color:var(--muted);font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}.shopping-list-bar>div strong{font-family:var(--font-fraunces),serif;font-size:20px}

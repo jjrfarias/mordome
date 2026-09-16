@@ -4,8 +4,9 @@ import { db } from "@/lib/db";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
 import { listLocalCatalog } from "@/lib/local-catalog";
-import { listLocalInventory } from "@/lib/local-inventory";
+import { listLocalInventory, getLocalAverageCostByInventoryItemId } from "@/lib/local-inventory";
 import { createLocalRecipe, listLocalRecipes } from "@/lib/local-recipes";
+import { weightedAverageCost } from "@/lib/cmv";
 import { requestAuditMetadata } from "@/lib/audit";
 import { recordLocalAudit } from "@/lib/local-audit";
 
@@ -24,19 +25,33 @@ export async function GET(request: Request) {
   if (isLocalAuthEnabled()) {
     const session = await getLocalSession();
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
-    return Response.json({ products: listLocalCatalog(session.establishment.id).map(product => ({ id: product.id, name: product.name })), inventoryItems: listLocalInventory(session.establishment.id).filter(item => item.configured).map(item => ({ id: item.id, name: item.name, baseUnit: item.baseUnit })), recipes: listLocalRecipes(session.establishment.id) });
+    return Response.json({
+      products: listLocalCatalog(session.establishment.id).map(product => ({ id: product.id, name: product.name, price: product.price > 0 ? product.price : null })),
+      inventoryItems: listLocalInventory(session.establishment.id).filter(item => item.configured).map(item => ({ id: item.id, name: item.name, baseUnit: item.baseUnit, averageCost: getLocalAverageCostByInventoryItemId(session.establishment.id, item.id) })),
+      recipes: listLocalRecipes(session.establishment.id),
+    });
   }
 
   const actor = await resolveActor();
   if (!actor) return Response.json({ error: "Não autenticado." }, { status: 401 });
   if (!actor.session.canManageRecipes) return Response.json({ error: "Acesso negado às fichas técnicas." }, { status: 403 });
 
-  const [products, inventoryItems, recipes] = await Promise.all([
-    db.product.findMany({ where: { organizationId: actor.session.organization.id, active: true }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+  const [products, inventoryItems, recipes, establishmentItems] = await Promise.all([
+    db.product.findMany({ where: { organizationId: actor.session.organization.id, active: true }, select: { id: true, name: true, variants: { where: { isDefault: true }, take: 1, select: { offerings: { where: { establishmentId: actor.session.establishment.id, active: true }, select: { price: true }, take: 1 } } } }, orderBy: { name: "asc" } }),
     db.inventoryItem.findMany({ where: { organizationId: actor.session.organization.id, active: true, establishments: { some: { establishmentId: actor.session.establishment.id, active: true } } }, select: { id: true, name: true, baseUnit: true }, orderBy: { name: "asc" } }),
     db.recipe.findMany({ where: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, kind: "SALE", active: true }, include: { variant: { include: { product: true } }, components: { include: { inventoryItem: true } } }, orderBy: { name: "asc" } }),
+    db.establishmentInventoryItem.findMany({ where: { establishmentId: actor.session.establishment.id, inventoryItem: { organizationId: actor.session.organization.id, active: true } }, select: { inventoryItemId: true, movements: { where: { type: "ENTRY", unitCost: { not: null } }, select: { quantity: true, unitCost: true } } } }),
   ]);
-  return Response.json({ products, inventoryItems, recipes: recipes.map(recipe => ({ id: recipe.id, productId: recipe.variant?.product.id, productName: recipe.variant?.product.name ?? "Produto removido", name: recipe.name, yieldQuantity: Number(recipe.yieldQuantity), components: recipe.components.map(component => ({ inventoryItemId: component.inventoryItemId, inventoryItemName: component.inventoryItem.name, baseUnit: component.inventoryItem.baseUnit, quantity: Number(component.quantity), wastePercent: Number(component.wastePercent) })) })) });
+  const averageCostByInventoryItemId = new Map<string, number | null>();
+  for (const establishmentItem of establishmentItems) {
+    const entries = establishmentItem.movements.map(movement => ({ quantity: Number(movement.quantity), unitCost: Number(movement.unitCost) }));
+    averageCostByInventoryItemId.set(establishmentItem.inventoryItemId, weightedAverageCost(entries));
+  }
+  return Response.json({
+    products: products.map(product => ({ id: product.id, name: product.name, price: product.variants[0]?.offerings[0] ? Number(product.variants[0].offerings[0].price) : null })),
+    inventoryItems: inventoryItems.map(item => ({ id: item.id, name: item.name, baseUnit: item.baseUnit, averageCost: averageCostByInventoryItemId.get(item.id) ?? null })),
+    recipes: recipes.map(recipe => ({ id: recipe.id, productId: recipe.variant?.product.id, productName: recipe.variant?.product.name ?? "Produto removido", name: recipe.name, yieldQuantity: Number(recipe.yieldQuantity), components: recipe.components.map(component => ({ inventoryItemId: component.inventoryItemId, inventoryItemName: component.inventoryItem.name, baseUnit: component.inventoryItem.baseUnit, quantity: Number(component.quantity), wastePercent: Number(component.wastePercent) })) })),
+  });
 }
 
 export async function POST(request: Request) {
