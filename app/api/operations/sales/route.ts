@@ -11,6 +11,7 @@ import { recordLocalAudit } from "@/lib/local-audit";
 import { requestAuditMetadata } from "@/lib/audit";
 import { closeLocalTab, getLocalOpenTab } from "@/lib/local-floor";
 import { attachLocalDeliverySale, getLocalDeliveryOrder } from "@/lib/local-delivery";
+import { getLocalDeliveryArea } from "@/lib/local-delivery-areas";
 import { resolveIngredientSelections, type SelectedOptionSnapshot } from "@/lib/ingredient-options";
 
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
@@ -111,7 +112,11 @@ export async function POST(request: Request) {
       for (const payment of payments) registerLocalCashSale(cash.id, payment.method as LocalPaymentMethod, payment.amount);
       if (result.sale) {
         settleLocalSale(result.sale.id, { cashSessionId: cash.id, payments: payments.map(payment => ({ method: payment.method as LocalPaymentMethod, amount: payment.amount })), total, refunded: 0 });
-        recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "SALE_COMPLETE", entityType: "Sale", entityId: result.sale.id, reason: localTab ? `Fechamento da mesa ${localTab.table.number}` : localDelivery ? `Pedido de delivery para ${localDelivery.customerName}` : "Venda direta no PDV", after: { channel: data.channel, table: localTab?.table.number, tabId: localTab?.tab.id, deliveryOrderId: localDelivery?.id, payments, discount: data.discount, discountReason: data.discountReason, items, subtotal, total, cashSessionId: cash.id }, ...requestAuditMetadata(request) });
+        // Área de entrega (ADR 0028) vinculada ao pedido, gravada no evento de auditoria para o
+        // relatório de Vendas por área de entrega (ADR 0036) — pedidos sem área ficam com
+        // `deliveryAreaId: null`, tratados como "Sem área definida" pelo relatório.
+        const deliveryArea = localDelivery?.deliveryAreaId ? getLocalDeliveryArea(session.establishment.id, localDelivery.deliveryAreaId) : null;
+        recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "SALE_COMPLETE", entityType: "Sale", entityId: result.sale.id, reason: localTab ? `Fechamento da mesa ${localTab.table.number}` : localDelivery ? `Pedido de delivery para ${localDelivery.customerName}` : "Venda direta no PDV", after: { channel: data.channel, table: localTab?.table.number, tabId: localTab?.tab.id, deliveryOrderId: localDelivery?.id, deliveryAreaId: localDelivery?.deliveryAreaId ?? null, deliveryAreaName: deliveryArea?.name ?? null, deliveryFee, payments, discount: data.discount, discountReason: data.discountReason, items, subtotal, total, cashSessionId: cash.id }, ...requestAuditMetadata(request) });
         if (data.tabId) {
           const closed = closeLocalTab({ establishmentId: session.establishment.id, tabId: data.tabId, saleId: result.sale.id });
           if (closed !== "TAB_NOT_FOUND") recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "TAB_CLOSE", entityType: "Tab", entityId: closed.tab.id, reason: `Comanda da mesa ${closed.table.number} fechada`, before: { status: "OPEN" }, after: { status: "PAID", saleId: result.sale.id }, ...requestAuditMetadata(request) });

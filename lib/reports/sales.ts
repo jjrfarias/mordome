@@ -23,6 +23,13 @@ export type SaleRecord = {
   // relatório de Vendas por forma de pagamento (ADR 0035) os usa — os demais relatórios ignoram e
   // continuam usando o campo `payment` (string já concatenada, ex. "PIX + CASH") para exibição.
   payments?: { method: string; amount: number }[];
+  // Área de entrega vinculada ao pedido de delivery da venda (ver ADR 0028/0036), e a taxa de
+  // entrega cobrada (já incluída em `total`, mas mantida separada de `subtotal` — que é só produtos
+  // — para o relatório de Vendas por área de entrega). Opcionais porque só esse relatório os usa;
+  // `deliveryAreaId: null`/`deliveryAreaName: null` identifica delivery sem área vinculada.
+  deliveryAreaId?: string | null;
+  deliveryAreaName?: string | null;
+  deliveryFee?: number;
 };
 
 export type SalesByPeriodRow = {

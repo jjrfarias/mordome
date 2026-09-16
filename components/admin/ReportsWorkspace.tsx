@@ -7,6 +7,7 @@ import { SalesByPeriodReport } from "@/components/admin/reports/SalesByPeriodRep
 import { RevenueByDayReport } from "@/components/admin/reports/RevenueByDayReport";
 import { StaffPerformanceReport } from "@/components/admin/reports/StaffPerformanceReport";
 import { PaymentMethodsReport } from "@/components/admin/reports/PaymentMethodsReport";
+import { SalesByDeliveryAreaReport } from "@/components/admin/reports/SalesByDeliveryAreaReport";
 
 // Componente por relatório: adicione uma entrada aqui ao registrar um novo relatório em
 // `lib/reports/registry.ts`. É o único outro ponto que muda ao adicionar um relatório.
@@ -15,6 +16,7 @@ const REPORT_COMPONENTS: Record<string, ComponentType> = {
   "revenue-by-day": RevenueByDayReport,
   "performance-by-staff": StaffPerformanceReport,
   "payment-methods": PaymentMethodsReport,
+  "sales-by-delivery-area": SalesByDeliveryAreaReport,
 };
 
 export function ReportsWorkspace({ permissionKeys }: { permissionKeys: string[] }) {

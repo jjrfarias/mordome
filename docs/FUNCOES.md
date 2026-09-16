@@ -212,6 +212,12 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
   um pagamento (split) contribui em cada forma envolvida. Sem restrição de canal (PDV, Salão e
   Delivery participam igualmente) e sem rateio de reembolso por forma de pagamento. Ordenado por
   valor total recebido decrescente.
+- Relatório **Vendas por área de entrega** (ver ADR 0036): agrupa os pedidos de delivery concluídos
+  (`Sale.channel = DELIVERY`) no período por área de entrega (`DeliveryArea`, ADR 0028) — nome da
+  área, quantidade de pedidos, valor total de produtos (subtotal, sem taxa), total de taxas de
+  entrega cobradas (`Sale.deliveryFee`) e valor total geral (produtos + taxa). Pedidos sem área
+  vinculada aparecem numa linha própria "Sem área definida", nunca descartados. Ordenado por valor
+  total geral decrescente.
 - Todos por `establishmentId` da sessão ativa, com rota GET dedicada
   (`/api/admin/reports/sales-by-period`, `/api/admin/reports/revenue-by-day`,
   `/api/admin/reports/staff-performance`, `/api/admin/reports/payment-methods`), suportando modo

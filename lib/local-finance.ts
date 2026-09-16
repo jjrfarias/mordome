@@ -215,7 +215,7 @@ export function listLocalSalesForReport(organizationId: string, establishmentId:
   const records: SaleRecord[] = [];
   for (const event of completedEvents) {
     if (cancelledIds.has(event.entityId)) continue;
-    const after = event.after as { channel?: string; table?: number; payments?: { method: string; amount?: number }[]; discount?: number; subtotal?: number; total?: number } | undefined;
+    const after = event.after as { channel?: string; table?: number; payments?: { method: string; amount?: number }[]; discount?: number; subtotal?: number; total?: number; deliveryAreaId?: string | null; deliveryAreaName?: string | null; deliveryFee?: number } | undefined;
     const total = after?.total ?? 0;
     const refunded = refundedBySale.get(event.entityId) ?? 0;
     if (total > 0 && refunded >= total) continue;
@@ -240,6 +240,12 @@ export function listLocalSalesForReport(organizationId: string, establishmentId:
       // reaproveitados sem nenhuma estrutura nova para o relatório de Vendas por forma de pagamento
       // (ADR 0035).
       payments: after?.payments?.map(payment => ({ method: payment.method, amount: payment.amount ?? 0 })) ?? [],
+      // Área de entrega (ADR 0028) e taxa cobrada, gravadas no evento SALE_COMPLETE
+      // (`app/api/operations/sales/route.ts`) apenas para vendas de delivery — reaproveitadas sem
+      // nenhuma estrutura nova pelo relatório de Vendas por área de entrega (ADR 0036).
+      deliveryAreaId: after?.deliveryAreaId ?? null,
+      deliveryAreaName: after?.deliveryAreaName ?? null,
+      deliveryFee: after?.deliveryFee ?? 0,
     });
   }
   return records;
