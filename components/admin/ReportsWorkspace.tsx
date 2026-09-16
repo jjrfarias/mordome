@@ -5,12 +5,14 @@ import { FileBarChart } from "lucide-react";
 import { listAvailableReports } from "@/lib/reports/registry";
 import { SalesByPeriodReport } from "@/components/admin/reports/SalesByPeriodReport";
 import { RevenueByDayReport } from "@/components/admin/reports/RevenueByDayReport";
+import { StaffPerformanceReport } from "@/components/admin/reports/StaffPerformanceReport";
 
 // Componente por relatório: adicione uma entrada aqui ao registrar um novo relatório em
 // `lib/reports/registry.ts`. É o único outro ponto que muda ao adicionar um relatório.
 const REPORT_COMPONENTS: Record<string, ComponentType> = {
   "sales-by-period": SalesByPeriodReport,
   "revenue-by-day": RevenueByDayReport,
+  "performance-by-staff": StaffPerformanceReport,
 };
 
 export function ReportsWorkspace({ permissionKeys }: { permissionKeys: string[] }) {

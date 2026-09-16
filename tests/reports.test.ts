@@ -2,20 +2,24 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { listAvailableReports, REPORTS_REGISTRY } from "../lib/reports/registry.ts";
 import { buildSalesByPeriodRows, buildRevenueByDayRows, summarizeSalesByPeriod, summarizeRevenueByDay, type SaleRecord } from "../lib/reports/sales.ts";
+import { buildStaffPerformanceRows } from "../lib/reports/staff-performance.ts";
 import { buildExcelBuffer, buildPdfBuffer } from "../lib/reports/export.ts";
 import { listLocalSalesForReport } from "../lib/local-finance.ts";
 import { recordLocalAudit } from "../lib/local-audit.ts";
 
 test("registro de relatorios filtra pelas permissoes da sessao", () => {
-  assert.equal(REPORTS_REGISTRY.length >= 2, true);
+  assert.equal(REPORTS_REGISTRY.length >= 3, true);
   const noAccess = listAvailableReports([]);
   assert.equal(noAccess.length, 0);
 
   const onlySalesByPeriod = listAvailableReports(["reports.sales_by_period.view"]);
   assert.deepEqual(onlySalesByPeriod.map(report => report.id), ["sales-by-period"]);
 
-  const both = listAvailableReports(["reports.sales_by_period.view", "reports.revenue_by_day.view", "outra.permissao"]);
-  assert.deepEqual(both.map(report => report.id).sort(), ["revenue-by-day", "sales-by-period"]);
+  const onlyStaffPerformance = listAvailableReports(["reports.performance_by_staff.view"]);
+  assert.deepEqual(onlyStaffPerformance.map(report => report.id), ["performance-by-staff"]);
+
+  const all = listAvailableReports(["reports.sales_by_period.view", "reports.revenue_by_day.view", "reports.performance_by_staff.view", "outra.permissao"]);
+  assert.deepEqual(all.map(report => report.id).sort(), ["performance-by-staff", "revenue-by-day", "sales-by-period"]);
 });
 
 const sales: SaleRecord[] = [
@@ -81,6 +85,72 @@ test("relatorios locais isolam vendas por estabelecimento e excluem canceladas/t
   const salesB = listLocalSalesForReport(orgId, storeB, from, to);
   assert.equal(salesB.length, 1);
   assert.equal(salesB[0]?.id, "sale-b1");
+});
+
+const staffSales: SaleRecord[] = [
+  { id: "st1", completedAt: "2026-09-01T10:00:00.000Z", channel: "POS", table: null, payment: "Dinheiro", subtotal: 100, discount: 0, total: 100, refunded: 0, operatorId: "u-ana", operatorName: "Ana" },
+  { id: "st2", completedAt: "2026-09-01T11:00:00.000Z", channel: "POS", table: null, payment: "Dinheiro", subtotal: 50, discount: 0, total: 50, refunded: 10, operatorId: "u-ana", operatorName: "Ana" },
+  { id: "st3", completedAt: "2026-09-01T12:00:00.000Z", channel: "POS", table: null, payment: "Pix", subtotal: 300, discount: 0, total: 300, refunded: 0, operatorId: "u-bruno", operatorName: "Bruno" },
+  { id: "st4", completedAt: "2026-09-01T13:00:00.000Z", channel: "FLOOR", table: 1, payment: "Cartão", subtotal: 200, discount: 0, total: 200, refunded: 0, operatorId: "u-ana", operatorName: "Ana" },
+  { id: "st5", completedAt: "2026-09-01T14:00:00.000Z", channel: "DELIVERY", table: null, payment: "Pix", subtotal: 999, discount: 0, total: 999, refunded: 0, operatorId: "u-ana", operatorName: "Ana" },
+];
+
+test("desempenho por pessoa: ranking por valor liquido, separado por papel (POS x FLOOR), ignora delivery", () => {
+  const rows = buildStaffPerformanceRows(staffSales);
+
+  // Ana aparece nas duas seções (PDV e Salão), com números independentes.
+  const anaAttendant = rows.find(row => row.operatorId === "u-ana" && row.role === "ATTENDANT");
+  const anaWaiter = rows.find(row => row.operatorId === "u-ana" && row.role === "WAITER");
+  assert.ok(anaAttendant);
+  assert.ok(anaWaiter);
+  assert.equal(anaAttendant?.salesCount, 2);
+  assert.equal(anaAttendant?.totalNet, 100 + (50 - 10)); // 140
+  assert.equal(anaAttendant?.averageTicket, 140 / 2);
+  assert.equal(anaWaiter?.salesCount, 1);
+  assert.equal(anaWaiter?.totalNet, 200);
+
+  const brunoAttendant = rows.find(row => row.operatorId === "u-bruno");
+  assert.equal(brunoAttendant?.totalNet, 300);
+
+  // Bruno vendeu mais que Ana no PDV: ranking decrescente por valor liquido dentro de "todas as linhas".
+  const attendantRows = rows.filter(row => row.role === "ATTENDANT");
+  assert.deepEqual(attendantRows.map(row => row.operatorId), ["u-bruno", "u-ana"]);
+
+  // Delivery não gera nenhuma linha (nenhum papel de atendente/garçom associado).
+  assert.equal(rows.some(row => row.operatorId === "u-ana" && row.salesCount === 3), false);
+});
+
+test("desempenho por pessoa: pessoa sem venda no periodo nao aparece", () => {
+  const rows = buildStaffPerformanceRows([]);
+  assert.equal(rows.length, 0);
+});
+
+test("relatorios locais propagam o operador da venda (mesmo criterio de Sale.operatorId) para o desempenho por pessoa", () => {
+  const orgId = `org-${crypto.randomUUID()}`;
+  const storeA = `store-${crypto.randomUUID()}`;
+  const storeB = `store-${crypto.randomUUID()}`;
+  const from = "2026-09-01T00:00:00.000Z";
+  const to = "2026-09-30T23:59:59.999Z";
+
+  recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-op-1", after: { channel: "POS", subtotal: 100, discount: 0, total: 100, payments: [{ method: "CASH" }] } });
+  recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-carlos", actorName: "Carlos", actorUsername: "carlos", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-op-2", after: { channel: "FLOOR", subtotal: 80, discount: 0, total: 80, payments: [{ method: "PIX" }] } });
+  recordLocalAudit({ organizationId: orgId, establishmentId: storeB, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-op-3", after: { channel: "POS", subtotal: 999, discount: 0, total: 999, payments: [{ method: "CASH" }] } });
+
+  const salesA = listLocalSalesForReport(orgId, storeA, from, to);
+  assert.equal(salesA.length, 2);
+  assert.equal(salesA.find(sale => sale.id === "sale-op-1")?.operatorId, "user-ana");
+  assert.equal(salesA.find(sale => sale.id === "sale-op-1")?.operatorName, "Ana");
+  assert.equal(salesA.find(sale => sale.id === "sale-op-2")?.operatorId, "user-carlos");
+
+  const rowsA = buildStaffPerformanceRows(salesA);
+  assert.equal(rowsA.length, 2);
+  assert.equal(rowsA.some(row => row.operatorId === "user-ana" && row.role === "ATTENDANT"), true);
+  assert.equal(rowsA.some(row => row.operatorId === "user-carlos" && row.role === "WAITER"), true);
+
+  // Isolamento por estabelecimento: a venda de Ana na loja B não entra no ranking da loja A.
+  const salesB = listLocalSalesForReport(orgId, storeB, from, to);
+  assert.equal(salesB.length, 1);
+  assert.equal(salesB[0]?.operatorId, "user-ana");
 });
 
 test("exportacao Excel e PDF nao lanca erro com dados validos ou vazios", async () => {

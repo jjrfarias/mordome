@@ -14,6 +14,11 @@ export type SaleRecord = {
   discount: number;
   total: number; // valor líquido antes de reembolsos (subtotal - discount, incluindo serviço/entrega)
   refunded: number;
+  // Operador que fechou a venda (mesmo critério de `Sale.operatorId` usado pelos Acertos, ADR 0018).
+  // Opcionais porque só o relatório de Desempenho por atendente/garçom (ADR 0034) os usa — os
+  // relatórios de Vendas por período/Faturamento por dia (ADR 0033) simplesmente os ignoram.
+  operatorId?: string | null;
+  operatorName?: string | null;
 };
 
 export type SalesByPeriodRow = {

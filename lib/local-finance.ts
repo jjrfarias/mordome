@@ -229,6 +229,12 @@ export function listLocalSalesForReport(organizationId: string, establishmentId:
       discount: after?.discount ?? 0,
       total,
       refunded,
+      // O ator que registrou o evento SALE_COMPLETE é sempre quem processou o pagamento/fechamento
+      // da venda (mesmo `operatorId` gravado em `Sale` no modo servidor, ver
+      // `app/api/operations/sales/route.ts`) — não existe um "banco" de vendas locais separado do
+      // log de auditoria (ADR 0033), então reaproveitamos actorId/actorName daqui (ADR 0034).
+      operatorId: event.actorId,
+      operatorName: event.actorName,
     });
   }
   return records;

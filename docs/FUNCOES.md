@@ -199,12 +199,19 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
   com resumo de total de vendas, valor total e ticket médio.
 - Relatório **Faturamento por dia**: agrega as vendas do período por dia (quantidade, bruto,
   descontos, líquido), em ordem cronológica, com total geral.
-- Ambos por `establishmentId` da sessão ativa, com rota GET dedicada
-  (`/api/admin/reports/sales-by-period`, `/api/admin/reports/revenue-by-day`), suportando modo
-  Prisma (produção) e modo local (`lib/local-finance.ts`, a partir do log de auditoria).
-- Fora desta fatia (ficam para o futuro, reaproveitando o mesmo framework): cupons gerados,
-  desempenho por atendente/garçom, DRE, itens consumidos/vendidos, tempo de produção/status, vendas
-  por área de entrega/forma de pagamento.
+- Relatório **Desempenho por atendente/garçom** (ver ADR 0034): ranking de vendas por pessoa no
+  período (quantidade, valor líquido total, ticket médio), em duas seções — Atendentes (canal PDV) e
+  Garçons (canal Salão), já que a mesma pessoa pode operar os dois. Ordenado por valor líquido total
+  vendido, decrescente. Pessoa sem vendas no período não aparece. Usa o mesmo critério de
+  `Sale.operatorId` já usado por Acertos (ADR 0018) para identificar o operador, mas é **apenas uma
+  visão de desempenho — não calcula comissão** (isso continua sendo só em Financeiro → Acertos).
+- Todos por `establishmentId` da sessão ativa, com rota GET dedicada
+  (`/api/admin/reports/sales-by-period`, `/api/admin/reports/revenue-by-day`,
+  `/api/admin/reports/staff-performance`), suportando modo Prisma (produção) e modo local
+  (`lib/local-finance.ts`, a partir do log de auditoria).
+- Fora desta fatia (ficam para o futuro, reaproveitando o mesmo framework): cupons gerados, DRE,
+  itens consumidos/vendidos, tempo de produção/status, vendas por área de entrega/forma de
+  pagamento.
 
 ## Histórico e auditoria — primeira fatia implementada
 
