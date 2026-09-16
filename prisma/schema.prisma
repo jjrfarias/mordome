@@ -540,6 +540,7 @@ model DeliveryOrderItem {
   productName     String
   quantity        Int
   unitPrice       Decimal       @db.Decimal(12, 2)
+  selectedOptionsSnapshot Json?
   deliveryOrder   DeliveryOrder @relation(fields: [deliveryOrderId], references: [id], onDelete: Cascade)
 }
 

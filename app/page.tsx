@@ -3,7 +3,8 @@
 import { useEffect, useState } from "react";
 import Image from "next/image";
 import { BarChart3, Bell, Bike, Check, ChefHat, ChevronDown, CircleDollarSign, FileClock, LayoutGrid, LogOut, Minus, Navigation, Plus, Printer, Search, Settings, ShoppingBag, Sparkles, UtensilsCrossed, X } from "lucide-react";
-import { money, IngredientGroup, OrderItem, products, SelectedIngredientOption } from "@/lib/domain";
+import { money, OrderItem, products, SelectedIngredientOption } from "@/lib/domain";
+import { IngredientPicker, productHasIngredientChoices } from "@/components/operations/IngredientPicker";
 import { Brand, MetricCard, NavItem } from "@/components/ui";
 import { SettingsWorkspace } from "@/components/admin/SettingsWorkspace";
 import { DeliveryManagement } from "@/components/operations/DeliveryManagement";
@@ -166,8 +167,7 @@ function Pos({ establishmentId, onFinish }: { establishmentId: string; onFinish:
   const addPlain = (product: typeof products[number]) => setCart(current => { const found = current.find(item => item.id === product.id && !item.selectedOptions?.length); return found ? current.map(item => item === found ? { ...item, quantity: item.quantity + 1 } : item) : [...current, { ...product, quantity: 1, cartLineId: crypto.randomUUID() }]; });
   const addWithOptions = (product: typeof products[number], unitPrice: number, selectedOptions: SelectedIngredientOption[], optionSelections: { groupId: string; optionIds: string[] }[]) => setCart(current => [...current, { ...product, price: unitPrice, quantity: 1, cartLineId: crypto.randomUUID(), selectedOptions, optionSelections }]);
   const add = (product: typeof products[number]) => {
-    const groups = (product.ingredientGroups ?? []).filter(group => group.active && group.options.some(option => option.active));
-    if (groups.length > 0) { setPickerProduct(product); return; }
+    if (productHasIngredientChoices(product)) { setPickerProduct(product); return; }
     addPlain(product);
   };
   const change = (cartLineId: string, delta: number) => setCart(current => current.map(item => item.cartLineId === cartLineId ? { ...item, quantity: item.quantity + delta } : item).filter(item => item.quantity > 0));
@@ -178,54 +178,6 @@ function Pos({ establishmentId, onFinish }: { establishmentId: string; onFinish:
     <aside className="pos-cart"><div className="pos-cart-head"><div><span>VENDA ATUAL</span><h2>{cart.reduce((sum, item) => sum + item.quantity, 0)} itens</h2></div>{cart.length > 0 && <button onClick={() => setCart([])}>Limpar</button>}</div><div className="pos-cart-items">{cart.length === 0 ? <div className="empty"><ShoppingBag/><b>Nenhum produto</b><span>Toque em um produto para começar a venda.</span></div> : cart.map(item => <div className="pos-cart-row" key={item.cartLineId}><span className="food">{item.emoji}</span><div><b>{item.name}</b>{item.selectedOptions?.length ? <small className="pos-cart-options">{item.selectedOptions.map(option => option.optionName).join(", ")}</small> : null}<small>{money(item.price * item.quantity)}</small></div><div className="stepper"><button onClick={() => change(item.cartLineId!, -1)}><Minus/></button><b>{item.quantity}</b><button onClick={() => change(item.cartLineId!, 1)}><Plus/></button></div></div>)}</div><div className="pos-payment"><PaymentComposer grossTotal={total} discount={discount} setDiscount={setDiscount} discountReason={discountReason} setDiscountReason={setDiscountReason} payments={payments} setPayments={setPayments}/><button className="primary wide" disabled={!cart.length || finishing} onClick={async () => { setFinishing(true); const completed = await onFinish(cart, serializeCheckout(payments, discount, discountReason, total)); setFinishing(false); if (completed) { setCart([]); setDiscount(""); setDiscountReason(""); setPayments([{ method: "Pix", amount: "", receivedAmount: "" }]); } }}><CircleDollarSign/> {finishing ? "Finalizando…" : "Finalizar venda"}</button><small className="shortcut-hint">Atalho: pressione <kbd>F8</kbd> para finalizar</small></div></aside>
     {pickerProduct && <IngredientPicker product={pickerProduct} onClose={() => setPickerProduct(null)} onConfirm={(unitPrice, selectedOptions, optionSelections) => { addWithOptions(pickerProduct, unitPrice, selectedOptions, optionSelections); setPickerProduct(null); }} />}
   </div>;
-}
-
-function IngredientPicker({ product, onClose, onConfirm }: { product: typeof products[number]; onClose: () => void; onConfirm: (unitPrice: number, selectedOptions: SelectedIngredientOption[], optionSelections: { groupId: string; optionIds: string[] }[]) => void }) {
-  const groups = (product.ingredientGroups ?? []).filter((group: IngredientGroup) => group.active && group.options.some(option => option.active));
-  const [choices, setChoices] = useState<Record<string, string[]>>({});
-  const [error, setError] = useState("");
-
-  const toggleOption = (group: IngredientGroup, optionId: string) => setChoices(current => {
-    const chosen = current[group.id] ?? [];
-    if (group.maxSelections === 1) return { ...current, [group.id]: chosen.includes(optionId) ? [] : [optionId] };
-    if (chosen.includes(optionId)) return { ...current, [group.id]: chosen.filter(id => id !== optionId) };
-    if (chosen.length >= group.maxSelections) return current;
-    return { ...current, [group.id]: [...chosen, optionId] };
-  });
-
-  const priceDelta = groups.reduce((sum, group) => sum + (choices[group.id] ?? []).reduce((groupSum, optionId) => groupSum + (group.options.find(option => option.id === optionId)?.priceDelta ?? 0), 0), 0);
-  const unitPrice = product.price + priceDelta;
-
-  const confirm = () => {
-    for (const group of groups) {
-      const chosen = choices[group.id] ?? [];
-      if (chosen.length < group.minSelections) { setError(`Selecione ao menos ${group.minSelections} opção(ões) em "${group.name}".`); return; }
-      if (chosen.length > group.maxSelections) { setError(`Selecione no máximo ${group.maxSelections} opção(ões) em "${group.name}".`); return; }
-    }
-    const selectedOptions: SelectedIngredientOption[] = groups.flatMap(group => (choices[group.id] ?? []).map(optionId => { const option = group.options.find(candidate => candidate.id === optionId)!; return { groupName: group.name, optionName: option.name, priceDelta: option.priceDelta }; }));
-    const optionSelections = groups.filter(group => (choices[group.id] ?? []).length > 0).map(group => ({ groupId: group.id, optionIds: choices[group.id] ?? [] }));
-    onConfirm(unitPrice, selectedOptions, optionSelections);
-  };
-
-  return <div className="modal-bg"><div className="modal ingredient-picker-modal">
-    <button className="modal-close" onClick={onClose}><X/></button>
-    <span className="modal-icon"><Plus/></span>
-    <h2>{product.name}</h2>
-    <p>Personalize o pedido antes de adicionar ao carrinho.</p>
-    {groups.map(group => <div className="ingredient-picker-group" key={group.id}>
-      <div className="ingredient-picker-group-head"><strong>{group.name}</strong><span>{group.minSelections > 0 ? `Obrigatório · até ${group.maxSelections}` : `Opcional · até ${group.maxSelections}`}</span></div>
-      <div className="ingredient-picker-options">
-        {group.options.filter(option => option.active).map(option => { const selected = (choices[group.id] ?? []).includes(option.id); return <label className={`ingredient-picker-option ${selected ? "selected" : ""}`} key={option.id}>
-          <input type={group.maxSelections === 1 ? "radio" : "checkbox"} name={group.id} checked={selected} onChange={() => toggleOption(group, option.id)} />
-          <span className="ingredient-picker-option-name">{option.name}</span>
-          {option.priceDelta > 0 && <span className="ingredient-picker-option-price">+{money(option.priceDelta)}</span>}
-        </label>; })}
-      </div>
-    </div>)}
-    {error && <p className="ingredient-picker-error">{error}</p>}
-    <div className="ingredient-picker-summary"><span>Preço com escolhas</span><strong>{money(unitPrice)}</strong></div>
-    <button className="primary wide" onClick={confirm}><Plus/> Adicionar ao carrinho</button>
-  </div></div>;
 }
 
 type SummarySale = { id: string; channel: string; table: number | null; payment: string; total: number; refunded?: number; status?: string; completedAt: string; items: { productName: string; quantity: number; unitPrice: number }[] };

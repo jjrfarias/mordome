@@ -76,8 +76,9 @@ export async function POST(request: Request) {
     if (data.deliveryOrderId && (!localDelivery || data.channel !== "DELIVERY" || localDelivery.saleId)) return Response.json({ error: "Pedido de delivery não encontrado ou já pago." }, { status: 409 });
     const localItems = localTab ? localTab.tab.items.filter(item => item.active && item.quantity > 0).map(item => ({ productId: item.productId, quantity: item.quantity })) : localDelivery ? localDelivery.items.map(item => ({ productId: item.productId, quantity: item.quantity })) : data.items;
     if (!localItems.length) return Response.json({ error: localDelivery ? "O pedido de delivery está vazio." : "A comanda está vazia." }, { status: 409 });
-    // Grupos de ingrediente só são resolvidos na venda direta do PDV nesta fatia (ver ADR 0022) —
-    // Salão e Delivery ainda não coletam a escolha, então itens vindos de lá seguem sem opções.
+    // Grupos de ingrediente são resolvidos no momento da venda direta do PDV (ver ADR 0022).
+    // Salão e Delivery já resolveram a escolha quando o item foi adicionado à comanda/pedido —
+    // o retrato (selectedOptionsSnapshot) já vem travado no item local, propagado abaixo.
     const directCatalogForOptions = !localTab && !localDelivery ? listLocalCatalog(session.establishment.id) : null;
     const directResolved: { unitPrice: number; snapshot: SelectedOptionSnapshot[] }[] = [];
     if (directCatalogForOptions) {
@@ -96,7 +97,7 @@ export async function POST(request: Request) {
     if (result.status === "NOT_CONFIGURED") return Response.json({ error: "A ficha usa um item não configurado nesta unidade." }, { status: 409 });
     if (result.status !== "DUPLICATE") {
       const catalog = listLocalCatalog(session.establishment.id);
-      const items = localTab ? localTab.tab.items.filter(item => item.active && item.quantity > 0).map(item => ({ productId: item.productId, quantity: item.quantity, productName: item.productName, unitPrice: item.unitPrice })) : localDelivery ? localDelivery.items.map(item => ({ productId: item.productId, quantity: item.quantity, productName: item.productName, unitPrice: item.unitPrice })) : localItems.map((item, index) => ({ productId: item.productId, quantity: item.quantity, productName: catalog.find(product => product.id === item.productId)?.name ?? "Produto", unitPrice: directResolved[index]?.unitPrice ?? catalog.find(product => product.id === item.productId)?.price ?? 0, selectedOptionsSnapshot: directResolved[index]?.snapshot }));
+      const items = localTab ? localTab.tab.items.filter(item => item.active && item.quantity > 0).map(item => ({ productId: item.productId, quantity: item.quantity, productName: item.productName, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot })) : localDelivery ? localDelivery.items.map(item => ({ productId: item.productId, quantity: item.quantity, productName: item.productName, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot })) : localItems.map((item, index) => ({ productId: item.productId, quantity: item.quantity, productName: catalog.find(product => product.id === item.productId)?.name ?? "Produto", unitPrice: directResolved[index]?.unitPrice ?? catalog.find(product => product.id === item.productId)?.price ?? 0, selectedOptionsSnapshot: directResolved[index]?.snapshot }));
       const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
       const grossTotal = roundMoney(subtotal * (data.channel === "FLOOR" ? 1.1 : 1));
       if (data.discount > 0 && !session.canApplyDiscount) return Response.json({ error: "Você não tem permissão para aplicar descontos." }, { status: 403 });
@@ -145,10 +146,11 @@ export async function POST(request: Request) {
       if (tab?.items.some(item => Number(item.quantity) > Number(item.sentQuantity))) throw new Error("UNSENT_ITEMS");
       const deliveryOrder = data.deliveryOrderId ? await tx.deliveryOrder.findFirst({ where: { id: data.deliveryOrderId, establishmentId: actor.session.establishment.id, saleId: null }, include: { items: true } }) : null;
       if (data.deliveryOrderId && (!deliveryOrder || data.channel !== "DELIVERY")) throw new Error("DELIVERY_NOT_FOUND");
-      // Grupos de ingrediente só são resolvidos na venda direta do PDV nesta fatia (ver ADR 0022) —
-      // Salão e Delivery herdam o preço já travado no item (TabItem/DeliveryOrderItem), sem opções.
+      // Grupos de ingrediente são resolvidos no momento da venda direta do PDV (ver ADR 0022).
+      // Salão e Delivery já resolveram a escolha quando o item foi adicionado à comanda/pedido —
+      // aqui só propagamos o preço e o retrato (selectedOptionsSnapshot) já travados no TabItem/DeliveryOrderItem.
       const applyIngredientOptions = !tab && !deliveryOrder;
-      const requestedItems: { productId: string; quantity: number; lockedUnitPrice?: number; selectedOptions?: { groupId: string; optionIds: string[] }[] }[] = tab ? tab.items.map(item => ({ productId: item.productId ?? "", quantity: Number(item.quantity), lockedUnitPrice: Number(item.unitPrice) })) : deliveryOrder ? deliveryOrder.items.map(item => ({ productId: item.productId ?? "", quantity: item.quantity, lockedUnitPrice: Number(item.unitPrice) })) : data.items;
+      const requestedItems: { productId: string; quantity: number; lockedUnitPrice?: number; lockedSelectedOptionsSnapshot?: unknown; selectedOptions?: { groupId: string; optionIds: string[] }[] }[] = tab ? tab.items.map(item => ({ productId: item.productId ?? "", quantity: Number(item.quantity), lockedUnitPrice: Number(item.unitPrice), lockedSelectedOptionsSnapshot: item.selectedOptionsSnapshot })) : deliveryOrder ? deliveryOrder.items.map(item => ({ productId: item.productId ?? "", quantity: item.quantity, lockedUnitPrice: Number(item.unitPrice), lockedSelectedOptionsSnapshot: item.selectedOptionsSnapshot })) : data.items;
       if (!requestedItems.length || requestedItems.some(item => !item.productId)) throw new Error(deliveryOrder ? "DELIVERY_EMPTY" : "TAB_EMPTY");
       const saleItems: { productId: string; productName: string; quantity: number; unitPrice: number; total: number; recipeSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull; selectedOptionsSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull }[] = [];
       const aggregated = new Map<string, { quantity: number; allowNegative: boolean; movements: { quantity: Prisma.Decimal; unitCost: Prisma.Decimal | null }[] }>();
@@ -167,6 +169,8 @@ export async function POST(request: Request) {
           if ("error" in resolved) throw new IngredientOptionError(resolved.error);
           ingredientPriceDelta = resolved.priceDelta;
           if (resolved.snapshot.length) selectedOptionsSnapshot = resolved.snapshot;
+        } else if (Array.isArray(requested.lockedSelectedOptionsSnapshot) && requested.lockedSelectedOptionsSnapshot.length) {
+          selectedOptionsSnapshot = requested.lockedSelectedOptionsSnapshot as Prisma.InputJsonValue;
         }
         const recipe = variant.recipes[0];
         const snapshotComponents: { inventoryItemId: string; name: string; baseUnit: string; quantity: number; wastePercent: number }[] = [];

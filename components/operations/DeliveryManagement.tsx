@@ -1,17 +1,18 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Bike, CircleDollarSign, MapPin, Package, Phone, Plus, Truck, X } from "lucide-react";
-import { money } from "@/lib/domain";
+import { Bike, CircleDollarSign, MapPin, Minus, Package, Phone, Plus, Truck, X } from "lucide-react";
+import { money, IngredientGroup, SelectedIngredientOption } from "@/lib/domain";
 import { PaymentComposer, serializeCheckout, type SaleCheckout } from "./PaymentComposer";
 import { DeliveryMap } from "./DeliveryMap";
 import { MapPicker } from "./MapPicker";
+import { IngredientPicker, productHasIngredientChoices } from "./IngredientPicker";
 
 type DeliveryStatus = "RECEIVED" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
-type Product = { id: string; name: string; category: string; price: number };
+type Product = { id: string; name: string; category: string; price: number; ingredientGroups?: IngredientGroup[] };
 type Courier = { id: string; name: string };
 type CourierLocation = { courierId: string; lat: number; lng: number; updatedAt: string };
-type OrderItem = { id: string; productId: string | null; productName: string; quantity: number; unitPrice: number };
+type OrderItem = { id: string; productId: string | null; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedIngredientOption[] | null };
 type Order = { id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: DeliveryStatus; origin: "INTERNAL" | "ONLINE"; courierId: string | null; saleId: string | null; createdAt: string; items: OrderItem[] };
 
 const statusLabels: Record<DeliveryStatus, string> = { RECEIVED: "Recebido", PREPARING: "Em preparo", OUT_FOR_DELIVERY: "Saiu para entrega", DELIVERED: "Entregue", CANCELLED: "Cancelado" };
@@ -74,7 +75,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
           <div className="kds-head"><div><span>{statusLabels[order.status]}{order.origin === "ONLINE" ? " · Pedido online" : ""}</span><b>{order.customerName}</b></div><span><Phone />{order.customerPhone}</span></div>
           <div className="kds-items">
             <div style={{ marginBottom: 10, fontSize: 11, color: "var(--muted)", display: "flex", gap: 6, alignItems: "flex-start" }}><MapPin style={{ width: 14, flex: "0 0 auto", marginTop: 1 }} />{order.address}</div>
-            {order.items.map(item => <div key={item.id}><span>{item.quantity}x</span><span>{item.productName}</span></div>)}
+            {order.items.map(item => <div key={item.id}><span>{item.quantity}x</span><span>{item.productName}{item.selectedOptionsSnapshot?.length ? <small className="kds-item-options">{item.selectedOptionsSnapshot.map(option => option.optionName).join(", ")}</small> : null}</span></div>)}
             <label className="field" style={{ marginTop: 10 }}><span>Entregador</span><select value={order.courierId ?? ""} disabled={saving} onChange={event => void act({ action: "ASSIGN_COURIER", orderId: order.id, courierId: event.target.value || null })}>
               <option value="">Sem entregador definido</option>
               {couriers.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
@@ -95,16 +96,27 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
   </div>;
 }
 
-function NewOrderModal({ products, saving, onClose, onCreate }: { products: Product[]; saving: boolean; onClose: () => void; onCreate: (payload: { customerName: string; customerPhone: string; address: string; destinationLat?: number; destinationLng?: number; notes?: string; items: { productId: string; quantity: number }[] }) => Promise<boolean> }) {
+type NewOrderLine = { lineId: string; productId: string; productName: string; unitPrice: number; quantity: number; selectedOptions: SelectedIngredientOption[]; optionSelections: { groupId: string; optionIds: string[] }[] };
+
+function NewOrderModal({ products, saving, onClose, onCreate }: { products: Product[]; saving: boolean; onClose: () => void; onCreate: (payload: { customerName: string; customerPhone: string; address: string; destinationLat?: number; destinationLng?: number; notes?: string; items: { productId: string; quantity: number; selectedOptions?: { groupId: string; optionIds: string[] }[] }[] }) => Promise<boolean> }) {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [address, setAddress] = useState("");
   const [notes, setNotes] = useState("");
   const [point, setPoint] = useState<{ lat: number; lng: number } | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
+  const [lines, setLines] = useState<NewOrderLine[]>([]);
+  const [pickerProduct, setPickerProduct] = useState<Product | null>(null);
   const categories = [...new Set(products.map(product => product.category))];
-  const items = Object.entries(quantities).filter(([, quantity]) => quantity > 0).map(([productId, quantity]) => ({ productId, quantity }));
+  const plainItems = Object.entries(quantities).filter(([, quantity]) => quantity > 0).map(([productId, quantity]) => ({ productId, quantity }));
+  const optionItems = lines.map(line => ({ productId: line.productId, quantity: line.quantity, selectedOptions: line.optionSelections }));
+  const items = [...plainItems, ...optionItems];
   const valid = customerName.trim().length > 1 && customerPhone.trim().length > 7 && address.trim().length > 4 && items.length > 0;
+
+  const addLine = (product: Product, unitPrice: number, selectedOptions: SelectedIngredientOption[], optionSelections: { groupId: string; optionIds: string[] }[]) => {
+    setLines(current => [...current, { lineId: crypto.randomUUID(), productId: product.id, productName: product.name, unitPrice, quantity: 1, selectedOptions, optionSelections }]);
+  };
+  const changeLineQuantity = (lineId: string, delta: number) => setLines(current => current.map(line => line.lineId === lineId ? { ...line, quantity: line.quantity + delta } : line).filter(line => line.quantity > 0));
 
   return <div className="modal-bg"><div className="modal" style={{ width: "min(560px,100%)" }}>
     <button className="modal-close" onClick={onClose}><X /></button>
@@ -119,13 +131,28 @@ function NewOrderModal({ products, saving, onClose, onCreate }: { products: Prod
     <div className="permission-groups" style={{ marginTop: 14 }}>
       {categories.map(category => <div key={category} className="permission-group">
         <small>{category}</small>
-        {products.filter(product => product.category === category).map(product => <label key={product.id} className="permission-check" style={{ justifyContent: "space-between" }}>
-          <span>{product.name} <em style={{ fontStyle: "normal", color: "var(--muted)" }}>{money(product.price)}</em></span>
-          <input type="number" min={0} max={99} inputMode="numeric" style={{ width: 52, minHeight: 28, border: "1px solid var(--line)", borderRadius: 6, padding: "2px 6px" }} value={quantities[product.id] ?? 0} onChange={event => setQuantities(current => ({ ...current, [product.id]: Math.max(0, Number(event.target.value) || 0) }))} />
-        </label>)}
+        {products.filter(product => product.category === category).map(product => productHasIngredientChoices(product)
+          ? <button type="button" key={product.id} className="permission-check" style={{ justifyContent: "space-between", cursor: "pointer" }} onClick={() => setPickerProduct(product)}>
+              <span>{product.name} <em style={{ fontStyle: "normal", color: "var(--muted)" }}>{money(product.price)}</em></span>
+              <span style={{ display: "flex", alignItems: "center", gap: 4, fontSize: 9, fontWeight: 800, color: "var(--gold)" }}><Plus style={{ width: 13, height: 13 }} /> Personalizar</span>
+            </button>
+          : <label key={product.id} className="permission-check" style={{ justifyContent: "space-between" }}>
+              <span>{product.name} <em style={{ fontStyle: "normal", color: "var(--muted)" }}>{money(product.price)}</em></span>
+              <input type="number" min={0} max={99} inputMode="numeric" style={{ width: 52, minHeight: 28, border: "1px solid var(--line)", borderRadius: 6, padding: "2px 6px" }} value={quantities[product.id] ?? 0} onChange={event => setQuantities(current => ({ ...current, [product.id]: Math.max(0, Number(event.target.value) || 0) }))} />
+            </label>)}
       </div>)}
     </div>
+    {lines.length > 0 && <div className="permission-groups" style={{ marginTop: 10 }}>
+      <div className="permission-group">
+        <small>Itens personalizados</small>
+        {lines.map(line => <div key={line.lineId} className="permission-check" style={{ justifyContent: "space-between", alignItems: "center" }}>
+          <span><b>{line.productName}</b>{line.selectedOptions.length ? <small className="pos-cart-options">{line.selectedOptions.map(option => option.optionName).join(", ")}</small> : null} <em style={{ fontStyle: "normal", color: "var(--muted)" }}>{money(line.unitPrice)}</em></span>
+          <div className="stepper"><button type="button" onClick={() => changeLineQuantity(line.lineId, -1)}>{line.quantity === 1 ? <X /> : <Minus />}</button><b>{line.quantity}</b><button type="button" onClick={() => changeLineQuantity(line.lineId, 1)}><Plus /></button></div>
+        </div>)}
+      </div>
+    </div>}
     <button className="primary wide" style={{ marginTop: 16 }} disabled={!valid || saving} onClick={() => void onCreate({ customerName: customerName.trim(), customerPhone: customerPhone.trim(), address: address.trim(), destinationLat: point?.lat, destinationLng: point?.lng, notes: notes.trim() || undefined, items })}>{saving ? "Criando…" : "Criar pedido"}</button>
+    {pickerProduct && <IngredientPicker product={pickerProduct} onClose={() => setPickerProduct(null)} onConfirm={(unitPrice, selectedOptions, optionSelections) => { addLine(pickerProduct, unitPrice, selectedOptions, optionSelections); setPickerProduct(null); }} />}
   </div></div>;
 }
 

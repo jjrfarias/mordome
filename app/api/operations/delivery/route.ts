@@ -1,4 +1,4 @@
-import { MembershipStatus, DeliveryStatus } from "@/generated/prisma/client";
+import { MembershipStatus, DeliveryStatus, Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { requestAuditMetadata } from "@/lib/audit";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
@@ -8,7 +8,9 @@ import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
 import { listLocalCatalog } from "@/lib/local-catalog";
 import { recordLocalAudit } from "@/lib/local-audit";
 import { listLocalUsers } from "@/lib/local-access-control";
+import { resolveIngredientSelections, type SelectedOptionSnapshot } from "@/lib/ingredient-options";
 
+const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const createSchema = z.object({
   action: z.literal("CREATE"),
   customerName: z.string().trim().min(2).max(100),
@@ -17,7 +19,7 @@ const createSchema = z.object({
   destinationLat: z.number().finite().min(-90).max(90).optional(),
   destinationLng: z.number().finite().min(-180).max(180).optional(),
   notes: z.string().trim().max(300).optional(),
-  items: z.array(z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(99) })).min(1),
+  items: z.array(z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(99), selectedOptions: z.array(optionSelectionSchema).max(10).optional() })).min(1),
 });
 const statusSchema = z.object({ action: z.literal("CHANGE_STATUS"), orderId: z.string().min(1), status: z.enum(DeliveryStatus) });
 const courierSchema = z.object({ action: z.literal("ASSIGN_COURIER"), orderId: z.string().min(1), courierId: z.string().min(1).nullable() });
@@ -33,8 +35,8 @@ async function resolveActor() {
   return membership ? session : null;
 }
 
-function serializeOrder(order: { id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: string; origin: string; courierId: string | null; saleId: string | null; createdAt: Date | string; items: { id: string; productId: string | null; productName: string; quantity: number; unitPrice: unknown }[] }) {
-  return { id: order.id, customerName: order.customerName, customerPhone: order.customerPhone, address: order.address, destinationLat: order.destinationLat, destinationLng: order.destinationLng, notes: order.notes, status: order.status, origin: order.origin, courierId: order.courierId, saleId: order.saleId, createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : order.createdAt, items: order.items.map(item => ({ id: item.id, productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice) })) };
+function serializeOrder(order: { id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: string; origin: string; courierId: string | null; saleId: string | null; createdAt: Date | string; items: { id: string; productId: string | null; productName: string; quantity: number; unitPrice: unknown; selectedOptionsSnapshot?: unknown }[] }) {
+  return { id: order.id, customerName: order.customerName, customerPhone: order.customerPhone, address: order.address, destinationLat: order.destinationLat, destinationLng: order.destinationLng, notes: order.notes, status: order.status, origin: order.origin, courierId: order.courierId, saleId: order.saleId, createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : order.createdAt, items: order.items.map(item => ({ id: item.id, productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice), selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? null })) };
 }
 
 export async function GET(request: Request) {
@@ -43,7 +45,7 @@ export async function GET(request: Request) {
     const session = await getLocalSession();
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
     if (!session.canOperateDelivery) return Response.json({ error: "Acesso negado ao delivery." }, { status: 403 });
-    const products = listLocalCatalog(session.establishment.id).filter(product => product.active && product.channels.includes("DELIVERY")).map(product => ({ id: product.id, name: product.name, category: product.category, price: product.price }));
+    const products = listLocalCatalog(session.establishment.id).filter(product => product.active && product.channels.includes("DELIVERY")).map(product => ({ id: product.id, name: product.name, category: product.category, price: product.price, ingredientGroups: product.ingredientGroups }));
     const orders = listLocalDeliveryOrders(session.establishment.id);
     const activeCourierIds = [...new Set(orders.filter(order => order.status === "OUT_FOR_DELIVERY" && order.courierId).map(order => order.courierId as string))];
     const couriers = listLocalUsers().filter(user => user.userActive && user.establishmentIds.includes(session.establishment.id)).map(user => ({ id: user.userId, name: user.name }));
@@ -55,10 +57,10 @@ export async function GET(request: Request) {
 
   const [orders, offerings, accesses] = await Promise.all([
     db.deliveryOrder.findMany({ where: { establishmentId: actor.establishment.id }, include: { items: true }, orderBy: { createdAt: "desc" }, take: 100 }),
-    db.productOffering.findMany({ where: { establishmentId: actor.establishment.id, channel: "DELIVERY", active: true, variant: { active: true, product: { organizationId: actor.organization.id, active: true } } }, include: { variant: { include: { product: { include: { category: true } } } } } }),
+    db.productOffering.findMany({ where: { establishmentId: actor.establishment.id, channel: "DELIVERY", active: true, variant: { active: true, product: { organizationId: actor.organization.id, active: true } } }, include: { variant: { include: { product: { include: { category: true, ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } } } } } } } }),
     db.establishmentAccess.findMany({ where: { establishmentId: actor.establishment.id, membership: { organizationId: actor.organization.id, status: MembershipStatus.ACTIVE } }, include: { membership: { include: { user: { select: { id: true, name: true, active: true } } } } } }),
   ]);
-  const products = offerings.map(offering => ({ id: offering.variant.product.id, name: offering.variant.product.name, category: offering.variant.product.category?.name ?? "Sem categoria", price: Number(offering.price) }));
+  const products = offerings.map(offering => ({ id: offering.variant.product.id, name: offering.variant.product.name, category: offering.variant.product.category?.name ?? "Sem categoria", price: Number(offering.price), ingredientGroups: offering.variant.product.ingredientGroups.map(group => ({ id: group.id, productId: group.productId, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) })) }));
   const couriers = accesses.map(access => access.membership.user).filter(user => user.active).filter((user, index, list) => list.findIndex(candidate => candidate.id === user.id) === index).map(user => ({ id: user.id, name: user.name }));
   const activeCourierIds = [...new Set(orders.filter(order => order.status === "OUT_FOR_DELIVERY" && order.courierId).map(order => order.courierId as string))];
   const courierLocations = activeCourierIds.length ? await db.courierLocation.findMany({ where: { courierId: { in: activeCourierIds } } }) : [];
@@ -79,9 +81,19 @@ export async function POST(request: Request) {
 
     if (data.action === "CREATE") {
       const catalog = listLocalCatalog(session.establishment.id);
-      const items = data.items.map(item => { const product = catalog.find(candidate => candidate.id === item.productId && candidate.active && candidate.channels.includes("DELIVERY")); return product ? { productId: product.id, productName: product.name, quantity: item.quantity, unitPrice: product.price } : null; });
+      type ResolvedItem = { productId: string; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] };
+      const items: (ResolvedItem | { error: string } | null)[] = data.items.map(item => {
+        const product = catalog.find(candidate => candidate.id === item.productId && candidate.active && candidate.channels.includes("DELIVERY"));
+        if (!product) return null;
+        const resolved = resolveIngredientSelections(product.ingredientGroups, item.selectedOptions);
+        if ("error" in resolved) return { error: resolved.error };
+        const unitPrice = Math.round((product.price + resolved.priceDelta + Number.EPSILON) * 100) / 100;
+        return { productId: product.id, productName: product.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: resolved.snapshot.length ? resolved.snapshot : undefined };
+      });
       if (items.some(item => !item)) return Response.json({ error: "Produto indisponível no delivery." }, { status: 409 });
-      const order = createLocalDeliveryOrder(session.establishment.id, { customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: session.user.id, items: items as NonNullable<(typeof items)[number]>[] });
+      const optionError = items.find(item => item && "error" in item) as { error: string } | undefined;
+      if (optionError) return Response.json({ error: optionError.error }, { status: 400 });
+      const order = createLocalDeliveryOrder(session.establishment.id, { customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: session.user.id, items: items as ResolvedItem[] });
       recordLocalAudit({ ...base, action: "CREATE", entityType: "DeliveryOrder", entityId: order.id, reason: `Pedido de delivery criado para ${order.customerName}`, after: { customerName: order.customerName, address: order.address, items: order.items } });
       return Response.json({ order }, { status: 201 });
     }
@@ -103,12 +115,15 @@ export async function POST(request: Request) {
 
   if (data.action === "CREATE") {
     try {
-      const offerings = await db.productOffering.findMany({ where: { establishmentId: actor.establishment.id, channel: "DELIVERY", active: true, variant: { productId: { in: data.items.map(item => item.productId) }, active: true, product: { organizationId: actor.organization.id, active: true } } }, include: { variant: { include: { product: true } } } });
-      const priceByProduct = new Map(offerings.map(offering => [offering.variant.product.id, { name: offering.variant.product.name, price: Number(offering.price) }]));
-      if (data.items.some(item => !priceByProduct.has(item.productId))) return Response.json({ error: "Produto indisponível no delivery." }, { status: 409 });
+      const offerings = await db.productOffering.findMany({ where: { establishmentId: actor.establishment.id, channel: "DELIVERY", active: true, variant: { productId: { in: data.items.map(item => item.productId) }, active: true, product: { organizationId: actor.organization.id, active: true } } }, include: { variant: { include: { product: { include: { ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } } } } } } } });
+      const infoByProduct = new Map(offerings.map(offering => [offering.variant.product.id, { name: offering.variant.product.name, price: Number(offering.price), ingredientGroups: offering.variant.product.ingredientGroups.map(group => ({ id: group.id, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) })) }]));
+      if (data.items.some(item => !infoByProduct.has(item.productId))) return Response.json({ error: "Produto indisponível no delivery." }, { status: 409 });
+      const resolvedItems = data.items.map(item => { const info = infoByProduct.get(item.productId)!; const resolved = resolveIngredientSelections(info.ingredientGroups, item.selectedOptions); return { item, info, resolved }; });
+      const optionError = resolvedItems.find(entry => "error" in entry.resolved);
+      if (optionError && "error" in optionError.resolved) return Response.json({ error: optionError.resolved.error }, { status: 400 });
       const order = await db.$transaction(async tx => {
-        const created = await tx.deliveryOrder.create({ data: { establishmentId: actor.establishment.id, customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: actor.user.id, items: { create: data.items.map(item => { const info = priceByProduct.get(item.productId)!; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice: info.price }; }) } }, include: { items: true } });
-        await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "CREATE", entityType: "DeliveryOrder", entityId: created.id, reason: `Pedido de delivery criado para ${created.customerName}`, after: { customerName: created.customerName, address: created.address, items: created.items.map(item => ({ productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice) })) } } });
+        const created = await tx.deliveryOrder.create({ data: { establishmentId: actor.establishment.id, customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: actor.user.id, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
+        await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "CREATE", entityType: "DeliveryOrder", entityId: created.id, reason: `Pedido de delivery criado para ${created.customerName}`, after: { customerName: created.customerName, address: created.address, items: created.items.map(item => ({ productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice), selectedOptionsSnapshot: item.selectedOptionsSnapshot })) } } });
         return created;
       });
       return Response.json({ order: serializeOrder(order) }, { status: 201 });
