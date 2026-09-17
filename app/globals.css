@@ -127,6 +127,7 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 .salon-row .field span{font-size:9px}
 @media(max-width:1050px){.salon-row{grid-template-columns:1fr 1fr}.salon-row .settings-cell{grid-column:1/-1}.salon-row .settings-actions{grid-column:1/-1;justify-content:flex-start}}
 .settings-actions{display:flex;justify-content:flex-end;gap:6px}
+.settings-actions-links{margin-top:6px;flex-wrap:wrap}
 .settings-actions .secondary{min-height:34px;padding:8px 11px;border:1px solid #e1ddd5;background:#fff;font-size:9px}
 .settings-actions .secondary:hover:not(:disabled){border-color:#d7bb7a;background:#fff9ec}
 .settings-actions .secondary.warn{color:#a33b2f}

@@ -26,6 +26,7 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [edits, setEdits] = useState<EstablishmentFormState[]>([]);
+  const [copied, setCopied] = useState<string | null>(null);
 
   const activeCount = rows.filter((row) => row.active).length;
 
@@ -165,6 +166,21 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
     setEditMode(id, false);
   };
 
+  // Links públicos (ADR 0045): a URL usa o `id` do estabelecimento, nunca gerada/exibida em
+  // nenhuma outra tela — dono precisava montar isso manualmente para compartilhar com o cliente
+  // final. Copiado direto do navegador (window.location.origin), sem depender de variável de
+  // ambiente de domínio público.
+  const copyLink = async (establishmentId: string, kind: "cardapio" | "pedido-online") => {
+    const url = `${window.location.origin}/${kind}/${establishmentId}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(`${establishmentId}:${kind}`);
+      setTimeout(() => setCopied(current => current === `${establishmentId}:${kind}` ? null : current), 2000);
+    } catch {
+      setError("Não foi possível copiar o link — copie manualmente: " + url);
+    }
+  };
+
   const hasResults = !loading && !error && rows.length > 0;
 
   return <section className="page-content">
@@ -228,6 +244,14 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
                 </button>}
                 <button type="button" className={`secondary ${establishment.active ? "warn" : ""}`} title={establishment.id === activeEstablishmentId && establishment.active ? "Troque a unidade ativa antes de desativá-la" : undefined} disabled={edit?.saving || saving || (establishment.active && (activeCount <= 1 || establishment.id === activeEstablishmentId))} onClick={() => toggleActive(establishment.id, establishment.active)}>
                   {establishment.active ? "Inativar" : "Ativar"}
+                </button>
+              </div>
+              <div className="settings-actions settings-actions-links">
+                <button type="button" className="secondary" onClick={() => void copyLink(establishment.id, "cardapio")}>
+                  {copied === `${establishment.id}:cardapio` ? "Link copiado!" : "Copiar link do cardápio"}
+                </button>
+                <button type="button" className="secondary" onClick={() => void copyLink(establishment.id, "pedido-online")}>
+                  {copied === `${establishment.id}:pedido-online` ? "Link copiado!" : "Copiar link de pedido online"}
                 </button>
               </div>
             </div>

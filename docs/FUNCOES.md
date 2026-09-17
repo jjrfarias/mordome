@@ -353,3 +353,8 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
 - Visualização protegida pela permissão `audit.view`.
 
 Obrigatória para alteração de permissões, cancelamento, desconto, mudança de preço, ajuste de estoque, retirada, fechamento de caixa e toda nova operação persistente. Mesas, comandas e cozinha já alimentam oficialmente a trilha quando o banco persistente está ativo.
+
+## Links públicos do estabelecimento implementados (ADR 0045)
+
+- Configurações → Estabelecimentos exibe, por unidade, botões para copiar o link do cardápio público (`/cardapio/[id]`, só visualização) e do pedido online (`/pedido-online/[id]`, carrinho completo com endereço de entrega).
+- Link montado no navegador a partir de `window.location.origin`, sem depender de configuração de domínio.
