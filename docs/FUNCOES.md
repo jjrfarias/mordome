@@ -320,6 +320,27 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
   duplica a lógica de "resumo do dia" já existente em `/api/operations/summary`.
 - Biblioteca de gráficos: `recharts` (ver ADR 0042 para a justificativa).
 
+### Dashboards com intervalo de dias (ver ADR 0043)
+
+- Diferente dos dois dashboards acima (sempre UM dia), "Canais" e "Vendas por Data/Hora" usam
+  `PeriodFilter` (De/Até + atalhos), mesmo componente já usado pelos relatórios de período.
+- Dashboard **Canais** (`components/admin/dashboards/ChannelsDashboard.tsx`): gráfico de barras
+  empilhadas com o faturamento por DIA e por canal ao longo do período, cards de KPI por canal
+  (faturamento total do período e % de participação) e tabela de ranking de canais por
+  faturamento. Cálculo puro em `lib/dashboards/channels.ts` (`buildChannelDailyRevenue`,
+  `buildChannelKpis`, `rankChannels`). Rota `GET /api/admin/dashboards/channels?from=&to=`.
+- Dashboard **Vendas por Data/Hora** (`components/admin/dashboards/SalesByHourDashboard.tsx`):
+  gráfico de barras com o faturamento MÉDIO por hora do dia (0h-23h), calculado sobre todos os dias
+  do período — abordagem escolhida no lugar de um heatmap dia da semana × hora, que exigiria um
+  componente fora do padrão declarativo do `recharts` (ver ADR 0043, decisão 3). Cálculo puro em
+  `lib/dashboards/sales-by-hour.ts` (`buildHourlyAverageRevenue`, `summarizeSalesByHour`), com a
+  média calculada sobre a quantidade de dias DISTINTOS observados no período, não sobre a duração
+  nominal do intervalo. Rota `GET /api/admin/dashboards/sales-by-hour?from=&to=`.
+- Sem `from`/`to` na URL, ambas as rotas caem no mês corrente (`defaultMonthRange`,
+  `lib/cashflow.ts`), mesmo fallback já usado pelos relatórios de período.
+- Permissões: `dashboards.channels.view` e `dashboards.sales_by_hour.view` — ver
+  `docs/AUTORIZACAO.md`.
+
 ## Histórico e auditoria — primeira fatia implementada
 
 - Linha do tempo central por organização, respeitando as unidades autorizadas ao usuário.

@@ -89,6 +89,14 @@ Migração: mesmo padrão das anteriores — inserir as duas permissões na tabe
 conceder a todo `CustomRole` com `systemTemplate = true`. Em modo local, as duas chaves foram
 adicionadas ao array padrão de `permissionKeys` em `lib/local-auth.ts`.
 
+Continuação (ADR 0043): mais duas chaves granulares no mesmo padrão, `dashboards.channels.view`
+("Canais") e `dashboards.sales_by_hour.view` ("Vendas por Data/Hora"), migração
+`20261006090000_dashboards_canais_e_horario`. Mesmo mecanismo de verificação (`session.permissionKeys.includes`
+repetido no servidor, `listAvailableDashboards` filtrando o catálogo na tela) e mesma adição ao
+array padrão de `permissionKeys` do modo local. Estes dois dashboards usam intervalo de datas
+(`PeriodFilter`) em vez de data única, mas isso não muda nada na avaliação de permissão — é só uma
+diferença de UI/consulta.
+
 ## Perfis modelo
 
 Administrador, gerente, atendente, caixa e cozinha são modelos clonáveis, não regras rígidas. O proprietário pode criar “Atendente + resumo financeiro” selecionando capacidades específicas.

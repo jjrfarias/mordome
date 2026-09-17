@@ -5,6 +5,8 @@ import { LayoutDashboard } from "lucide-react";
 import { listAvailableDashboards } from "@/lib/dashboards/registry";
 import { SalesTrackingDashboard } from "@/components/admin/dashboards/SalesTrackingDashboard";
 import { MultiStoreTrackingDashboard } from "@/components/admin/dashboards/MultiStoreTrackingDashboard";
+import { ChannelsDashboard } from "@/components/admin/dashboards/ChannelsDashboard";
+import { SalesByHourDashboard } from "@/components/admin/dashboards/SalesByHourDashboard";
 
 // Componente por dashboard: adicione uma entrada aqui ao registrar um dashboard novo em
 // `lib/dashboards/registry.ts` — mesmo espírito de `REPORT_COMPONENTS` em `ReportsWorkspace.tsx`,
@@ -12,6 +14,8 @@ import { MultiStoreTrackingDashboard } from "@/components/admin/dashboards/Multi
 const DASHBOARD_COMPONENTS: Record<string, ComponentType> = {
   "sales-tracking": SalesTrackingDashboard,
   "multi-store-tracking": MultiStoreTrackingDashboard,
+  "channels": ChannelsDashboard,
+  "sales-by-hour": SalesByHourDashboard,
 };
 
 export function DashboardsWorkspace({ permissionKeys }: { permissionKeys: string[] }) {
