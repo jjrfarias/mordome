@@ -354,6 +354,13 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
 
 Obrigatória para alteração de permissões, cancelamento, desconto, mudança de preço, ajuste de estoque, retirada, fechamento de caixa e toda nova operação persistente. Mesas, comandas e cozinha já alimentam oficialmente a trilha quando o banco persistente está ativo.
 
+## Histórico de vendas — cancelamento e reembolso implementados (ADR 0046)
+
+- Tela "Vendas" lista as vendas do período (padrão: hoje), de qualquer canal (PDV/Salão/Delivery), com o status explícito (Concluída/Cancelada/Parcialmente reembolsada/Reembolsada).
+- Botão "Cancelar" (permissão `sales.cancel`) e "Reembolsar" (permissão `sales.refund`, valor até o saldo restante, com opção de repor estoque quando o reembolso é total) por venda concluída — mesma API já usada pelo Salão/Delivery.
+- Motivo obrigatório via os mesmos cadastros de Motivos de cancelamento (Configurações).
+- Planejado: troca de forma de pagamento de uma venda já concluída (não implementado — ver ADR 0046).
+
 ## Links públicos do estabelecimento implementados (ADR 0045)
 
 - Configurações → Estabelecimentos exibe, por unidade, botões para copiar o link do cardápio público (`/cardapio/[id]`, só visualização) e do pedido online (`/pedido-online/[id]`, carrinho completo com endereço de entrega).

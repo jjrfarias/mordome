@@ -8,7 +8,7 @@ import { buildSalesByDeliveryAreaRows, summarizeSalesByDeliveryArea, NO_DELIVERY
 import { buildItemsSoldRows, summarizeItemsSold } from "../lib/reports/items-sold.ts";
 import { buildItemsConsumedRows, summarizeItemsConsumed, type ConsumptionMovementRecord } from "../lib/reports/items-consumed.ts";
 import { buildExcelBuffer, buildPdfBuffer } from "../lib/reports/export.ts";
-import { listLocalSalesForReport } from "../lib/local-finance.ts";
+import { listLocalSalesForReport, listLocalSalesForManagement } from "../lib/local-finance.ts";
 import { recordLocalAudit } from "../lib/local-audit.ts";
 import { createLocalInventoryItem, configureLocalInventoryItem, applyLocalRecipeConsumption, adjustLocalStock, listLocalConsumptionMovements } from "../lib/local-inventory.ts";
 import { computeConsecutiveDurations, findFirstStatusEvent, shortOrderLabel, type OrderTimingRecord } from "../lib/reports/order-timing.ts";
@@ -103,6 +103,32 @@ test("relatorios locais isolam vendas por estabelecimento e excluem canceladas/t
   const salesB = listLocalSalesForReport(orgId, storeB, from, to);
   assert.equal(salesB.length, 1);
   assert.equal(salesB[0]?.id, "sale-b1");
+
+  // ADR 0046: ao contrário do relatório, o histórico de vendas para cancelamento/reembolso
+  // mostra TODAS as vendas, com o status explícito — o dono precisa achar até uma já cancelada.
+  const managementA = listLocalSalesForManagement(orgId, storeA, from, to);
+  assert.equal(managementA.length, 3);
+  assert.equal(managementA.find(sale => sale.id === "sale-a1")?.status, "COMPLETED");
+  assert.equal(managementA.find(sale => sale.id === "sale-a2")?.status, "CANCELLED");
+  assert.equal(managementA.find(sale => sale.id === "sale-a3")?.status, "REFUNDED");
+  assert.equal(managementA.find(sale => sale.id === "sale-a3")?.refunded, 30);
+  assert.equal(listLocalSalesForManagement(orgId, storeB, from, to).length, 1);
+});
+
+test("histórico de vendas classifica reembolso parcial corretamente", () => {
+  const orgId = `org-${crypto.randomUUID()}`;
+  const store = `store-${crypto.randomUUID()}`;
+  const userId = `user-${crypto.randomUUID()}`;
+  const from = "2026-09-01T00:00:00.000Z";
+  const to = "2026-09-30T23:59:59.999Z";
+
+  recordLocalAudit({ organizationId: orgId, establishmentId: store, actorId: userId, actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-partial", after: { channel: "POS", subtotal: 100, discount: 0, total: 100, payments: [{ method: "CASH" }] } });
+  recordLocalAudit({ organizationId: orgId, establishmentId: store, actorId: userId, actorName: "Ana", actorUsername: "ana", action: "SALE_REFUND", entityType: "Sale", entityId: "sale-partial", after: { amount: 40 } });
+
+  const sale = listLocalSalesForManagement(orgId, store, from, to).find(item => item.id === "sale-partial");
+  assert.equal(sale?.status, "PARTIALLY_REFUNDED");
+  assert.equal(sale?.refunded, 40);
+  assert.equal(sale?.total, 100);
 });
 
 const staffSales: SaleRecord[] = [

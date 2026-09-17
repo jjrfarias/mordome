@@ -113,11 +113,14 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 .settings-row:hover{background:#fffaf1}
 .settings-cell{min-width:0;font-size:11px}
 .settings-cell strong{font-family:var(--font-fraunces),serif;font-size:15px;font-weight:600}
+.settings-cell strong,.settings-cell small{display:block}
+.settings-cell small{color:var(--muted);margin-top:2px}
 .settings-slug{overflow:hidden;color:var(--muted);font-size:9px;text-overflow:ellipsis;white-space:nowrap}
 .status-pill{display:inline-flex;align-items:center;gap:6px;border-radius:999px;padding:6px 9px;font-size:9px;font-weight:700}
 .status-pill:before{content:"";width:6px;height:6px;border-radius:50%}
 .status-active{background:#edf5ef;color:#397257}.status-active:before{background:#4c9a72}
 .status-inactive{background:#f1efeb;color:#817d76}.status-inactive:before{background:#9b9790}
+.status-warn{background:#fdf1e4;color:#a35d1f}.status-warn:before{background:#e0973f}
 .table-area-tag{margin-top:4px;align-self:flex-start;font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);background:#f1eee6;border-radius:999px;padding:3px 8px}
 .delivery-map-courier-icon{font-size:22px;line-height:1;text-align:center;filter:drop-shadow(0 1px 2px rgba(0,0,0,.35))}
 .delivery-route-tooltip{background:var(--ink);color:#fff;border:0;border-radius:8px;font-size:10px;font-weight:600;padding:4px 8px;box-shadow:0 4px 12px rgba(0,0,0,.2)}

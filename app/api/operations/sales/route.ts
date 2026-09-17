@@ -15,6 +15,7 @@ import { getLocalDeliveryArea } from "@/lib/local-delivery-areas";
 import { resolveIngredientSelections, type SelectedOptionSnapshot } from "@/lib/ingredient-options";
 import { validateCoupon, normalizeCouponCode, type CouponRecord } from "@/lib/coupons";
 import { findLocalCouponByCode, redeemLocalCoupon } from "@/lib/local-coupons";
+import { listLocalSalesForManagement } from "@/lib/local-finance";
 
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const saleItemSchema = z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(999), discount: z.number().finite().min(0).optional(), selectedOptions: z.array(optionSelectionSchema).max(10).optional() });
@@ -35,6 +36,58 @@ async function resolveActor() {
   if (!session) return null;
   const membership = await db.organizationMembership.findFirst({ where: { userId: session.user.id, organizationId: session.organization.id, status: MembershipStatus.ACTIVE } });
   return membership ? { session, membership } : null;
+}
+
+const listQuerySchema = z.object({ from: z.string().min(1).optional(), to: z.string().min(1).optional() });
+
+function todayRange() {
+  const now = new Date();
+  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+  return { fromDate: from, toDate: to };
+}
+
+// Histórico de vendas para cancelamento/reembolso (ADR 0046): lista TODAS as vendas do período
+// (qualquer status), diferente dos relatórios (que só mostram vendas concluídas/parcialmente
+// reembolsadas) — aqui o dono precisa achar até uma venda já cancelada, para conferência.
+export async function GET(request: Request) {
+  if (!isSameOrigin(request)) return Response.json({ error: "Origem inválida." }, { status: 403 });
+  const url = new URL(request.url);
+  const parsed = listQuerySchema.safeParse({ from: url.searchParams.get("from") ?? undefined, to: url.searchParams.get("to") ?? undefined });
+  if (!parsed.success) return Response.json({ error: "Período inválido." }, { status: 400 });
+  const { fromDate, toDate } = parsed.data.from && parsed.data.to ? { fromDate: new Date(parsed.data.from), toDate: (() => { const date = new Date(parsed.data.to!); date.setUTCHours(23, 59, 59, 999); return date; })() } : todayRange();
+  if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) return Response.json({ error: "Período inválido." }, { status: 400 });
+
+  if (isLocalAuthEnabled()) {
+    const session = await getLocalSession();
+    if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
+    if (!session.canCancelSales && !session.canRefundSales) return Response.json({ error: "Acesso negado." }, { status: 403 });
+    const sales = listLocalSalesForManagement(session.organization.id, session.establishment.id, fromDate.toISOString(), toDate.toISOString());
+    return Response.json({ sales, from: fromDate.toISOString(), to: toDate.toISOString() });
+  }
+
+  const session = await getCurrentSession();
+  if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
+  if (!session.canCancelSales && !session.canRefundSales) return Response.json({ error: "Acesso negado." }, { status: 403 });
+  const sales = await db.sale.findMany({
+    where: { organizationId: session.organization.id, establishmentId: session.establishment.id, completedAt: { gte: fromDate, lte: toDate } },
+    include: { payments: true, refunds: true, items: true },
+    orderBy: { completedAt: "desc" },
+  });
+  return Response.json({
+    sales: sales.map(sale => ({
+      id: sale.id,
+      completedAt: sale.completedAt.toISOString(),
+      channel: sale.channel,
+      status: sale.status,
+      payment: sale.payments.map(payment => payment.method).join(" + "),
+      total: Number(sale.total),
+      refunded: sale.refunds.reduce((sum, refund) => sum + Number(refund.amount), 0),
+      itemsCount: sale.items.length,
+    })),
+    from: fromDate.toISOString(),
+    to: toDate.toISOString(),
+  });
 }
 
 export async function POST(request: Request) {

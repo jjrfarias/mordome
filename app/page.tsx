@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Image from "next/image";
-import { BarChart3, Bell, Bike, Check, ChefHat, ChevronDown, CircleDollarSign, FileBarChart, FileClock, LayoutDashboard, LayoutGrid, LogOut, Minus, Navigation, Plus, Printer, Search, Settings, ShoppingBag, Sparkles, UtensilsCrossed, X } from "lucide-react";
+import { BarChart3, Bell, Bike, Check, ChefHat, ChevronDown, CircleDollarSign, FileBarChart, FileClock, LayoutDashboard, LayoutGrid, LogOut, Minus, Navigation, Plus, Printer, Receipt, Search, Settings, ShoppingBag, Sparkles, UtensilsCrossed, X } from "lucide-react";
 import { money, OrderItem, products, SelectedIngredientOption } from "@/lib/domain";
 import { IngredientPicker, productHasIngredientChoices } from "@/components/operations/IngredientPicker";
 import { Brand, MetricCard, NavItem } from "@/components/ui";
@@ -15,12 +15,13 @@ import { DeliveryManagement } from "@/components/operations/DeliveryManagement";
 import { CourierApp } from "@/components/operations/CourierApp";
 import { CashManagement } from "@/components/operations/CashManagement";
 import { AuditHistory } from "@/components/admin/AuditHistory";
+import { SalesHistory } from "@/components/admin/SalesHistory";
 import { FloorManagement } from "@/components/operations/FloorManagement";
 import { PaymentComposer, serializeCheckout, type SaleCheckout } from "@/components/operations/PaymentComposer";
 import { ReasonSelect } from "@/components/operations/ReasonSelect";
 import { printKitchenOrder, printReceipt } from "@/lib/integrations/print-client";
 
-type View = "pdv" | "salão" | "cozinha" | "delivery" | "entregas" | "caixa" | "resumo" | "historico" | "relatorios" | "dashboards" | "config";
+type View = "pdv" | "salão" | "cozinha" | "delivery" | "entregas" | "caixa" | "vendas" | "resumo" | "historico" | "relatorios" | "dashboards" | "config";
 type AuthSession = { user: { name: string; username: string }; organization: { name: string }; establishment: { id: string; name: string }; establishments: { id: string; name: string }[]; permissionKeys: string[]; canManageEstablishments: boolean; canManageCatalog: boolean; canManageStock: boolean; canManageRecipes: boolean; canSellPos: boolean; canCancelSales: boolean; canRefundSales: boolean; canApplyDiscount: boolean; canOverrideDiscount: boolean; canOperateFloor: boolean; canManageFloor: boolean; canOperateDelivery: boolean; canDeliverOrders: boolean; canCancelSentItems: boolean; canOpenCash: boolean; canMoveCash: boolean; canCloseCash: boolean; canViewCashHistory: boolean; canViewAudit: boolean; canViewFinanceSummary: boolean; canManageFinance: boolean; canManageFinanceEntries: boolean; canViewFinanceCashflow: boolean; canManageSettlements: boolean; canViewUsers: boolean; canCreateUsers: boolean; canDisableUsers: boolean; canResetUserPassword: boolean; canManageRoles: boolean; canManageIntegrations: boolean; canReprint: boolean; printerDriver: string; printTemplate: { headerText: string | null; footerText: string | null; showDocument: boolean; paperWidth: number; establishmentDocument: string | null } };
 
 export default function Home() {
@@ -89,6 +90,7 @@ export default function Home() {
         {session.canOperateDelivery && <NavItem active={view === "delivery"} icon={<Bike />} label="Delivery" onClick={() => { setView("delivery"); }} />}
         {session.canDeliverOrders && <NavItem active={view === "entregas"} icon={<Navigation />} label="Minhas entregas" onClick={() => { setView("entregas"); }} />}
         {(session.canOpenCash || session.canMoveCash || session.canCloseCash || session.canViewCashHistory) && <NavItem active={view === "caixa"} icon={<CircleDollarSign />} label="Caixa" onClick={() => { setView("caixa"); }} />}
+        {(session.canCancelSales || session.canRefundSales) && <NavItem active={view === "vendas"} icon={<Receipt />} label="Vendas" onClick={() => { setView("vendas"); }} />}
         {(session.canViewFinanceSummary || session.canViewAudit) && <span className="nav-label nav-label-spaced">Análise</span>}
         {session.canViewFinanceSummary && <NavItem active={view === "resumo"} icon={<BarChart3 />} label="Resumo" onClick={() => { setView("resumo"); }} />}
         {session.canViewAudit && <NavItem active={view === "historico"} icon={<FileClock />} label="Histórico" onClick={() => { setView("historico"); }} />}
@@ -113,7 +115,7 @@ export default function Home() {
       </div>
     </aside>
     <main>
-      <header><div><span className="header-date">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span><h1>{view === "pdv" ? "PDV rápido" : view === "salão" ? "Gestão do salão" : view === "cozinha" ? "Cozinha" : view === "delivery" ? "Delivery" : view === "entregas" ? "Minhas entregas" : view === "caixa" ? "Caixa" : view === "historico" ? "Histórico" : view === "relatorios" ? "Relatórios" : view === "dashboards" ? "Dashboards" : view === "config" ? "Configurações" : "Resumo do dia"}</h1></div><div className="header-actions"><span className="sync-state"><i /> Sincronizado agora</span><button className="icon-button" aria-label="Notificações"><Bell /></button><button className={`open-pill ${cashOpen ? "" : "closed"}`} onClick={() => setView("caixa")}><span /> {cashOpen ? "Caixa aberto" : "Caixa fechado"}</button></div></header>
+      <header><div><span className="header-date">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span><h1>{view === "pdv" ? "PDV rápido" : view === "salão" ? "Gestão do salão" : view === "cozinha" ? "Cozinha" : view === "delivery" ? "Delivery" : view === "entregas" ? "Minhas entregas" : view === "caixa" ? "Caixa" : view === "vendas" ? "Vendas" : view === "historico" ? "Histórico" : view === "relatorios" ? "Relatórios" : view === "dashboards" ? "Dashboards" : view === "config" ? "Configurações" : "Resumo do dia"}</h1></div><div className="header-actions"><span className="sync-state"><i /> Sincronizado agora</span><button className="icon-button" aria-label="Notificações"><Bell /></button><button className={`open-pill ${cashOpen ? "" : "closed"}`} onClick={() => setView("caixa")}><span /> {cashOpen ? "Caixa aberto" : "Caixa fechado"}</button></div></header>
       {view === "pdv" && <Pos establishmentId={session.establishment.id} onFinish={async (items, checkout) => { const saleItems = items.map(item => ({ id: item.id, quantity: item.quantity, selectedOptions: item.optionSelections })); if (!await completeSale(saleItems, checkout, "POS")) return false; if (session.printerDriver === "browser_print") printReceipt({ establishmentName: session.establishment.name, items: items.map(item => ({ name: item.selectedOptions?.length ? `${item.name} — ${item.selectedOptions.map(option => option.optionName).join(", ")}` : item.name, quantity: item.quantity, unitPrice: item.price })), total: items.reduce((sum, item) => sum + item.price * item.quantity, 0) - checkout.discount, payment: checkout.payments.map(p => p.method).join(" + "), channel: "POS" }, session.printTemplate); notify("Venda realizada e estoque atualizado"); return true; }} />}
       {view === "salão" && <FloorManagement establishmentId={session.establishment.id} establishmentName={session.establishment.name} printerDriver={session.printerDriver} printTemplate={session.printTemplate} mode="salon" canCancelSentItems={session.canCancelSentItems} canReprint={session.canReprint} onToast={notify} onFinishSale={(items, payment, table, tabId) => completeSale(items, payment, "FLOOR", table, tabId)} />}
       {view === "cozinha" && <FloorManagement establishmentId={session.establishment.id} establishmentName={session.establishment.name} printerDriver={session.printerDriver} printTemplate={session.printTemplate} mode="kitchen" canCancelSentItems={session.canCancelSentItems} canReprint={session.canReprint} onToast={notify} onFinishSale={(items, payment, table, tabId) => completeSale(items, payment, "FLOOR", table, tabId)} />}
@@ -121,6 +123,7 @@ export default function Home() {
       {view === "entregas" && <CourierApp />}
       {view === "caixa" && <CashManagement establishmentId={session.establishment.id} establishmentName={session.establishment.name} canOpen={session.canOpenCash} canMove={session.canMoveCash} canClose={session.canCloseCash} onCashChanged={setCashOpen} />}
       {view === "resumo" && session.canViewFinanceSummary && <Summary establishmentId={session.establishment.id} establishmentName={session.establishment.name} printerDriver={session.printerDriver} printTemplate={session.printTemplate} canReprint={session.canReprint} canCancelSales={session.canCancelSales} canRefundSales={session.canRefundSales} onToast={notify} />}
+      {view === "vendas" && (session.canCancelSales || session.canRefundSales) && <SalesHistory canCancelSales={session.canCancelSales} canRefundSales={session.canRefundSales} />}
       {view === "historico" && session.canViewAudit && <AuditHistory establishments={session.establishments} />}
       {view === "relatorios" && <ReportsWorkspace permissionKeys={session.permissionKeys} />}
       {view === "dashboards" && <DashboardsWorkspace permissionKeys={session.permissionKeys} />}

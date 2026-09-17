@@ -260,6 +260,43 @@ export function listLocalSalesForReport(organizationId: string, establishmentId:
   return records;
 }
 
+export type SaleManagementRecord = { id: string; completedAt: string; channel: string; status: "COMPLETED" | "CANCELLED" | "PARTIALLY_REFUNDED" | "REFUNDED"; payment: string; total: number; refunded: number; itemsCount: number };
+
+// Histórico de vendas para cancelamento/reembolso (ADR 0046): ao contrário de
+// `listLocalSalesForReport` (que exclui canceladas/totalmente reembolsadas — é uma visão de BI),
+// esta função devolve TODAS as vendas do período, com o status explícito, para o dono localizar
+// qualquer venda e decidir a ação. Mesmo rastro de eventos de auditoria, sem "banco" de vendas
+// locais separado.
+export function listLocalSalesForManagement(organizationId: string, establishmentId: string, from: string, to: string): SaleManagementRecord[] {
+  const completedEvents = listLocalAudit({ organizationId, establishmentId, action: "SALE_COMPLETE", limit: 5000 })
+    .filter(event => event.createdAt >= from && event.createdAt <= to);
+  const cancelledIds = new Set(listLocalAudit({ organizationId, establishmentId, action: "SALE_CANCEL", limit: 5000 }).map(event => event.entityId));
+  const refundedBySale = new Map<string, number>();
+  for (const event of listLocalAudit({ organizationId, establishmentId, action: "SALE_REFUND", limit: 5000 })) {
+    const after = event.after as { amount?: number } | undefined;
+    refundedBySale.set(event.entityId, (refundedBySale.get(event.entityId) ?? 0) + (after?.amount ?? 0));
+  }
+
+  const records: SaleManagementRecord[] = [];
+  for (const event of completedEvents) {
+    const after = event.after as { channel?: string; payments?: { method: string; amount?: number }[]; total?: number; items?: unknown[] } | undefined;
+    const total = after?.total ?? 0;
+    const refunded = refundedBySale.get(event.entityId) ?? 0;
+    const status: SaleManagementRecord["status"] = cancelledIds.has(event.entityId) ? "CANCELLED" : total > 0 && refunded >= total ? "REFUNDED" : refunded > 0 ? "PARTIALLY_REFUNDED" : "COMPLETED";
+    records.push({
+      id: event.entityId,
+      completedAt: event.createdAt,
+      channel: after?.channel ?? "POS",
+      status,
+      payment: after?.payments?.map(payment => payment.method).join(" + ") ?? "",
+      total,
+      refunded,
+      itemsCount: after?.items?.length ?? 0,
+    });
+  }
+  return records.sort((a, b) => b.completedAt.localeCompare(a.completedAt));
+}
+
 // DRE Gerencial/Financeira simplificada (ADR 0040), modo local. Reaproveita, sem recalcular:
 // - `listLocalSalesForReport` para Receita bruta (soma de `total`), Descontos (soma de `discount`)
 //   e Reembolsos (soma de `refunded`) — mesmos campos já usados por todos os outros relatórios de

@@ -30,7 +30,7 @@ export function ReasonSelect({ category, value, onChange, autoFocus, placeholder
     return () => controller.abort();
   }, [category]);
 
-  if (reasons === null) return <label className="field"><span>Motivo</span><input disabled placeholder="Carregando motivos…" /></label>;
+  if (reasons === null) return <label className="field"><span>Motivo</span><input disabled value="" onChange={() => {}} placeholder="Carregando motivos…" /></label>;
 
   if (reasons.length === 0) {
     // Sem motivos cadastrados: texto livre direto, sem forçar cadastro prévio.
