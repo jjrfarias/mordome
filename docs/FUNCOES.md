@@ -165,6 +165,7 @@ O histórico de status e seus responsáveis está implementado. Planejado: atual
 - Uma venda nova só pode ser finalizada com caixa aberto pelo operador na unidade ativa.
 - Permissões independentes para abrir, movimentar, fechar e consultar histórico.
 - Interface com estados de carregamento, erro, caixa fechado, caixa aberto e histórico da unidade.
+- **Frentes de caixa implementadas (ver ADR 0048):** cadastro opcional de terminais nomeados por unidade (Configurações → Frentes de caixa, permissão `establishments.manage`); ao abrir o caixa, o operador pode escolher uma frente (só aparece o seletor se houver alguma cadastrada). Só uma sessão fica aberta por vez em cada frente, mesmo com operadores diferentes. Sem nenhuma frente cadastrada, abrir caixa continua idêntico a antes.
 
 Cancelamento de venda concluída exige `pos.cancel_sale`, motivo e caixa original ainda aberto. Ele retira a venda da conferência, estorna o estoque uma única vez e preserva venda, pagamento e auditoria. Depois do fechamento do caixa, a operação correta será um reembolso, ainda planejado.
 

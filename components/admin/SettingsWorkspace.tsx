@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, Boxes, Building2, FlaskConical, LayoutGrid, ListTree, Plug, Users, Wallet, Ban, Clock, Ticket, User } from "lucide-react";
+import { BookOpen, Boxes, Building2, FlaskConical, LayoutGrid, ListTree, Plug, Users, Wallet, Ban, Clock, Ticket, User, Landmark } from "lucide-react";
 import { CatalogManagement } from "@/components/admin/CatalogManagement";
 import { EstablishmentsManagement } from "@/components/admin/EstablishmentsManagement";
 import { InventoryManagement } from "@/components/admin/InventoryManagement";
@@ -13,8 +13,9 @@ import { CancellationReasonsManagement } from "@/components/admin/CancellationRe
 import { WorkShiftsManagement } from "@/components/admin/WorkShiftsManagement";
 import { CouponsManagement } from "@/components/admin/CouponsManagement";
 import { CustomersManagement } from "@/components/admin/CustomersManagement";
+import { CashFrontsManagement } from "@/components/admin/CashFrontsManagement";
 
-type SettingsSection = "catalog" | "inventory" | "recipes" | "establishments" | "users" | "integrations" | "stations" | "salon" | "finance" | "cancellationReasons" | "workShifts" | "coupons" | "customers";
+type SettingsSection = "catalog" | "inventory" | "recipes" | "establishments" | "users" | "integrations" | "stations" | "salon" | "finance" | "cancellationReasons" | "workShifts" | "coupons" | "customers" | "cashFronts";
 
 type SettingsWorkspaceProps = {
   activeEstablishmentId: string;
@@ -55,6 +56,7 @@ export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentNa
       {canManageEstablishments && <button className={section === "establishments" ? "active" : ""} onClick={() => setSection("establishments")}><Building2 />Estabelecimentos</button>}
       {canManageEstablishments && <button className={section === "cancellationReasons" ? "active" : ""} onClick={() => setSection("cancellationReasons")}><Ban />Motivos de cancelamento</button>}
       {canManageEstablishments && <button className={section === "workShifts" ? "active" : ""} onClick={() => setSection("workShifts")}><Clock />Turnos</button>}
+      {canManageEstablishments && <button className={section === "cashFronts" ? "active" : ""} onClick={() => setSection("cashFronts")}><Landmark />Frentes de caixa</button>}
       {(canViewUsers || canManageRoles) && <button className={section === "users" ? "active" : ""} onClick={() => setSection("users")}><Users />Equipe e perfis</button>}
       {canManageIntegrations && <button className={section === "integrations" ? "active" : ""} onClick={() => setSection("integrations")}><Plug />Integrações</button>}
     </nav>
@@ -65,6 +67,7 @@ export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentNa
     {section === "establishments" && canManageEstablishments && <EstablishmentsManagement activeEstablishmentId={activeEstablishmentId} onChanged={onChanged} />}
     {section === "cancellationReasons" && canManageEstablishments && <CancellationReasonsManagement />}
     {section === "workShifts" && canManageEstablishments && <WorkShiftsManagement activeEstablishmentId={activeEstablishmentId} canViewUsers={canViewUsers} />}
+    {section === "cashFronts" && canManageEstablishments && <CashFrontsManagement />}
     {section === "users" && (canViewUsers || canManageRoles) && <UsersManagement activeEstablishmentId={activeEstablishmentId} canViewUsers={canViewUsers} canCreateUsers={canCreateUsers} canDisableUsers={canDisableUsers} canResetUserPassword={canResetUserPassword} canManageRoles={canManageRoles} onAccessChanged={onChanged} />}
     {section === "integrations" && canManageIntegrations && <IntegrationsManagement activeEstablishmentId={activeEstablishmentId} onChanged={onChanged} />}
     {section === "stations" && canManageCatalog && <StationsManagement activeEstablishmentId={activeEstablishmentId} />}

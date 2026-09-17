@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   closeLocalCash,
+  getLocalOpenCashFrontSession,
   getLocalOpenCashSession,
   listLocalCashHistory,
   moveLocalCash,
@@ -9,6 +10,7 @@ import {
   registerLocalCashSale,
   summarizeLocalCash,
 } from "../lib/local-cash.ts";
+import { createLocalCashFront } from "../lib/local-cash-fronts.ts";
 
 test("caixa aberto e isolado por unidade e operador", () => {
   const suffix = Date.now().toString();
@@ -57,6 +59,44 @@ test("vendas alimentam a conferência e fechamento registra diferença", () => {
   assert.equal(closed.differenceAmount, -5);
   assert.equal(getLocalOpenCashSession(establishmentId, operatorId), null);
   assert.equal(listLocalCashHistory(establishmentId)[0]?.id, cash.id);
+});
+
+// Frentes de caixa (ADR 0048): só uma sessão aberta por vez numa frente, mesmo com operadores
+// diferentes — diferente da exclusividade por operador, que é uma checagem em paralelo.
+test("frente de caixa aceita só uma sessão aberta por vez, mesmo com operadores diferentes", () => {
+  const suffix = Date.now().toString();
+  const establishmentId = `front-${suffix}`;
+  const front = createLocalCashFront(establishmentId, "Caixa 1");
+  assert.notEqual(front, "DUPLICATE"); if (front === "DUPLICATE") return;
+
+  const first = openLocalCash(establishmentId, `operator-a-${suffix}`, 100, front.id);
+  assert.ok(first);
+  assert.equal(first.cashFrontId, front.id);
+  assert.equal(getLocalOpenCashFrontSession(establishmentId, front.id)?.id, first.id);
+
+  // Outro operador não consegue abrir a MESMA frente enquanto ela estiver aberta.
+  const blocked = openLocalCash(establishmentId, `operator-b-${suffix}`, 50, front.id);
+  assert.equal(blocked, null);
+
+  // Mas consegue abrir SEM vincular a nenhuma frente (comportamento de hoje, sem mudança).
+  const withoutFront = openLocalCash(establishmentId, `operator-b-${suffix}`, 50);
+  assert.ok(withoutFront);
+  assert.equal(withoutFront.cashFrontId, null);
+
+  closeLocalCash(establishmentId, `operator-a-${suffix}`, { PIX: 0, CREDIT_CARD: 0, DEBIT_CARD: 0, CASH: 100, OTHER: 0 });
+  assert.equal(getLocalOpenCashFrontSession(establishmentId, front.id), null);
+  const reopened = openLocalCash(establishmentId, `operator-c-${suffix}`, 20, front.id);
+  assert.ok(reopened);
+});
+
+test("cadastro de frentes de caixa rejeita nome duplicado e isola por estabelecimento", () => {
+  const suffix = Date.now().toString();
+  const storeA = `store-a-${suffix}`;
+  const storeB = `store-b-${suffix}`;
+  const created = createLocalCashFront(storeA, "Caixa Delivery");
+  assert.notEqual(created, "DUPLICATE");
+  assert.equal(createLocalCashFront(storeA, "Caixa Delivery"), "DUPLICATE");
+  assert.notEqual(createLocalCashFront(storeB, "Caixa Delivery"), "DUPLICATE");
 });
 
 test("movimentação é idempotente", () => {

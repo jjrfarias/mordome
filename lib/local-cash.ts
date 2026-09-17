@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 
 export type LocalPaymentMethod = "PIX" | "CREDIT_CARD" | "DEBIT_CARD" | "CASH" | "OTHER";
 type Movement = { id: string; type: "SUPPLY" | "WITHDRAWAL"; amount: number; reason: string; createdAt: string };
-type CashSession = { id: string; establishmentId: string; operatorId: string; status: "OPEN" | "CLOSED"; openingAmount: number; openedAt: string; closedAt?: string; movements: Movement[]; payments: Partial<Record<LocalPaymentMethod, number>>; expectedClosingAmount?: number; closingAmount?: number; differenceAmount?: number; closingBreakdown?: Record<LocalPaymentMethod, number> };
+type CashSession = { id: string; establishmentId: string; operatorId: string; cashFrontId: string | null; status: "OPEN" | "CLOSED"; openingAmount: number; openedAt: string; closedAt?: string; movements: Movement[]; payments: Partial<Record<LocalPaymentMethod, number>>; expectedClosingAmount?: number; closingAmount?: number; differenceAmount?: number; closingBreakdown?: Record<LocalPaymentMethod, number> };
 const sessions: CashSession[] = [];
 const movementKeys = new Set<string>();
 
@@ -10,10 +10,20 @@ export function getLocalOpenCashSession(establishmentId: string, operatorId: str
   return sessions.find(session => session.establishmentId === establishmentId && session.operatorId === operatorId && session.status === "OPEN") ?? null;
 }
 
-export function openLocalCash(establishmentId: string, operatorId: string, openingAmount: number) {
+// Frentes de caixa (ADR 0048): uma frente representa um terminal físico — só uma sessão aberta
+// por vez nela, mesmo com operadores diferentes (diferente da regra "uma sessão aberta por
+// operador", que continua existindo em paralelo, sem essa checagem se `cashFrontId` não for
+// informado).
+export function getLocalOpenCashFrontSession(establishmentId: string, cashFrontId: string) {
+  return sessions.find(session => session.establishmentId === establishmentId && session.cashFrontId === cashFrontId && session.status === "OPEN") ?? null;
+}
+
+export function openLocalCash(establishmentId: string, operatorId: string, openingAmount: number, cashFrontId: string | null = null) {
   if (getLocalOpenCashSession(establishmentId, operatorId)) return null;
-  const session: CashSession = { id: `local-cash-${randomUUID()}`, establishmentId, operatorId, status: "OPEN", openingAmount, openedAt: new Date().toISOString(), movements: [], payments: {} };
-  sessions.push(session); return session;
+  if (cashFrontId && getLocalOpenCashFrontSession(establishmentId, cashFrontId)) return null;
+  const session: CashSession = { id: `local-cash-${randomUUID()}`, establishmentId, operatorId, cashFrontId, status: "OPEN", openingAmount, openedAt: new Date().toISOString(), movements: [], payments: {} };
+  sessions.push(session);
+  return session;
 }
 
 export function moveLocalCash(establishmentId: string, operatorId: string, input: { type: "SUPPLY" | "WITHDRAWAL"; amount: number; reason: string; idempotencyKey: string }) {

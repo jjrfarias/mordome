@@ -276,6 +276,7 @@ model Establishment {
   workShifts        WorkShift[]
   printTemplate     PrintTemplate?
   couponRedemptions CouponRedemption[]
+  cashFronts        CashFront[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
@@ -440,6 +441,7 @@ model CashSession {
   id              String            @id @default(cuid())
   establishmentId String
   openedById      String
+  cashFrontId     String?
   status          CashSessionStatus @default(OPEN)
   openingAmount   Decimal           @db.Decimal(12, 2)
   closingAmount   Decimal?          @db.Decimal(12, 2)
@@ -450,11 +452,32 @@ model CashSession {
   closedAt        DateTime?
   establishment   Establishment     @relation(fields: [establishmentId], references: [id])
   openedBy        User              @relation(fields: [openedById], references: [id])
+  cashFront       CashFront?        @relation(fields: [cashFrontId], references: [id], onDelete: SetNull)
   sales           Sale[]
   movements       CashMovement[]
   refunds         Refund[]
 
   @@index([establishmentId, status])
+  @@index([cashFrontId, status])
+}
+
+// Frentes de caixa (ADR 0048): terminais nomeados por estabelecimento (ex.: "Caixa 1", "Caixa
+// Delivery"), independentes de quem está logado — hoje cada operador já abre sua própria
+// `CashSession` na unidade (permite vários caixas simultâneos), mas sem nome/identidade própria.
+// Vínculo opcional: estabelecimentos com uma única frente (ou nenhuma cadastrada) continuam
+// abrindo caixa exatamente como antes, sem exigir escolha nenhuma.
+model CashFront {
+  id              String        @id @default(cuid())
+  establishmentId String
+  name            String
+  active          Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  cashSessions    CashSession[]
+
+  @@unique([establishmentId, name])
+  @@index([establishmentId, active])
 }
 
 model CashMovement {
