@@ -111,9 +111,32 @@ function NewOrderModal({ products, deliveryAreas, saving, onClose, onCreate }: {
   const [notes, setNotes] = useState("");
   const [deliveryAreaId, setDeliveryAreaId] = useState("");
   const [point, setPoint] = useState<{ lat: number; lng: number } | null>(null);
+  const [knownCustomer, setKnownCustomer] = useState<{ name: string; ordersCount: number; totalSpent: number; lastAddress: string | null } | null>(null);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
   const [lines, setLines] = useState<NewOrderLine[]>([]);
   const [pickerProduct, setPickerProduct] = useState<Product | null>(null);
+
+  // Reconhecimento de cliente repetido (ADR 0047): busca por telefone com debounce, autopreenche
+  // nome/endereço só se o atendente ainda não tiver digitado nada naqueles campos.
+  useEffect(() => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      void (async () => {
+        const digits = customerPhone.replace(/\D/g, "");
+        if (digits.length < 8) { setKnownCustomer(null); return; }
+        try {
+          const response = await fetch(`/api/operations/customer-lookup?phone=${encodeURIComponent(customerPhone)}`, { cache: "no-store", signal: controller.signal });
+          const data = await response.json().catch(() => ({}));
+          if (!data.customer) { setKnownCustomer(null); return; }
+          setKnownCustomer(data.customer);
+          setCustomerName(current => current.trim() ? current : data.customer.name);
+          setAddress(current => current.trim() || !data.customer.lastAddress ? current : data.customer.lastAddress);
+        } catch { /* pesquisa abortada (telefone mudou de novo) ou rede indisponível — segue sem autopreencher */ }
+      })();
+    }, 500);
+    return () => { clearTimeout(timeout); controller.abort(); };
+  }, [customerPhone]);
+
   const categories = [...new Set(products.map(product => product.category))];
   const plainItems = Object.entries(quantities).filter(([, quantity]) => quantity > 0).map(([productId, quantity]) => ({ productId, quantity }));
   const optionItems = lines.map(line => ({ productId: line.productId, quantity: line.quantity, selectedOptions: line.optionSelections }));
@@ -135,6 +158,7 @@ function NewOrderModal({ products, deliveryAreas, saving, onClose, onCreate }: {
     <p>Endereço e itens do pedido para acompanhar até a entrega.</p>
     <label className="field"><span>Cliente</span><input value={customerName} onChange={event => setCustomerName(event.target.value)} placeholder="Nome do cliente" /></label>
     <label className="field"><span>Telefone</span><input value={customerPhone} onChange={event => setCustomerPhone(event.target.value)} placeholder="(00) 00000-0000" /></label>
+    {knownCustomer && <p className="section-note">Cliente conhecido: {knownCustomer.ordersCount} pedido(s) · {money(knownCustomer.totalSpent)} em compras.</p>}
     <label className="field"><span>Endereço</span><input value={address} onChange={event => setAddress(event.target.value)} placeholder="Rua, número, bairro" /></label>
     <label className="field"><span>Observações</span><input value={notes} onChange={event => setNotes(event.target.value)} placeholder="Opcional" /></label>
     {deliveryAreas.length > 0 && <label className="field"><span>Área de entrega</span><select value={deliveryAreaId} onChange={event => setDeliveryAreaId(event.target.value)}>

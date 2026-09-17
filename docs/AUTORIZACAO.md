@@ -36,6 +36,7 @@ Um atendente pode, por exemplo, receber apenas `finance.reports.view` para ajuda
 | Produtos | `catalog.view`, `catalog.manage`, `prices.manage`, `availability.manage` |
 | Estoque | `stock.view`, `stock.move`, `stock.adjust` |
 | Auditoria | `audit.view` |
+| Clientes | `customers.manage` (ADR 0047) |
 
 Os nomes são contratos internos e só devem mudar por migração explícita.
 

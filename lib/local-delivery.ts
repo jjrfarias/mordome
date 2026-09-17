@@ -4,7 +4,7 @@ import type { SelectedOptionSnapshot } from "./ingredient-options.ts";
 export type LocalDeliveryStatus = "RECEIVED" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
 export type LocalDeliveryOrigin = "INTERNAL" | "ONLINE";
 type LocalDeliveryItem = { id: string; productId: string; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] };
-type LocalDeliveryOrder = { id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string; status: LocalDeliveryStatus; origin: LocalDeliveryOrigin; courierId: string | null; deliveryAreaId: string | null; deliveryFee: number; saleId: string | null; createdById: string | null; createdAt: string; updatedAt: string; items: LocalDeliveryItem[] };
+type LocalDeliveryOrder = { id: string; customerName: string; customerPhone: string; customerId: string | null; address: string; destinationLat: number | null; destinationLng: number | null; notes: string; status: LocalDeliveryStatus; origin: LocalDeliveryOrigin; courierId: string | null; deliveryAreaId: string | null; deliveryFee: number; saleId: string | null; createdById: string | null; createdAt: string; updatedAt: string; items: LocalDeliveryItem[] };
 
 const stores = new Map<string, LocalDeliveryOrder[]>();
 const locations = new Map<string, { lat: number; lng: number; updatedAt: string }>();
@@ -23,11 +23,28 @@ export function getLocalDeliveryOrder(establishmentId: string, orderId: string) 
   return ordersFor(establishmentId).find(candidate => candidate.id === orderId) ?? null;
 }
 
-export function createLocalDeliveryOrder(establishmentId: string, input: { customerName: string; customerPhone: string; address: string; destinationLat?: number; destinationLng?: number; notes?: string; createdById?: string; origin?: LocalDeliveryOrigin; deliveryAreaId?: string | null; deliveryFee?: number; items: { productId: string; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] }[] }) {
+export function createLocalDeliveryOrder(establishmentId: string, input: { customerName: string; customerPhone: string; customerId?: string | null; address: string; destinationLat?: number; destinationLng?: number; notes?: string; createdById?: string; origin?: LocalDeliveryOrigin; deliveryAreaId?: string | null; deliveryFee?: number; items: { productId: string; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] }[] }) {
   const now = new Date().toISOString();
-  const order: LocalDeliveryOrder = { id: `local-delivery-${randomUUID()}`, customerName: input.customerName, customerPhone: input.customerPhone, address: input.address, destinationLat: input.destinationLat ?? null, destinationLng: input.destinationLng ?? null, notes: input.notes ?? "", status: "RECEIVED", origin: input.origin ?? "INTERNAL", courierId: null, deliveryAreaId: input.deliveryAreaId ?? null, deliveryFee: input.deliveryFee ?? 0, saleId: null, createdById: input.createdById ?? null, createdAt: now, updatedAt: now, items: input.items.map(item => ({ ...item, id: `local-delivery-item-${randomUUID()}` })) };
+  const order: LocalDeliveryOrder = { id: `local-delivery-${randomUUID()}`, customerName: input.customerName, customerPhone: input.customerPhone, customerId: input.customerId ?? null, address: input.address, destinationLat: input.destinationLat ?? null, destinationLng: input.destinationLng ?? null, notes: input.notes ?? "", status: "RECEIVED", origin: input.origin ?? "INTERNAL", courierId: null, deliveryAreaId: input.deliveryAreaId ?? null, deliveryFee: input.deliveryFee ?? 0, saleId: null, createdById: input.createdById ?? null, createdAt: now, updatedAt: now, items: input.items.map(item => ({ ...item, id: `local-delivery-item-${randomUUID()}` })) };
   ordersFor(establishmentId).push(order);
   return { ...order, items: order.items.map(item => ({ ...item })) };
+}
+
+// Histórico/gasto por cliente (ADR 0047), calculado direto dos pedidos de delivery já
+// armazenados (sem depender do rastro de vendas/auditoria) — cada pedido já guarda seus itens com
+// preço praticado e a taxa de entrega cobrada, então o total é reconstituído sem nenhuma consulta
+// extra. Simplificação deliberada do modo local: soma só os pedidos desta unidade (o modo servidor
+// soma por organização, todas as unidades — ver ADR).
+export function getLocalCustomerOrderStats(establishmentId: string, phone: string) {
+  const normalized = phone.replace(/\D/g, "");
+  const orders = ordersFor(establishmentId).filter(order => order.customerPhone.replace(/\D/g, "") === normalized);
+  const delivered = orders.filter(order => order.status !== "CANCELLED");
+  const totalSpent = delivered.reduce((sum, order) => sum + order.items.reduce((itemSum, item) => itemSum + item.unitPrice * item.quantity, 0) + order.deliveryFee, 0);
+  // Ordem de inserção já é cronológica (pedidos só são adicionados ao final da lista, nunca
+  // reordenados) — mais confiável que comparar `createdAt` por string quando dois pedidos caem no
+  // mesmo milissegundo.
+  const lastOrder = orders[orders.length - 1];
+  return { ordersCount: delivered.length, totalSpent, lastAddress: lastOrder?.address ?? null };
 }
 
 export function setLocalCourierLocation(courierId: string, lat: number, lng: number) {

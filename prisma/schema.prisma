@@ -234,6 +234,7 @@ model Organization {
   suppliers           Supplier[]
   cancellationReasons CancellationReason[]
   coupons             Coupon[]
+  customers           Customer[]
 }
 
 model Establishment {
@@ -539,6 +540,7 @@ model DeliveryOrder {
   deliveryFee     Decimal?       @db.Decimal(10, 2)
   saleId          String?        @unique
   createdById     String?
+  customerId      String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   establishment   Establishment  @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
@@ -546,10 +548,12 @@ model DeliveryOrder {
   createdBy       User?          @relation("DeliveryCreatedBy", fields: [createdById], references: [id], onDelete: SetNull)
   sale            Sale?          @relation(fields: [saleId], references: [id], onDelete: SetNull)
   deliveryArea    DeliveryArea?  @relation(fields: [deliveryAreaId], references: [id], onDelete: SetNull)
+  customer        Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items           DeliveryOrderItem[]
 
   @@index([establishmentId, status])
   @@index([establishmentId, deliveryAreaId])
+  @@index([customerId])
 }
 
 // Áreas/zonas de entrega cadastradas por estabelecimento, com taxa fixa e bairros atendidos em
@@ -1277,6 +1281,28 @@ model Supplier {
 
   @@unique([organizationId, name])
   @@index([organizationId, active])
+}
+
+// Cadastro de clientes (ADR 0047), escopo organização (não por unidade) — o mesmo cliente é
+// reconhecido em qualquer estabelecimento da rede. Identificado por telefone (único por
+// organização), preenchido automaticamente ao criar um pedido de delivery com um telefone novo,
+// sem exigir cadastro manual prévio.
+model Customer {
+  id             String          @id @default(cuid())
+  organizationId String
+  name           String
+  phone          String
+  email          String?
+  document       String?
+  notes          String?
+  active         Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deliveryOrders DeliveryOrder[]
+
+  @@unique([organizationId, phone])
+  @@index([organizationId, active, name])
 }
 
 enum SettlementRole {

@@ -4,6 +4,7 @@ import { requestAuditMetadata } from "@/lib/audit";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { assignLocalCourier, changeLocalDeliveryStatus, createLocalDeliveryOrder, getLocalCourierLocations, listLocalDeliveryOrders } from "@/lib/local-delivery";
+import { findOrCreateLocalCustomerByPhone } from "@/lib/local-customers";
 import { getLocalDeliveryArea, listLocalDeliveryAreas } from "@/lib/local-delivery-areas";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
 import { listLocalCatalog } from "@/lib/local-catalog";
@@ -103,7 +104,9 @@ export async function POST(request: Request) {
         if (!area || !area.active) return Response.json({ error: "Área de entrega não encontrada." }, { status: 400 });
         deliveryFee = area.deliveryFee;
       }
-      const order = createLocalDeliveryOrder(session.establishment.id, { customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: session.user.id, deliveryAreaId: data.deliveryAreaId ?? null, deliveryFee, items: items as ResolvedItem[] });
+      // Reconhecimento de cliente repetido (ADR 0047): encontra pelo telefone ou cadastra na hora.
+      const customer = findOrCreateLocalCustomerByPhone(session.organization.id, { name: data.customerName, phone: data.customerPhone });
+      const order = createLocalDeliveryOrder(session.establishment.id, { customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: session.user.id, deliveryAreaId: data.deliveryAreaId ?? null, deliveryFee, items: items as ResolvedItem[] });
       recordLocalAudit({ ...base, action: "CREATE", entityType: "DeliveryOrder", entityId: order.id, reason: `Pedido de delivery criado para ${order.customerName}`, after: { customerName: order.customerName, address: order.address, items: order.items } });
       return Response.json({ order }, { status: 201 });
     }
@@ -138,7 +141,15 @@ export async function POST(request: Request) {
         deliveryFee = Number(area.deliveryFee);
       }
       const order = await db.$transaction(async tx => {
-        const created = await tx.deliveryOrder.create({ data: { establishmentId: actor.establishment.id, customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: actor.user.id, deliveryAreaId: data.deliveryAreaId, deliveryFee, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
+        // Reconhecimento de cliente repetido (ADR 0047): encontra pelo telefone (normalizado,
+        // dígitos apenas) ou cadastra na hora — nunca exige um passo manual de cadastro antes.
+        const normalizedPhone = data.customerPhone.replace(/\D/g, "");
+        const customer = await tx.customer.upsert({
+          where: { organizationId_phone: { organizationId: actor.organization.id, phone: normalizedPhone } },
+          update: { name: data.customerName },
+          create: { organizationId: actor.organization.id, name: data.customerName, phone: normalizedPhone },
+        });
+        const created = await tx.deliveryOrder.create({ data: { establishmentId: actor.establishment.id, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: actor.user.id, deliveryAreaId: data.deliveryAreaId, deliveryFee, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
         await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "CREATE", entityType: "DeliveryOrder", entityId: created.id, reason: `Pedido de delivery criado para ${created.customerName}`, after: { customerName: created.customerName, address: created.address, items: created.items.map(item => ({ productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice), selectedOptionsSnapshot: item.selectedOptionsSnapshot })) } } });
         return created;
       });

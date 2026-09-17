@@ -354,6 +354,14 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
 
 Obrigatória para alteração de permissões, cancelamento, desconto, mudança de preço, ajuste de estoque, retirada, fechamento de caixa e toda nova operação persistente. Mesas, comandas e cozinha já alimentam oficialmente a trilha quando o banco persistente está ativo.
 
+## Cadastro de clientes implementado (ADR 0047)
+
+- Configurações → Clientes: busca por nome/telefone, cadastro manual, edição e inativação (permissão `customers.manage`).
+- Reconhecido automaticamente pelo telefone ao criar um pedido de delivery, sem cadastro manual prévio — encontra o cliente existente ou cadastra na hora.
+- Formulário de novo pedido de delivery autopreenche nome/endereço ao digitar um telefone já conhecido, mostrando quantos pedidos e quanto o cliente já gastou.
+- Escopo organização (não por unidade): o mesmo cliente é reconhecido em qualquer das unidades da rede.
+- Planejado: vínculo de cliente com vendas de PDV/Salão (fora de escopo desta fatia).
+
 ## Histórico de vendas — cancelamento e reembolso implementados (ADR 0046)
 
 - Tela "Vendas" lista as vendas do período (padrão: hoje), de qualquer canal (PDV/Salão/Delivery), com o status explícito (Concluída/Cancelada/Parcialmente reembolsada/Reembolsada).
