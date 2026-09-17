@@ -1,11 +1,21 @@
 ﻿import { useEffect, useState } from "react";
 
+type EstablishmentAddress = {
+  postalCode: string | null;
+  street: string | null;
+  number: string | null;
+  complement: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
+};
+
 type EstablishmentItem = {
   id: string;
   name: string;
   slug: string;
   active: boolean;
-};
+} & EstablishmentAddress;
 
 type EstablishmentsPayload = {
   establishments: EstablishmentItem[];
@@ -19,6 +29,18 @@ type EstablishmentFormState = {
   saving: boolean;
 };
 
+type AddressFormState = { postalCode: string; street: string; number: string; complement: string; neighborhood: string; city: string; state: string; editing: boolean; saving: boolean; error: string; lookingUp: boolean };
+
+function formatCep(value: string) {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+  return digits.length > 5 ? `${digits.slice(0, 5)}-${digits.slice(5)}` : digits;
+}
+
+function addressLine(establishment: EstablishmentItem) {
+  const parts = [establishment.street && establishment.number ? `${establishment.street}, ${establishment.number}` : establishment.street, establishment.neighborhood, establishment.city && establishment.state ? `${establishment.city}/${establishment.state}` : establishment.city].filter(Boolean);
+  return parts.length > 0 ? parts.join(" · ") : null;
+}
+
 export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: { activeEstablishmentId: string; onChanged: () => Promise<void> }) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -26,6 +48,7 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [edits, setEdits] = useState<EstablishmentFormState[]>([]);
+  const [addressEdits, setAddressEdits] = useState<Record<string, AddressFormState>>({});
   const [copied, setCopied] = useState<string | null>(null);
 
   const activeCount = rows.filter((row) => row.active).length;
@@ -52,6 +75,11 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
         saving: false,
       })),
     );
+    setAddressEdits(current => Object.fromEntries(parsed.establishments.map(establishment => {
+      const previous = current[establishment.id];
+      if (previous?.editing) return [establishment.id, previous];
+      return [establishment.id, { postalCode: establishment.postalCode ? formatCep(establishment.postalCode) : "", street: establishment.street ?? "", number: establishment.number ?? "", complement: establishment.complement ?? "", neighborhood: establishment.neighborhood ?? "", city: establishment.city ?? "", state: establishment.state ?? "", editing: false, saving: false, error: "", lookingUp: false }];
+    })));
     setLoading(false);
   };
 
@@ -166,6 +194,53 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
     setEditMode(id, false);
   };
 
+  const addressState = (id: string) => addressEdits[id];
+  const setAddressDraft = (id: string, patch: Partial<AddressFormState>) => setAddressEdits(current => ({ ...current, [id]: { ...current[id], ...patch } }));
+
+  // Busca de endereço por CEP (ViaCEP, api pública sem chave, só o CEP digitado é enviado — sem
+  // dado de cliente/tenant) para preencher rua/bairro/cidade/UF automaticamente; número e
+  // complemento continuam manuais, a ViaCEP não devolve isso.
+  const lookupCep = async (id: string) => {
+    const draft = addressState(id);
+    const digits = (draft?.postalCode ?? "").replace(/\D/g, "");
+    if (digits.length !== 8) { setAddressDraft(id, { error: "Digite um CEP com 8 dígitos." }); return; }
+    setAddressDraft(id, { lookingUp: true, error: "" });
+    try {
+      const response = await fetch(`https://viacep.com.br/ws/${digits}/json/`);
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || data.erro) { setAddressDraft(id, { error: "CEP não encontrado." }); return; }
+      setAddressDraft(id, { street: data.logradouro ?? "", neighborhood: data.bairro ?? "", city: data.localidade ?? "", state: data.uf ?? "" });
+    } catch {
+      setAddressDraft(id, { error: "Não foi possível buscar o CEP agora." });
+    } finally {
+      setAddressDraft(id, { lookingUp: false });
+    }
+  };
+
+  const startEditAddress = (id: string) => setAddressDraft(id, { editing: true, error: "" });
+  const cancelEditAddress = (id: string, establishment: EstablishmentItem) => setAddressDraft(id, { editing: false, error: "", postalCode: establishment.postalCode ? formatCep(establishment.postalCode) : "", street: establishment.street ?? "", number: establishment.number ?? "", complement: establishment.complement ?? "", neighborhood: establishment.neighborhood ?? "", city: establishment.city ?? "", state: establishment.state ?? "" });
+
+  const saveAddress = async (id: string) => {
+    const draft = addressState(id);
+    if (!draft || saving) return;
+    setAddressDraft(id, { saving: true, error: "" });
+    try {
+      const response = await fetch("/api/admin/establishments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ establishmentId: id, postalCode: draft.postalCode, street: draft.street, number: draft.number, complement: draft.complement, neighborhood: draft.neighborhood, city: draft.city, state: draft.state }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { setAddressDraft(id, { error: data.error ?? "Não foi possível salvar o endereço." }); return; }
+      setAddressDraft(id, { editing: false });
+      await load();
+    } catch {
+      setAddressDraft(id, { error: "Falha ao conectar no servidor." });
+    } finally {
+      setAddressDraft(id, { saving: false });
+    }
+  };
+
   // Links públicos (ADR 0045): a URL usa o `id` do estabelecimento, nunca gerada/exibida em
   // nenhuma outra tela — dono precisava montar isso manualmente para compartilhar com o cliente
   // final. Copiado direto do navegador (window.location.origin), sem depender de variável de
@@ -254,6 +329,35 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
                   {copied === `${establishment.id}:pedido-online` ? "Link copiado!" : "Copiar link de pedido online"}
                 </button>
               </div>
+            </div>
+            <div className="settings-address">
+              {(() => {
+                const addr = addressState(establishment.id);
+                if (!addr) return null;
+                if (!addr.editing) return <div className="settings-address-line">
+                  <span>{addressLine(establishment) ?? "Endereço não cadastrado"}</span>
+                  <button type="button" className="secondary" onClick={() => startEditAddress(establishment.id)}>{addressLine(establishment) ? "Editar endereço" : "Cadastrar endereço"}</button>
+                </div>;
+                return <div>
+                  <div className="settings-address-cep">
+                    <label className="field"><span>CEP</span><input value={addr.postalCode} onChange={event => setAddressDraft(establishment.id, { postalCode: formatCep(event.target.value) })} placeholder="00000-000" /></label>
+                    <button type="button" className="secondary" disabled={addr.lookingUp} onClick={() => void lookupCep(establishment.id)}>{addr.lookingUp ? "Buscando…" : "Buscar CEP"}</button>
+                  </div>
+                  {addr.error && <div className="auth-error" style={{ marginTop: 6 }}>{addr.error}</div>}
+                  <div className="settings-address-form">
+                    <label className="field wide"><span>Rua</span><input value={addr.street} onChange={event => setAddressDraft(establishment.id, { street: event.target.value })} /></label>
+                    <label className="field"><span>Número</span><input value={addr.number} onChange={event => setAddressDraft(establishment.id, { number: event.target.value })} /></label>
+                    <label className="field"><span>Complemento</span><input value={addr.complement} onChange={event => setAddressDraft(establishment.id, { complement: event.target.value })} /></label>
+                    <label className="field"><span>Bairro</span><input value={addr.neighborhood} onChange={event => setAddressDraft(establishment.id, { neighborhood: event.target.value })} /></label>
+                    <label className="field"><span>Cidade</span><input value={addr.city} onChange={event => setAddressDraft(establishment.id, { city: event.target.value })} /></label>
+                    <label className="field"><span>UF</span><input value={addr.state} maxLength={2} onChange={event => setAddressDraft(establishment.id, { state: event.target.value.toUpperCase() })} /></label>
+                  </div>
+                  <div className="settings-actions" style={{ marginTop: 10 }}>
+                    <button type="button" className="primary" disabled={addr.saving} onClick={() => void saveAddress(establishment.id)}>{addr.saving ? "Salvando…" : "Salvar endereço"}</button>
+                    <button type="button" className="secondary" onClick={() => cancelEditAddress(establishment.id, establishment)}>Cancelar</button>
+                  </div>
+                </div>;
+              })()}
             </div>
           </article>;
         })}

@@ -109,6 +109,14 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 .settings-table-head,.settings-row{display:grid;grid-template-columns:minmax(180px,1.35fr) minmax(140px,1fr) 100px minmax(270px,auto);align-items:center;gap:14px}
 .settings-table-head{min-height:42px;padding:0 20px;background:#f4eee3;color:#82786c;font-size:8px;font-weight:800;text-transform:uppercase;letter-spacing:.12em}
 .settings-row{min-height:72px;padding:13px 20px;border-top:1px solid var(--line);background:var(--paper)}
+.settings-address{grid-column:1/-1;margin-top:10px;padding-top:12px;border-top:1px dashed var(--line)}
+.settings-address-line{font-size:11px;color:var(--muted);display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.settings-address-form{display:grid;grid-template-columns:140px 1fr 90px;gap:8px;margin-top:8px}
+.settings-address-form .field{margin:0}
+.settings-address-form .field.wide{grid-column:1/-1}
+.settings-address-cep{display:flex;gap:6px;align-items:end}
+.settings-address-cep .field{flex:1}
+@media(max-width:760px){.settings-address-form{grid-template-columns:1fr 1fr}}
 .settings-row:first-child{border-top:0}
 .settings-row:hover{background:#fffaf1}
 .settings-cell{min-width:0;font-size:11px}

@@ -8,13 +8,16 @@ import { getLocalPrintTemplate } from "@/lib/local-print-templates";
 const LOCAL_TOKEN = randomBytes(32).toString("base64url");
 const LOCAL_ESTABLISHMENT_COOKIE = "mordome_local_establishment";
 const LOCAL_USER_COOKIE = "mordome_local_user";
-type LocalEstablishment = { id: string; name: string; slug: string; active: boolean };
+type LocalEstablishmentAddress = { postalCode: string | null; street: string | null; number: string | null; complement: string | null; neighborhood: string | null; city: string | null; state: string | null };
+type LocalEstablishment = { id: string; name: string; slug: string; active: boolean } & LocalEstablishmentAddress;
+
+const blankAddress: LocalEstablishmentAddress = { postalCode: null, street: null, number: null, complement: null, neighborhood: null, city: null, state: null };
 
 const localEstablishments: LocalEstablishment[] = [
-  { id: "parque-aeroporto", name: "Parque Aeroporto", slug: "parque-aeroporto", active: true },
-  { id: "anexo", name: "Anexo", slug: "anexo", active: true },
-  { id: "cavaleiros", name: "Cavaleiros", slug: "cavaleiros", active: true },
-  { id: "lagomar", name: "Lagomar", slug: "lagomar", active: true },
+  { id: "parque-aeroporto", name: "Parque Aeroporto", slug: "parque-aeroporto", active: true, ...blankAddress },
+  { id: "anexo", name: "Anexo", slug: "anexo", active: true, ...blankAddress },
+  { id: "cavaleiros", name: "Cavaleiros", slug: "cavaleiros", active: true, ...blankAddress },
+  { id: "lagomar", name: "Lagomar", slug: "lagomar", active: true, ...blankAddress },
 ];
 
 export function isLocalAuthEnabled() {
@@ -117,12 +120,12 @@ export function listLocalEstablishments() {
 
 export function createLocalEstablishment(name: string, slug: string) {
   if (localEstablishments.some(item => item.slug === slug)) return null;
-  const establishment = { id: `${slug}-${Date.now()}`, name, slug, active: true };
+  const establishment = { id: `${slug}-${Date.now()}`, name, slug, active: true, ...blankAddress };
   localEstablishments.push(establishment);
   return { ...establishment };
 }
 
-export function updateLocalEstablishment(id: string, data: { name?: string; slug?: string; active?: boolean }) {
+export function updateLocalEstablishment(id: string, data: { name?: string; slug?: string; active?: boolean } & Partial<LocalEstablishmentAddress>) {
   const establishment = localEstablishments.find(item => item.id === id);
   if (!establishment) return null;
   if (data.slug && localEstablishments.some(item => item.id !== id && item.slug === data.slug)) return "DUPLICATE" as const;

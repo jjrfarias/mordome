@@ -244,6 +244,13 @@ model Establishment {
   slug             String
   document         String?
   phone            String?
+  postalCode       String?
+  street           String?
+  number           String?
+  complement       String?
+  neighborhood     String?
+  city             String?
+  state            String?
   timezone         String                       @default("America/Sao_Paulo")
   serviceRate      Decimal                      @default(10) @db.Decimal(5, 2)
   active           Boolean                      @default(true)

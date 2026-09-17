@@ -12,19 +12,47 @@ const createSchema = z.object({
   name: z.string().trim().min(2).max(100),
 });
 
+const addressSchema = z.object({
+  postalCode: z.string().trim().max(9).optional(),
+  street: z.string().trim().max(200).optional(),
+  number: z.string().trim().max(20).optional(),
+  complement: z.string().trim().max(100).optional(),
+  neighborhood: z.string().trim().max(100).optional(),
+  city: z.string().trim().max(100).optional(),
+  state: z.string().trim().max(2).optional(),
+});
+
 const patchSchema = z.object({
   establishmentId: z.string().trim().min(1),
   name: z.string().trim().min(2).max(100).optional(),
   active: z.boolean().optional(),
-}).refine(value => value.name !== undefined || value.active !== undefined, {
-  message: "Informe um nome ou um novo status.",
+}).merge(addressSchema).refine(value => value.name !== undefined || value.active !== undefined || Object.keys(addressSchema.shape).some(key => value[key as keyof typeof value] !== undefined), {
+  message: "Informe um nome, um novo status ou um endereço.",
 });
+
+const addressKeys = ["postalCode", "street", "number", "complement", "neighborhood", "city", "state"] as const;
+function addressPatch(data: z.infer<typeof patchSchema>) {
+  const patch: Partial<Record<(typeof addressKeys)[number], string | null>> = {};
+  for (const key of addressKeys) {
+    const value = data[key];
+    if (value === undefined) continue;
+    patch[key] = key === "postalCode" ? value.replace(/\D/g, "") || null : value || null;
+  }
+  return patch;
+}
 
 type EstablishmentPayload = {
   id: string;
   name: string;
   slug: string;
   active: boolean;
+  postalCode: string | null;
+  street: string | null;
+  number: string | null;
+  complement: string | null;
+  neighborhood: string | null;
+  city: string | null;
+  state: string | null;
 };
 
 async function resolveActor() {
@@ -65,6 +93,13 @@ export async function GET(request: Request) {
       name: establishment.name,
       slug: establishment.slug,
       active: establishment.active,
+      postalCode: establishment.postalCode,
+      street: establishment.street,
+      number: establishment.number,
+      complement: establishment.complement,
+      neighborhood: establishment.neighborhood,
+      city: establishment.city,
+      state: establishment.state,
     })),
   } satisfies { establishments: EstablishmentPayload[] });
 };
@@ -137,6 +172,7 @@ export async function PATCH(request: Request) {
     const updated = updateLocalEstablishment(current.id, {
       ...(data.name === undefined ? {} : { name: data.name, slug: slugify(data.name) }),
       ...(data.active === undefined ? {} : { active: data.active }),
+      ...addressPatch(data),
     });
     if (updated === "DUPLICATE") return Response.json({ error: "Já existe um estabelecimento com esse nome." }, { status: 409 });
     if (!updated) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
@@ -184,6 +220,11 @@ export async function PATCH(request: Request) {
         payload.active = data.active;
         after.active = data.active;
       }
+      const addressChanges = addressPatch(data);
+      if (Object.keys(addressChanges).length > 0) {
+        Object.assign(payload, addressChanges);
+        Object.assign(after, addressChanges);
+      }
 
       const changed = await tx.establishment.update({ where: { id: fresh.id }, data: payload });
       await tx.auditEvent.create({
@@ -200,8 +241,10 @@ export async function PATCH(request: Request) {
               ? "Desativação de estabelecimento"
               : data.active === true
                 ? "Ativação de estabelecimento"
-                : "Atualização de estabelecimento",
-          before: { id: fresh.id, name: fresh.name, slug: fresh.slug, active: fresh.active } as Prisma.JsonObject,
+                : Object.keys(addressChanges).length > 0
+                  ? "Atualização de endereço do estabelecimento"
+                  : "Atualização de estabelecimento",
+          before: { id: fresh.id, name: fresh.name, slug: fresh.slug, active: fresh.active, postalCode: fresh.postalCode, street: fresh.street, number: fresh.number, complement: fresh.complement, neighborhood: fresh.neighborhood, city: fresh.city, state: fresh.state } as Prisma.JsonObject,
           after: after as Prisma.JsonObject,
           ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
         },
@@ -209,7 +252,7 @@ export async function PATCH(request: Request) {
       return changed;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    return Response.json({ establishment: { id: updated.id, name: updated.name, slug: updated.slug, active: updated.active } });
+    return Response.json({ establishment: { id: updated.id, name: updated.name, slug: updated.slug, active: updated.active, postalCode: updated.postalCode, street: updated.street, number: updated.number, complement: updated.complement, neighborhood: updated.neighborhood, city: updated.city, state: updated.state } });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return Response.json({ error: "Já existe um estabelecimento com esse nome." }, { status: 409 });
