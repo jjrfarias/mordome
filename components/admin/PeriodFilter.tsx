@@ -28,7 +28,7 @@ export function PeriodFilter({ from, to, onChange, label = "Período" }: { from:
   const applyShortcut = (shortcut: PeriodShortcut) => onChange(shortcutRange(shortcut));
 
   return <div className="period-filter">
-    <div className="settings-form">
+    <div className="period-filter-fields">
       <label className="field"><span>De</span><input type="date" value={from} onChange={event => onChange({ from: event.target.value, to })} /></label>
       <label className="field"><span>Até</span><input type="date" value={to} onChange={event => onChange({ from, to: event.target.value })} /></label>
     </div>

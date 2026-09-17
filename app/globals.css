@@ -101,6 +101,7 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 .settings-summary>strong{font-family:var(--font-fraunces),serif;color:var(--ink);font-size:24px;line-height:1}
 .settings-summary>strong small{color:#aaa398;font-size:12px;font-weight:600}
 .settings-form{display:grid;grid-template-columns:minmax(240px,1fr) auto;align-items:end;gap:10px;margin-top:22px;padding-top:20px;border-top:1px solid var(--line)}
+.period-filter-fields{display:grid;grid-template-columns:repeat(2,minmax(160px,1fr));align-items:end;gap:10px;margin-top:22px;padding-top:20px;border-top:1px solid var(--line)}
 .field{display:grid;gap:7px;color:#625e58;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em}
 .field input,.inline-input{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px;background:#fffefa;color:var(--ink);padding:10px 12px;outline:none}
 .field input:focus,.inline-input:focus{border-color:var(--gold);box-shadow:0 0 0 3px rgba(226,164,0,.12)}

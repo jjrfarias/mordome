@@ -53,7 +53,7 @@ export function SalesTrackingDashboard() {
     <section className="panel settings-shell">
       <div className="settings-shell-header"><div><span className="section-kicker">Acompanhamento de vendas</span><h2>Período</h2></div></div>
       <p className="section-note">Faturamento, horário de pico e composição por canal do dia escolhido, na unidade ativa.</p>
-      <div className="settings-form">
+      <div className="settings-form" style={{ gridTemplateColumns: "minmax(160px, 220px) auto" }}>
         <div className="field">
           <label htmlFor="sales-tracking-date">Data</label>
           <input id="sales-tracking-date" type="date" value={date} max={todayInput()} onChange={event => setDate(event.target.value)} />
