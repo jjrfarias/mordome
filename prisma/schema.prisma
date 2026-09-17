@@ -277,6 +277,8 @@ model Establishment {
   printTemplate     PrintTemplate?
   couponRedemptions CouponRedemption[]
   cashFronts        CashFront[]
+  fiscalConfig      FiscalConfig?
+  fiscalDocuments   FiscalDocument[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
@@ -521,6 +523,7 @@ model Sale {
   tab             Tab?
   deliveryOrder   DeliveryOrder?
   couponRedemption CouponRedemption?
+  fiscalDocument  FiscalDocument?
 
   @@index([organizationId, establishmentId, completedAt])
   @@index([cashSessionId, status])
@@ -808,6 +811,13 @@ model Product {
   description    String?
   imageUrl       String?
   active         Boolean          @default(true)
+  // Dados fiscais (ADR 0049) — todos opcionais: só passam a ser exigidos de fato no momento da
+  // emissão da NFC-e, quando a unidade tem o módulo fiscal ativo (`FiscalConfig.active`).
+  ncm            String?
+  cfop           String?
+  icmsCst        String?
+  icmsOrigin     String?
+  unitOfMeasure  String?
   createdAt      DateTime         @default(now())
   updatedAt      DateTime         @updatedAt
   organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -1366,4 +1376,63 @@ model SettlementRecord {
   @@unique([establishmentId, userId, role, from, to])
   @@index([establishmentId, role, paidAt])
   @@index([userId])
+}
+
+// Fundação fiscal (ADR 0049): configuração por estabelecimento para emissão de NFC-e via um
+// provedor externo (Focus NFe) — a unidade traz sua PRÓPRIA conta/token do provedor, certificado
+// digital e CSC são configurados diretamente no painel do provedor (nunca armazenados aqui) — ver
+// ADR para o porquê dessa divisão de responsabilidade.
+enum FiscalTaxRegime {
+  SIMPLES_NACIONAL
+  LUCRO_PRESUMIDO
+  LUCRO_REAL
+}
+
+enum FiscalEnvironment {
+  HOMOLOGACAO
+  PRODUCAO
+}
+
+enum FiscalDocumentStatus {
+  PENDING
+  AUTHORIZED
+  REJECTED
+  CANCELLED
+  ERROR
+}
+
+model FiscalConfig {
+  id                String            @id @default(cuid())
+  establishmentId   String            @unique
+  active            Boolean           @default(false)
+  provider          String            @default("FOCUS_NFE")
+  providerApiToken  String?
+  environment       FiscalEnvironment @default(HOMOLOGACAO)
+  stateRegistration String?
+  taxRegime         FiscalTaxRegime?
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  establishment     Establishment     @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+}
+
+model FiscalDocument {
+  id              String               @id @default(cuid())
+  establishmentId String
+  saleId          String               @unique
+  status          FiscalDocumentStatus @default(PENDING)
+  environment     FiscalEnvironment
+  accessKey       String?
+  number          String?
+  series          String?
+  statusMessage   String?
+  danfeUrl        String?
+  qrCodeUrl       String?
+  cancelReason    String?
+  cancelledAt     DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  establishment   Establishment        @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  sale            Sale                 @relation(fields: [saleId], references: [id], onDelete: Cascade)
+
+  @@index([establishmentId, status])
 }

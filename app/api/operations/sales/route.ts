@@ -16,6 +16,10 @@ import { resolveIngredientSelections, type SelectedOptionSnapshot } from "@/lib/
 import { validateCoupon, normalizeCouponCode, type CouponRecord } from "@/lib/coupons";
 import { findLocalCouponByCode, redeemLocalCoupon } from "@/lib/local-coupons";
 import { listLocalSalesForManagement } from "@/lib/local-finance";
+import { getLocalFiscalConfig, upsertLocalFiscalDocument } from "@/lib/local-fiscal";
+import { focusNfeProvider } from "@/lib/fiscal/focus-nfe";
+import { mockFiscalProvider } from "@/lib/fiscal/mock-provider";
+import type { FiscalPaymentInput, FiscalSaleItemInput } from "@/lib/fiscal/types";
 
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const saleItemSchema = z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(999), discount: z.number().finite().min(0).optional(), selectedOptions: z.array(optionSelectionSchema).max(10).optional() });
@@ -36,6 +40,22 @@ async function resolveActor() {
   if (!session) return null;
   const membership = await db.organizationMembership.findFirst({ where: { userId: session.user.id, organizationId: session.organization.id, status: MembershipStatus.ACTIVE } });
   return membership ? { session, membership } : null;
+}
+
+// Emissão de NFC-e ao concluir uma venda (ADR 0049) — modo servidor. Só age se a unidade tiver o
+// módulo fiscal ativo E um token de provedor configurado; nas demais unidades, retorna `null` sem
+// criar nenhum registro (o módulo fiscal é 100% opt-in, unidade sem configuração nenhuma nunca
+// nota diferença nenhuma na venda).
+async function tryEmitFiscalDocument(establishmentId: string, saleId: string, cnpj: string | null, items: FiscalSaleItemInput[], payments: FiscalPaymentInput[]) {
+  const config = await db.fiscalConfig.findUnique({ where: { establishmentId } });
+  if (!config?.active || !config.providerApiToken || !cnpj) return null;
+  const result = await focusNfeProvider.emit({ saleId, cnpj, items, payments }, { apiToken: config.providerApiToken, environment: config.environment });
+  const document = await db.fiscalDocument.upsert({
+    where: { saleId },
+    update: { status: result.status, environment: config.environment, statusMessage: result.statusMessage, ...(result.status === "AUTHORIZED" ? { accessKey: result.accessKey, number: result.number, series: result.series, danfeUrl: result.danfeUrl, qrCodeUrl: result.qrCodeUrl } : {}) },
+    create: { establishmentId, saleId, status: result.status, environment: config.environment, statusMessage: result.statusMessage, ...(result.status === "AUTHORIZED" ? { accessKey: result.accessKey, number: result.number, series: result.series, danfeUrl: result.danfeUrl, qrCodeUrl: result.qrCodeUrl } : {}) },
+  });
+  return { status: document.status, statusMessage: document.statusMessage };
 }
 
 const listQuerySchema = z.object({ from: z.string().min(1).optional(), to: z.string().min(1).optional() });
@@ -149,6 +169,7 @@ export async function POST(request: Request) {
     const cash = getLocalOpenCashSession(session.establishment.id, session.user.id); if (!cash) return Response.json({ error: "Abra o caixa antes de finalizar uma venda." }, { status: 409 });
     const result = completeLocalSale({ establishmentId: session.establishment.id, idempotencyKey: data.idempotencyKey, channel: data.channel, items: localItems.map(item => ({ productId: item.productId, quantity: item.quantity })), operatorId: session.user.id });
     let kitchenTicket: ReturnType<typeof createLocalCounterOrder>["kitchenTicket"] | null = null;
+    let fiscalStatus: { status: string; statusMessage: string | null } | null = null;
     if (result.status === "PRODUCT_NOT_FOUND") return Response.json({ error: "Produto indisponível nesta unidade ou canal." }, { status: 409 });
     if (result.status === "INSUFFICIENT_STOCK") return Response.json({ error: "Estoque insuficiente para concluir a venda." }, { status: 409 });
     if (result.status === "NOT_CONFIGURED") return Response.json({ error: "A ficha usa um item não configurado nesta unidade." }, { status: 409 });
@@ -204,9 +225,20 @@ export async function POST(request: Request) {
           kitchenTicket = created.kitchenTicket;
           recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "ORDER_SENT", entityType: "Order", entityId: created.order.id, reason: "Pedido enviado para a cozinha — Balcão (PDV)", after: { items: items.map(item => ({ productName: item.productName, quantity: item.quantity })) }, ...requestAuditMetadata(request) });
         }
+        // Emissão de NFC-e (ADR 0049) — modo local, provedor simulado (nunca sai da máquina): só
+        // age se o módulo fiscal da unidade estiver ativo, mesmo comportamento opt-in do servidor.
+        const fiscalConfig = getLocalFiscalConfig(session.establishment.id);
+        if (fiscalConfig.active && fiscalConfig.providerApiToken) {
+          const fiscalItems: FiscalSaleItemInput[] = items.map(item => { const product = catalog.find(candidate => candidate.id === item.productId); return { productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, ncm: product?.ncm ?? null, cfop: product?.cfop ?? null, icmsCst: product?.icmsCst ?? null, icmsOrigin: product?.icmsOrigin ?? null, unitOfMeasure: product?.unitOfMeasure ?? null }; });
+          const fiscalPayments: FiscalPaymentInput[] = payments.map(payment => ({ method: payment.method as FiscalPaymentInput["method"], amount: payment.amount }));
+          const saleId = result.sale.id;
+          const emitted = await mockFiscalProvider.emit({ saleId, cnpj: "00000000000000", items: fiscalItems, payments: fiscalPayments }, { apiToken: fiscalConfig.providerApiToken, environment: fiscalConfig.environment });
+          const document = upsertLocalFiscalDocument(session.establishment.id, saleId, { status: emitted.status, environment: fiscalConfig.environment, statusMessage: emitted.statusMessage, ...(emitted.status === "AUTHORIZED" ? { accessKey: emitted.accessKey, number: emitted.number, series: emitted.series, danfeUrl: emitted.danfeUrl, qrCodeUrl: emitted.qrCodeUrl } : {}) });
+          fiscalStatus = { status: document.status, statusMessage: document.statusMessage };
+        }
       }
     }
-    return Response.json({ sale: result.sale, kitchenTicket }, { status: result.status === "DUPLICATE" ? 200 : 201 });
+    return Response.json({ sale: result.sale, kitchenTicket, fiscal: fiscalStatus }, { status: result.status === "DUPLICATE" ? 200 : 201 });
   }
 
   const actor = await resolveActor();
@@ -238,6 +270,9 @@ export async function POST(request: Request) {
       const requestedItems: { productId: string; quantity: number; lockedUnitPrice?: number; lockedSelectedOptionsSnapshot?: unknown; selectedOptions?: { groupId: string; optionIds: string[] }[] }[] = tab ? tab.items.map(item => ({ productId: item.productId ?? "", quantity: Number(item.quantity), lockedUnitPrice: Number(item.unitPrice), lockedSelectedOptionsSnapshot: item.selectedOptionsSnapshot })) : deliveryOrder ? deliveryOrder.items.map(item => ({ productId: item.productId ?? "", quantity: item.quantity, lockedUnitPrice: Number(item.unitPrice), lockedSelectedOptionsSnapshot: item.selectedOptionsSnapshot })) : data.items;
       if (!requestedItems.length || requestedItems.some(item => !item.productId)) throw new Error(deliveryOrder ? "DELIVERY_EMPTY" : "TAB_EMPTY");
       const saleItems: { productId: string; productName: string; quantity: number; unitPrice: number; total: number; recipeSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull; selectedOptionsSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull }[] = [];
+      // Dados fiscais (ADR 0049), capturados no mesmo laço que já busca cada `product` — evita uma
+      // segunda consulta só pra emitir a NFC-e depois que a venda for concluída.
+      const fiscalItems: FiscalSaleItemInput[] = [];
       const aggregated = new Map<string, { quantity: number; allowNegative: boolean; movements: { quantity: Prisma.Decimal; unitCost: Prisma.Decimal | null }[] }>();
 
       for (const requested of requestedItems) {
@@ -273,6 +308,7 @@ export async function POST(request: Request) {
         }
         const unitPrice = requested.lockedUnitPrice ?? roundMoney(Number(offering.price) + ingredientPriceDelta); const total = roundMoney(unitPrice * requested.quantity);
         saleItems.push({ productId: product.id, productName: product.name, quantity: requested.quantity, unitPrice, total, recipeSnapshot: recipe ? { recipeId: recipe.id, recipeName: recipe.name, yieldQuantity: Number(recipe.yieldQuantity), components: snapshotComponents } : Prisma.JsonNull, selectedOptionsSnapshot });
+        fiscalItems.push({ productName: product.name, quantity: requested.quantity, unitPrice, ncm: product.ncm, cfop: product.cfop, icmsCst: product.icmsCst, icmsOrigin: product.icmsOrigin, unitOfMeasure: product.unitOfMeasure });
       }
 
       for (const [establishmentItemId, consumption] of aggregated) {
@@ -354,9 +390,15 @@ export async function POST(request: Request) {
         }
         kitchenTicket = { orderId: counterOrder.id, sentAt: counterOrder.sentAt.toISOString(), tickets: [...grouped.values()] };
       }
-      return { sale: created, kitchenTicket };
+      return { sale: created, kitchenTicket, fiscalItems, fiscalPayments: payments.map(payment => ({ method: payment.method, amount: payment.amount }) as FiscalPaymentInput), cnpj: establishment.document };
     });
-    return Response.json({ sale: { id: sale.sale.id, total: Number(sale.sale.total) }, kitchenTicket: sale.kitchenTicket }, { status: 201 });
+
+    // Emissão de NFC-e (ADR 0049): sempre DEPOIS que a transação da venda já foi confirmada, e
+    // nunca capaz de derrubar a resposta da venda — problema fiscal não pode impedir o caixa de
+    // cobrar o cliente. Uma falha aqui vira um FiscalDocument com status ERROR, visível e
+    // re-emitível na tela de Notas fiscais, não um erro 500 na hora de vender.
+    const fiscalStatus = await tryEmitFiscalDocument(actor.session.establishment.id, sale.sale.id, sale.cnpj, sale.fiscalItems, sale.fiscalPayments);
+    return Response.json({ sale: { id: sale.sale.id, total: Number(sale.sale.total) }, kitchenTicket: sale.kitchenTicket, fiscal: fiscalStatus }, { status: 201 });
   } catch (error) {
     if (error instanceof IngredientOptionError) return Response.json({ error: error.message }, { status: 400 });
     if (error instanceof Error && error.message === "PRODUCT_NOT_AVAILABLE") return Response.json({ error: "Produto indisponível nesta unidade ou canal." }, { status: 409 });

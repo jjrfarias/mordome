@@ -355,6 +355,14 @@ Cadastro, configuração por estabelecimento, conversão de entrada, saldo, tran
 
 Obrigatória para alteração de permissões, cancelamento, desconto, mudança de preço, ajuste de estoque, retirada, fechamento de caixa e toda nova operação persistente. Mesas, comandas e cozinha já alimentam oficialmente a trilha quando o banco persistente está ativo.
 
+## Fundação fiscal — emissão de NFC-e implementada (ADR 0049)
+
+- Configurações → Dados fiscais: ativação do módulo, token da conta Focus NFe, ambiente (homologação/produção), Inscrição Estadual e regime tributário, por estabelecimento (permissão `fiscal.manage`). Certificado digital e CSC são configurados direto no painel do Focus NFe, nunca no Mordomê.
+- Configurações → Dados fiscais dos produtos: NCM, CFOP, CST/CSOSN, origem e unidade por produto.
+- Toda venda concluída (PDV/Salão/Delivery) com o módulo ativo gera uma tentativa de emissão de NFC-e automaticamente, sem nenhum botão a mais — nunca bloqueia a venda se a emissão falhar.
+- Configurações → Notas fiscais: histórico de emissões, reemissão após erro/rejeição, cancelamento dentro da janela de 30 minutos.
+- Planejado: inutilização de numeração, emissão testada contra a API real do Focus NFe (esta fatia foi validada só com o provedor simulado — ver ADR 0049).
+
 ## Cadastro de clientes implementado (ADR 0047)
 
 - Configurações → Clientes: busca por nome/telefone, cadastro manual, edição e inativação (permissão `customers.manage`).

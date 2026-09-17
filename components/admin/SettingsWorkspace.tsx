@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, Boxes, Building2, FlaskConical, LayoutGrid, ListTree, Plug, Users, Wallet, Ban, Clock, Ticket, User, Landmark } from "lucide-react";
+import { BookOpen, Boxes, Building2, FlaskConical, LayoutGrid, ListTree, Plug, Users, Wallet, Ban, Clock, Ticket, User, Landmark, ShieldCheck, ClipboardList, FileText } from "lucide-react";
 import { CatalogManagement } from "@/components/admin/CatalogManagement";
 import { EstablishmentsManagement } from "@/components/admin/EstablishmentsManagement";
 import { InventoryManagement } from "@/components/admin/InventoryManagement";
@@ -14,8 +14,11 @@ import { WorkShiftsManagement } from "@/components/admin/WorkShiftsManagement";
 import { CouponsManagement } from "@/components/admin/CouponsManagement";
 import { CustomersManagement } from "@/components/admin/CustomersManagement";
 import { CashFrontsManagement } from "@/components/admin/CashFrontsManagement";
+import { FiscalConfigManagement } from "@/components/admin/FiscalConfigManagement";
+import { ProductFiscalManagement } from "@/components/admin/ProductFiscalManagement";
+import { FiscalDocumentsManagement } from "@/components/admin/FiscalDocumentsManagement";
 
-type SettingsSection = "catalog" | "inventory" | "recipes" | "establishments" | "users" | "integrations" | "stations" | "salon" | "finance" | "cancellationReasons" | "workShifts" | "coupons" | "customers" | "cashFronts";
+type SettingsSection = "catalog" | "inventory" | "recipes" | "establishments" | "users" | "integrations" | "stations" | "salon" | "finance" | "cancellationReasons" | "workShifts" | "coupons" | "customers" | "cashFronts" | "fiscalConfig" | "productFiscal" | "fiscalDocuments";
 
 type SettingsWorkspaceProps = {
   activeEstablishmentId: string;
@@ -36,10 +39,11 @@ type SettingsWorkspaceProps = {
   canViewFinanceCashflow: boolean;
   canManageSettlements: boolean;
   canManageCustomers: boolean;
+  canManageFiscal: boolean;
   onChanged: () => Promise<void>;
 };
 
-export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentName, canManageEstablishments, canManageCatalog, canManageStock, canManageRecipes, canViewUsers, canCreateUsers, canDisableUsers, canResetUserPassword, canManageRoles, canManageIntegrations, canManageFloor, canManageFinance, canManageFinanceEntries, canViewFinanceCashflow, canManageSettlements, canManageCustomers, onChanged }: SettingsWorkspaceProps) {
+export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentName, canManageEstablishments, canManageCatalog, canManageStock, canManageRecipes, canViewUsers, canCreateUsers, canDisableUsers, canResetUserPassword, canManageRoles, canManageIntegrations, canManageFloor, canManageFinance, canManageFinanceEntries, canViewFinanceCashflow, canManageSettlements, canManageCustomers, canManageFiscal, onChanged }: SettingsWorkspaceProps) {
   const initialSection: SettingsSection = canManageCatalog ? "catalog" : canManageStock ? "inventory" : canManageRecipes ? "recipes" : canManageFloor ? "salon" : (canManageFinance || canManageFinanceEntries || canViewFinanceCashflow || canManageSettlements) ? "finance" : canManageEstablishments ? "establishments" : canViewUsers || canManageRoles ? "users" : "integrations";
   const [section, setSection] = useState<SettingsSection>(initialSection);
 
@@ -57,6 +61,9 @@ export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentNa
       {canManageEstablishments && <button className={section === "cancellationReasons" ? "active" : ""} onClick={() => setSection("cancellationReasons")}><Ban />Motivos de cancelamento</button>}
       {canManageEstablishments && <button className={section === "workShifts" ? "active" : ""} onClick={() => setSection("workShifts")}><Clock />Turnos</button>}
       {canManageEstablishments && <button className={section === "cashFronts" ? "active" : ""} onClick={() => setSection("cashFronts")}><Landmark />Frentes de caixa</button>}
+      {canManageFiscal && <button className={section === "fiscalConfig" ? "active" : ""} onClick={() => setSection("fiscalConfig")}><ShieldCheck />Dados fiscais</button>}
+      {canManageFiscal && <button className={section === "productFiscal" ? "active" : ""} onClick={() => setSection("productFiscal")}><ClipboardList />Dados fiscais dos produtos</button>}
+      {canManageFiscal && <button className={section === "fiscalDocuments" ? "active" : ""} onClick={() => setSection("fiscalDocuments")}><FileText />Notas fiscais</button>}
       {(canViewUsers || canManageRoles) && <button className={section === "users" ? "active" : ""} onClick={() => setSection("users")}><Users />Equipe e perfis</button>}
       {canManageIntegrations && <button className={section === "integrations" ? "active" : ""} onClick={() => setSection("integrations")}><Plug />Integrações</button>}
     </nav>
@@ -68,6 +75,9 @@ export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentNa
     {section === "cancellationReasons" && canManageEstablishments && <CancellationReasonsManagement />}
     {section === "workShifts" && canManageEstablishments && <WorkShiftsManagement activeEstablishmentId={activeEstablishmentId} canViewUsers={canViewUsers} />}
     {section === "cashFronts" && canManageEstablishments && <CashFrontsManagement />}
+    {section === "fiscalConfig" && canManageFiscal && <FiscalConfigManagement />}
+    {section === "productFiscal" && canManageFiscal && <ProductFiscalManagement />}
+    {section === "fiscalDocuments" && canManageFiscal && <FiscalDocumentsManagement />}
     {section === "users" && (canViewUsers || canManageRoles) && <UsersManagement activeEstablishmentId={activeEstablishmentId} canViewUsers={canViewUsers} canCreateUsers={canCreateUsers} canDisableUsers={canDisableUsers} canResetUserPassword={canResetUserPassword} canManageRoles={canManageRoles} onAccessChanged={onChanged} />}
     {section === "integrations" && canManageIntegrations && <IntegrationsManagement activeEstablishmentId={activeEstablishmentId} onChanged={onChanged} />}
     {section === "stations" && canManageCatalog && <StationsManagement activeEstablishmentId={activeEstablishmentId} />}

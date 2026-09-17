@@ -5,6 +5,11 @@ export type LocalCatalogChannel = "POS" | "FLOOR" | "ONLINE" | "DELIVERY";
 export type LocalIngredientOption = { id: string; name: string; priceDelta: number; active: boolean };
 export type LocalIngredientGroup = { id: string; productId: string; name: string; minSelections: number; maxSelections: number; active: boolean; options: LocalIngredientOption[] };
 
+// Dados fiscais (ADR 0049) — sempre opcionais, um produto sem eles funciona normalmente em todas
+// as vendas; só passam a ser exigidos no momento de emitir a NFC-e, se o módulo fiscal da unidade
+// estiver ativo.
+export type LocalProductFiscalInfo = { ncm: string | null; cfop: string | null; icmsCst: string | null; icmsOrigin: string | null; unitOfMeasure: string | null };
+
 export type LocalCatalogProduct = {
   id: string;
   name: string;
@@ -14,32 +19,41 @@ export type LocalCatalogProduct = {
   active: boolean;
   imageUrl: string | null;
   ingredientGroups: LocalIngredientGroup[];
-};
+} & LocalProductFiscalInfo;
 
 type LocalCatalogRecord = Omit<LocalCatalogProduct, "price" | "channels" | "ingredientGroups"> & {
   offerings: Map<string, { price: number; channels: LocalCatalogChannel[] }>;
   ingredientGroups: LocalIngredientGroup[];
 };
 
+const emptyFiscalInfo: LocalProductFiscalInfo = { ncm: null, cfop: null, icmsCst: null, icmsOrigin: null, unitOfMeasure: null };
+
 const defaultEstablishments = ["parque-aeroporto", "anexo", "cavaleiros", "lagomar"];
 const catalogProducts: LocalCatalogRecord[] = [
-  { id: "p1", name: "X-Burger da Casa", category: "Lanches", active: true, imageUrl: null, offerings: new Map(defaultEstablishments.map(id => [id, { price: 28.9, channels: ["POS", "FLOOR"] }])), ingredientGroups: [] },
-  { id: "p2", name: "Batata rústica", category: "Porções", active: true, imageUrl: null, offerings: new Map(defaultEstablishments.map(id => [id, { price: 19.5, channels: ["POS", "FLOOR", "DELIVERY"] }])), ingredientGroups: [] },
-  { id: "p3", name: "Coca-Cola", category: "Bebidas", active: true, imageUrl: null, offerings: new Map(defaultEstablishments.map(id => [id, { price: 7, channels: ["POS", "FLOOR", "ONLINE", "DELIVERY"] }])), ingredientGroups: [] },
+  { id: "p1", name: "X-Burger da Casa", category: "Lanches", active: true, imageUrl: null, ...emptyFiscalInfo, offerings: new Map(defaultEstablishments.map(id => [id, { price: 28.9, channels: ["POS", "FLOOR"] }])), ingredientGroups: [] },
+  { id: "p2", name: "Batata rústica", category: "Porções", active: true, imageUrl: null, ...emptyFiscalInfo, offerings: new Map(defaultEstablishments.map(id => [id, { price: 19.5, channels: ["POS", "FLOOR", "DELIVERY"] }])), ingredientGroups: [] },
+  { id: "p3", name: "Coca-Cola", category: "Bebidas", active: true, imageUrl: null, ...emptyFiscalInfo, offerings: new Map(defaultEstablishments.map(id => [id, { price: 7, channels: ["POS", "FLOOR", "ONLINE", "DELIVERY"] }])), ingredientGroups: [] },
 ];
 
 export function listLocalCatalog(establishmentId: string) {
   return catalogProducts.map(product => {
     const offering = product.offerings.get(establishmentId);
-    return { id: product.id, name: product.name, category: product.category, active: product.active, imageUrl: product.imageUrl, price: offering?.price ?? 0, channels: [...(offering?.channels ?? [])], ingredientGroups: product.ingredientGroups.map(group => ({ ...group, options: [...group.options] })) };
+    return { id: product.id, name: product.name, category: product.category, active: product.active, imageUrl: product.imageUrl, ncm: product.ncm, cfop: product.cfop, icmsCst: product.icmsCst, icmsOrigin: product.icmsOrigin, unitOfMeasure: product.unitOfMeasure, price: offering?.price ?? 0, channels: [...(offering?.channels ?? [])], ingredientGroups: product.ingredientGroups.map(group => ({ ...group, options: [...group.options] })) };
   });
+}
+
+export function updateLocalCatalogProductFiscalInfo(productId: string, data: Partial<LocalProductFiscalInfo>) {
+  const product = catalogProducts.find(item => item.id === productId);
+  if (!product) return "NOT_FOUND" as const;
+  Object.assign(product, Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)));
+  return { id: product.id, ncm: product.ncm, cfop: product.cfop, icmsCst: product.icmsCst, icmsOrigin: product.icmsOrigin, unitOfMeasure: product.unitOfMeasure };
 }
 
 export function createLocalCatalogProduct(establishmentId: string, input: { name: string; category: string; price: number; channels: LocalCatalogChannel[]; imageUrl?: string }) {
   if (catalogProducts.some(product => product.name.toLocaleLowerCase("pt-BR") === input.name.toLocaleLowerCase("pt-BR"))) return null;
-  const product: LocalCatalogRecord = { id: `local-product-${randomUUID()}`, name: input.name, category: input.category, active: true, imageUrl: input.imageUrl ?? null, offerings: new Map([[establishmentId, { price: input.price, channels: [...input.channels] }]]), ingredientGroups: [] };
+  const product: LocalCatalogRecord = { id: `local-product-${randomUUID()}`, name: input.name, category: input.category, active: true, imageUrl: input.imageUrl ?? null, ...emptyFiscalInfo, offerings: new Map([[establishmentId, { price: input.price, channels: [...input.channels] }]]), ingredientGroups: [] };
   catalogProducts.push(product);
-  return { id: product.id, name: product.name, category: product.category, active: true, imageUrl: product.imageUrl, price: input.price, channels: [...input.channels], ingredientGroups: [] };
+  return { id: product.id, name: product.name, category: product.category, active: true, imageUrl: product.imageUrl, ...emptyFiscalInfo, price: input.price, channels: [...input.channels], ingredientGroups: [] };
 }
 
 export function updateLocalCatalogProduct(establishmentId: string, productId: string, input: { price: number; channels: LocalCatalogChannel[]; imageUrl?: string | null }) {
@@ -47,7 +61,7 @@ export function updateLocalCatalogProduct(establishmentId: string, productId: st
   if (!product) return null;
   product.offerings.set(establishmentId, { price: input.price, channels: [...input.channels] });
   if (input.imageUrl !== undefined) product.imageUrl = input.imageUrl;
-  return { id: product.id, name: product.name, category: product.category, active: product.active, imageUrl: product.imageUrl, price: input.price, channels: [...input.channels], ingredientGroups: product.ingredientGroups };
+  return { id: product.id, name: product.name, category: product.category, active: product.active, imageUrl: product.imageUrl, ncm: product.ncm, cfop: product.cfop, icmsCst: product.icmsCst, icmsOrigin: product.icmsOrigin, unitOfMeasure: product.unitOfMeasure, price: input.price, channels: [...input.channels], ingredientGroups: product.ingredientGroups };
 }
 
 export function listLocalIngredientGroups(productId: string) {
