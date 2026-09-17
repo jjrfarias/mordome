@@ -8,7 +8,7 @@ const contentSecurityPolicy = [
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: https://*.tile.openstreetmap.org https://cdnjs.cloudflare.com",
-  isDev ? "connect-src 'self' ws: https://router.project-osrm.org" : "connect-src 'self' https://router.project-osrm.org",
+  isDev ? "connect-src 'self' ws: https://router.project-osrm.org https://viacep.com.br" : "connect-src 'self' https://router.project-osrm.org https://viacep.com.br",
   "frame-ancestors 'none'",
   "base-uri 'self'",
   "form-action 'self'",

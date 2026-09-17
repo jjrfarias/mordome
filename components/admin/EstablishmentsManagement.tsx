@@ -415,7 +415,7 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
                     <label className="field"><span>Número</span><input value={addr.number} onChange={event => setAddressDraft(establishment.id, { number: event.target.value })} /></label>
                     <label className="field"><span>Complemento</span><input value={addr.complement} onChange={event => setAddressDraft(establishment.id, { complement: event.target.value })} /></label>
                     <label className="field"><span>Bairro</span><input value={addr.neighborhood} onChange={event => setAddressDraft(establishment.id, { neighborhood: event.target.value })} /></label>
-                    <label className="field"><span>Cidade</span><input value={addr.city} onChange={event => setAddressDraft(establishment.id, { city: event.target.value })} /></label>
+                    <label className="field span2"><span>Cidade</span><input value={addr.city} onChange={event => setAddressDraft(establishment.id, { city: event.target.value })} /></label>
                     <label className="field"><span>UF</span><input value={addr.state} maxLength={2} onChange={event => setAddressDraft(establishment.id, { state: event.target.value.toUpperCase() })} /></label>
                   </div>
                   <div className="settings-actions" style={{ marginTop: 10 }}>
