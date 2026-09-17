@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ShieldCheck } from "lucide-react";
+import { Printer, ShieldCheck } from "lucide-react";
 
-type FiscalConfig = { active: boolean; environment: "HOMOLOGACAO" | "PRODUCAO"; stateRegistration: string | null; taxRegime: "SIMPLES_NACIONAL" | "LUCRO_PRESUMIDO" | "LUCRO_REAL" | null; hasProviderApiToken: boolean };
+type FiscalConfig = { active: boolean; environment: "HOMOLOGACAO" | "PRODUCAO"; stateRegistration: string | null; taxRegime: "SIMPLES_NACIONAL" | "LUCRO_PRESUMIDO" | "LUCRO_REAL" | null; hasProviderApiToken: boolean; printDanfe: boolean };
 
 const regimeLabels: Record<NonNullable<FiscalConfig["taxRegime"]>, string> = { SIMPLES_NACIONAL: "Simples Nacional", LUCRO_PRESUMIDO: "Lucro Presumido", LUCRO_REAL: "Lucro Real" };
 
@@ -77,6 +77,12 @@ export function FiscalConfigManagement() {
         <ShieldCheck size={16} />
         {config?.hasProviderApiToken ? "Emitir NFC-e automaticamente ao concluir uma venda" : "Configure o token da API antes de ativar a emissão"}
       </div>
+      <div className="check-line" style={{ marginTop: 10 }}>
+        <input type="checkbox" checked={config?.printDanfe ?? false} disabled={saving || !config?.active} onChange={event => void save({ printDanfe: event.target.checked })} />
+        <Printer size={16} />
+        Imprimir o DANFE-NFC-e (com QR code) no lugar do recibo comum quando a nota sair autorizada
+      </div>
+      {config?.active && !config.printDanfe && <p className="section-note">Com essa opção desligada, o recibo impresso continua sendo o comprovante interno de sempre — a nota fica só na tela de Notas fiscais. Para cumprir a exigência legal de entregar o DANFE ao cliente, ative esta opção.</p>}
     </section>
   </section>;
 }

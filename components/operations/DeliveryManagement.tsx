@@ -8,6 +8,7 @@ import { DeliveryMap } from "./DeliveryMap";
 import { MapPicker } from "./MapPicker";
 import { IngredientPicker, productHasIngredientChoices } from "./IngredientPicker";
 import { DeliveryAreaSettings, type DeliveryArea } from "./DeliveryAreaSettings";
+import type { FiscalPrintInfo } from "@/lib/fiscal/print-info";
 
 type DeliveryStatus = "RECEIVED" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
 type Product = { id: string; name: string; category: string; price: number; ingredientGroups?: IngredientGroup[] };
@@ -21,7 +22,7 @@ const nextStatus: Partial<Record<DeliveryStatus, DeliveryStatus>> = { RECEIVED: 
 const nextActionLabel: Record<string, string> = { PREPARING: "Iniciar preparo", OUT_FOR_DELIVERY: "Saiu para entrega" };
 const boardColumns: DeliveryStatus[] = ["RECEIVED", "PREPARING", "OUT_FOR_DELIVERY"];
 
-export function DeliveryManagement({ establishmentId, establishmentName, onFinishSale, onToast }: { establishmentId: string; establishmentName: string; onFinishSale: (items: { id: string; quantity: number }[], checkout: SaleCheckout, deliveryOrderId: string) => Promise<boolean>; onToast: (message: string) => void }) {
+export function DeliveryManagement({ establishmentId, establishmentName, onFinishSale, onToast }: { establishmentId: string; establishmentName: string; onFinishSale: (items: { id: string; quantity: number }[], checkout: SaleCheckout, deliveryOrderId: string) => Promise<{ ok: boolean; fiscal: FiscalPrintInfo }>; onToast: (message: string) => void }) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [couriers, setCouriers] = useState<Courier[]>([]);
@@ -97,7 +98,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
     </div>}
 
     {creating && <NewOrderModal products={products} deliveryAreas={deliveryAreas} saving={saving} onClose={() => setCreating(false)} onCreate={async payload => { const ok = await act({ action: "CREATE", ...payload }, "Pedido de delivery criado"); if (ok) setCreating(false); return ok; }} />}
-    {checkoutOrder && <Checkout order={checkoutOrder} onCancel={() => setCheckoutOrder(null)} onConfirm={async checkout => { const items = checkoutOrder.items.map(item => ({ id: item.productId ?? "", quantity: item.quantity })); const ok = await onFinishSale(items, checkout, checkoutOrder.id); if (ok) { onToast(`Pedido de ${checkoutOrder.customerName} entregue e pago`); setCheckoutOrder(null); await load(); } return ok; }} />}
+    {checkoutOrder && <Checkout order={checkoutOrder} onCancel={() => setCheckoutOrder(null)} onConfirm={async checkout => { const items = checkoutOrder.items.map(item => ({ id: item.productId ?? "", quantity: item.quantity })); const { ok } = await onFinishSale(items, checkout, checkoutOrder.id); if (ok) { onToast(`Pedido de ${checkoutOrder.customerName} entregue e pago`); setCheckoutOrder(null); await load(); } return ok; }} />}
     {managingAreas && <DeliveryAreaSettings onClose={() => setManagingAreas(false)} onChanged={() => void load()} />}
   </div>;
 }

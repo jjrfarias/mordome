@@ -11,6 +11,7 @@ const patchSchema = z.object({
   environment: z.enum(FiscalEnvironment).optional(),
   stateRegistration: z.union([z.string().trim().max(30), z.literal("")]).nullable().optional(),
   taxRegime: z.enum(FiscalTaxRegime).nullable().optional(),
+  printDanfe: z.boolean().optional(),
 }).refine(value => Object.values(value).some(field => field !== undefined), { message: "Informe ao menos um campo para atualizar." });
 
 async function resolveActor() {
@@ -24,8 +25,8 @@ async function resolveActor() {
 // Configuração fiscal por estabelecimento (ADR 0049): o token do provedor NUNCA é devolvido de
 // volta ao navegador na leitura (só um indicador "configurado: sim/não") — mesmo padrão de
 // qualquer segredo já usado no sistema (senha, nunca reexibida).
-function serialize(config: { active: boolean; environment: string; stateRegistration: string | null; taxRegime: string | null; providerApiToken: string | null }) {
-  return { active: config.active, environment: config.environment, stateRegistration: config.stateRegistration, taxRegime: config.taxRegime, hasProviderApiToken: Boolean(config.providerApiToken) };
+function serialize(config: { active: boolean; environment: string; stateRegistration: string | null; taxRegime: string | null; providerApiToken: string | null; printDanfe: boolean }) {
+  return { active: config.active, environment: config.environment, stateRegistration: config.stateRegistration, taxRegime: config.taxRegime, hasProviderApiToken: Boolean(config.providerApiToken), printDanfe: config.printDanfe };
 }
 
 export async function GET(request: Request) {
@@ -40,7 +41,7 @@ export async function GET(request: Request) {
   const actor = await resolveActor();
   if (!actor) return Response.json({ error: "Acesso negado." }, { status: 403 });
   const config = await db.fiscalConfig.findUnique({ where: { establishmentId: actor.establishment.id } });
-  return Response.json({ config: serialize(config ?? { active: false, environment: "HOMOLOGACAO", stateRegistration: null, taxRegime: null, providerApiToken: null }) });
+  return Response.json({ config: serialize(config ?? { active: false, environment: "HOMOLOGACAO", stateRegistration: null, taxRegime: null, providerApiToken: null, printDanfe: false }) });
 }
 
 export async function PATCH(request: Request) {
@@ -55,7 +56,7 @@ export async function PATCH(request: Request) {
     const session = await getLocalSession();
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
     if (!session.canManageFiscal) return Response.json({ error: "Acesso negado." }, { status: 403 });
-    const updated = updateLocalFiscalConfig(session.establishment.id, { active: data.active, providerApiToken, environment: data.environment, stateRegistration, taxRegime: data.taxRegime });
+    const updated = updateLocalFiscalConfig(session.establishment.id, { active: data.active, providerApiToken, environment: data.environment, stateRegistration, taxRegime: data.taxRegime, printDanfe: data.printDanfe });
     return Response.json({ config: serialize(updated) });
   }
 
@@ -63,8 +64,8 @@ export async function PATCH(request: Request) {
   if (!actor) return Response.json({ error: "Acesso negado." }, { status: 403 });
   const config = await db.fiscalConfig.upsert({
     where: { establishmentId: actor.establishment.id },
-    update: { active: data.active, providerApiToken, environment: data.environment, stateRegistration, taxRegime: data.taxRegime },
-    create: { establishmentId: actor.establishment.id, active: data.active ?? false, providerApiToken, environment: data.environment ?? "HOMOLOGACAO", stateRegistration, taxRegime: data.taxRegime },
+    update: { active: data.active, providerApiToken, environment: data.environment, stateRegistration, taxRegime: data.taxRegime, printDanfe: data.printDanfe },
+    create: { establishmentId: actor.establishment.id, active: data.active ?? false, providerApiToken, environment: data.environment ?? "HOMOLOGACAO", stateRegistration, taxRegime: data.taxRegime, printDanfe: data.printDanfe ?? false },
   });
   await db.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "UPDATE", entityType: "FiscalConfig", entityId: config.id, reason: "Configuração fiscal atualizada", after: { active: config.active, environment: config.environment } } });
   return Response.json({ config: serialize(config) });

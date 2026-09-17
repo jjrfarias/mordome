@@ -19,7 +19,8 @@ import { SalesHistory } from "@/components/admin/SalesHistory";
 import { FloorManagement } from "@/components/operations/FloorManagement";
 import { PaymentComposer, serializeCheckout, type SaleCheckout } from "@/components/operations/PaymentComposer";
 import { ReasonSelect } from "@/components/operations/ReasonSelect";
-import { printKitchenOrder, printReceipt } from "@/lib/integrations/print-client";
+import { printDanfe, printKitchenOrder, printReceipt } from "@/lib/integrations/print-client";
+import type { FiscalPrintInfo } from "@/lib/fiscal/print-info";
 
 type View = "pdv" | "salão" | "cozinha" | "delivery" | "entregas" | "caixa" | "vendas" | "resumo" | "historico" | "relatorios" | "dashboards" | "config";
 type AuthSession = { user: { name: string; username: string }; organization: { name: string }; establishment: { id: string; name: string }; establishments: { id: string; name: string }[]; permissionKeys: string[]; canManageEstablishments: boolean; canManageCatalog: boolean; canManageStock: boolean; canManageRecipes: boolean; canSellPos: boolean; canCancelSales: boolean; canRefundSales: boolean; canApplyDiscount: boolean; canOverrideDiscount: boolean; canOperateFloor: boolean; canManageFloor: boolean; canOperateDelivery: boolean; canDeliverOrders: boolean; canCancelSentItems: boolean; canOpenCash: boolean; canMoveCash: boolean; canCloseCash: boolean; canViewCashHistory: boolean; canViewAudit: boolean; canViewFinanceSummary: boolean; canManageFinance: boolean; canManageFinanceEntries: boolean; canViewFinanceCashflow: boolean; canManageSettlements: boolean; canViewUsers: boolean; canCreateUsers: boolean; canDisableUsers: boolean; canResetUserPassword: boolean; canManageRoles: boolean; canManageIntegrations: boolean; canReprint: boolean; canManageCustomers: boolean; canManageFiscal: boolean; printerDriver: string; printTemplate: { headerText: string | null; footerText: string | null; showDocument: boolean; paperWidth: number; establishmentDocument: string | null } };
@@ -66,17 +67,17 @@ export default function Home() {
       setSession(data.session); notify(`Unidade alterada para ${data.session.establishment.name}`);
     } catch { notify("Não foi possível conectar ao servidor"); } finally { setSwitchingUnit(false); }
   };
-  const completeSale = async (items: { id: string; quantity: number; selectedOptions?: { groupId: string; optionIds: string[] }[] }[], checkout: SaleCheckout, channel: "POS" | "FLOOR" | "DELIVERY", table?: number, tabId?: string, deliveryOrderId?: string) => {
+  const completeSale = async (items: { id: string; quantity: number; selectedOptions?: { groupId: string; optionIds: string[] }[] }[], checkout: SaleCheckout, channel: "POS" | "FLOOR" | "DELIVERY", table?: number, tabId?: string, deliveryOrderId?: string): Promise<{ ok: boolean; fiscal: FiscalPrintInfo }> => {
     try {
       const response = await fetch("/api/operations/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "COMPLETE", channel, items: items.map(item => ({ productId: item.id, quantity: item.quantity, selectedOptions: item.selectedOptions })), ...checkout, table, tabId, deliveryOrderId, idempotencyKey: crypto.randomUUID() }) });
       const data = await response.json().catch(() => ({}));
-      if (!response.ok) { notify(data.error ?? "Não foi possível concluir a venda"); return false; }
+      if (!response.ok) { notify(data.error ?? "Não foi possível concluir a venda"); return { ok: false, fiscal: null }; }
       // PDV envia para a cozinha (ADR 0044): a rota já monta os tíquetes agrupados por fila —
       // aqui só dispara a impressão de cada um, mesmo critério do Salão ao enviar um pedido.
       const kitchenTicket = data.kitchenTicket as { orderId: string; sentAt: string; tickets: { stationName: string; printerDriver: string; items: { name: string; quantity: number }[] }[] } | null | undefined;
       if (kitchenTicket) for (const ticket of kitchenTicket.tickets) if (ticket.printerDriver === "browser_print") printKitchenOrder({ establishmentName: session.establishment.name, stationName: ticket.stationName, label: "Balcão", orderId: kitchenTicket.orderId, sentAt: kitchenTicket.sentAt, items: ticket.items });
-      return true;
-    } catch { notify("Não foi possível conectar ao servidor"); return false; }
+      return { ok: true, fiscal: (data.fiscal as FiscalPrintInfo) ?? null };
+    } catch { notify("Não foi possível conectar ao servidor"); return { ok: false, fiscal: null }; }
   };
 
   return <div className="app-shell">
@@ -116,7 +117,26 @@ export default function Home() {
     </aside>
     <main>
       <header><div><span className="header-date">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span><h1>{view === "pdv" ? "PDV rápido" : view === "salão" ? "Gestão do salão" : view === "cozinha" ? "Cozinha" : view === "delivery" ? "Delivery" : view === "entregas" ? "Minhas entregas" : view === "caixa" ? "Caixa" : view === "vendas" ? "Vendas" : view === "historico" ? "Histórico" : view === "relatorios" ? "Relatórios" : view === "dashboards" ? "Dashboards" : view === "config" ? "Configurações" : "Resumo do dia"}</h1></div><div className="header-actions"><span className="sync-state"><i /> Sincronizado agora</span><button className="icon-button" aria-label="Notificações"><Bell /></button><button className={`open-pill ${cashOpen ? "" : "closed"}`} onClick={() => setView("caixa")}><span /> {cashOpen ? "Caixa aberto" : "Caixa fechado"}</button></div></header>
-      {view === "pdv" && <Pos establishmentId={session.establishment.id} onFinish={async (items, checkout) => { const saleItems = items.map(item => ({ id: item.id, quantity: item.quantity, selectedOptions: item.optionSelections })); if (!await completeSale(saleItems, checkout, "POS")) return false; if (session.printerDriver === "browser_print") printReceipt({ establishmentName: session.establishment.name, items: items.map(item => ({ name: item.selectedOptions?.length ? `${item.name} — ${item.selectedOptions.map(option => option.optionName).join(", ")}` : item.name, quantity: item.quantity, unitPrice: item.price })), total: items.reduce((sum, item) => sum + item.price * item.quantity, 0) - checkout.discount, payment: checkout.payments.map(p => p.method).join(" + "), channel: "POS" }, session.printTemplate); notify("Venda realizada e estoque atualizado"); return true; }} />}
+      {view === "pdv" && <Pos establishmentId={session.establishment.id} onFinish={async (items, checkout) => {
+        const saleItems = items.map(item => ({ id: item.id, quantity: item.quantity, selectedOptions: item.optionSelections }));
+        const { ok, fiscal } = await completeSale(saleItems, checkout, "POS");
+        if (!ok) return false;
+        if (session.printerDriver === "browser_print") {
+          const receiptItems = items.map(item => ({ name: item.selectedOptions?.length ? `${item.name} — ${item.selectedOptions.map(option => option.optionName).join(", ")}` : item.name, quantity: item.quantity, unitPrice: item.price }));
+          const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0) - checkout.discount;
+          const payment = checkout.payments.map(p => p.method).join(" + ");
+          // DANFE-NFC-e no lugar do recibo comum (ADR 0049, adendo) — só quando a unidade ativou
+          // essa opção E a nota saiu autorizada; qualquer outro caso (módulo desligado, erro,
+          // rejeição) imprime o recibo de sempre, sem exceção.
+          if (fiscal?.printDanfe && fiscal.status === "AUTHORIZED" && fiscal.accessKey && fiscal.number && fiscal.series) {
+            printDanfe({ establishmentName: session.establishment.name, items: receiptItems, total, payment, accessKey: fiscal.accessKey, number: fiscal.number, series: fiscal.series, qrCodeUrl: fiscal.qrCodeUrl, environment: fiscal.environment as "HOMOLOGACAO" | "PRODUCAO" });
+          } else {
+            printReceipt({ establishmentName: session.establishment.name, items: receiptItems, total, payment, channel: "POS" }, session.printTemplate);
+          }
+        }
+        notify("Venda realizada e estoque atualizado");
+        return true;
+      }} />}
       {view === "salão" && <FloorManagement establishmentId={session.establishment.id} establishmentName={session.establishment.name} printerDriver={session.printerDriver} printTemplate={session.printTemplate} mode="salon" canCancelSentItems={session.canCancelSentItems} canReprint={session.canReprint} onToast={notify} onFinishSale={(items, payment, table, tabId) => completeSale(items, payment, "FLOOR", table, tabId)} />}
       {view === "cozinha" && <FloorManagement establishmentId={session.establishment.id} establishmentName={session.establishment.name} printerDriver={session.printerDriver} printTemplate={session.printTemplate} mode="kitchen" canCancelSentItems={session.canCancelSentItems} canReprint={session.canReprint} onToast={notify} onFinishSale={(items, payment, table, tabId) => completeSale(items, payment, "FLOOR", table, tabId)} />}
       {view === "delivery" && <DeliveryManagement establishmentId={session.establishment.id} establishmentName={session.establishment.name} onToast={notify} onFinishSale={(items, checkout, deliveryOrderId) => completeSale(items, checkout, "DELIVERY", undefined, undefined, deliveryOrderId)} />}

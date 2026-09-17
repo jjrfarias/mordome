@@ -361,6 +361,7 @@ Obrigatória para alteração de permissões, cancelamento, desconto, mudança d
 - Configurações → Dados fiscais dos produtos: NCM, CFOP, CST/CSOSN, origem e unidade por produto.
 - Toda venda concluída (PDV/Salão/Delivery) com o módulo ativo gera uma tentativa de emissão de NFC-e automaticamente, sem nenhum botão a mais — nunca bloqueia a venda se a emissão falhar.
 - Configurações → Notas fiscais: histórico de emissões, reemissão após erro/rejeição, cancelamento dentro da janela de 30 minutos.
+- Configurações → Dados fiscais: opção "Imprimir o DANFE-NFC-e", desligada por padrão mesmo com o módulo ativo. Ligada, a impressão da venda passa a ser o cupom fiscal (DANFE-NFC-e com QR code) em vez do recibo interno, mas só quando a nota daquela venda saiu autorizada — nota com erro/rejeitada sempre cai no recibo comum.
 - Planejado: inutilização de numeração, emissão testada contra a API real do Focus NFe (esta fatia foi validada só com o provedor simulado — ver ADR 0049).
 
 ## Cadastro de clientes implementado (ADR 0047)

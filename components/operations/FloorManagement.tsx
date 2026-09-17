@@ -5,7 +5,8 @@ import { ChefHat, ChevronLeft, CircleDollarSign, Clock3, LayoutGrid, Minus, Plus
 import { money, IngredientGroup, SelectedIngredientOption } from "@/lib/domain";
 import { PaymentComposer, serializeCheckout, type SaleCheckout } from "./PaymentComposer";
 import { IngredientPicker, productHasIngredientChoices } from "./IngredientPicker";
-import { printKitchenOrder, printReceipt } from "@/lib/integrations/print-client";
+import { printDanfe, printKitchenOrder, printReceipt } from "@/lib/integrations/print-client";
+import type { FiscalPrintInfo } from "@/lib/fiscal/print-info";
 import { ReasonSelect } from "./ReasonSelect";
 
 type Product = { id: string; name: string; category: string; price: number; imageUrl?: string | null; ingredientGroups?: IngredientGroup[] };
@@ -22,7 +23,7 @@ const nextStatus: Partial<Record<Order["status"], Order["status"]>> = { RECEIVED
 
 type ReceiptTemplate = { headerText: string | null; footerText: string | null; showDocument: boolean; paperWidth: number; establishmentDocument: string | null };
 
-export function FloorManagement({ establishmentId, establishmentName, printerDriver, printTemplate, mode, canCancelSentItems, canReprint, onFinishSale, onToast }: { establishmentId: string; establishmentName: string; printerDriver: string; printTemplate?: ReceiptTemplate; mode: "salon" | "kitchen"; canCancelSentItems: boolean; canReprint: boolean; onFinishSale: (items: { id: string; quantity: number }[], checkout: SaleCheckout, table: number, tabId: string) => Promise<boolean>; onToast: (message: string) => void }) {
+export function FloorManagement({ establishmentId, establishmentName, printerDriver, printTemplate, mode, canCancelSentItems, canReprint, onFinishSale, onToast }: { establishmentId: string; establishmentName: string; printerDriver: string; printTemplate?: ReceiptTemplate; mode: "salon" | "kitchen"; canCancelSentItems: boolean; canReprint: boolean; onFinishSale: (items: { id: string; quantity: number }[], checkout: SaleCheckout, table: number, tabId: string) => Promise<{ ok: boolean; fiscal: FiscalPrintInfo }>; onToast: (message: string) => void }) {
   const [snapshot, setSnapshot] = useState<Snapshot>({ tables: [], orders: [], stations: [] });
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -70,7 +71,26 @@ export function FloorManagement({ establishmentId, establishmentName, printerDri
   if (mode === "kitchen") return <KitchenView establishmentId={establishmentId} establishmentName={establishmentName} orders={snapshot.orders} stations={snapshot.stations} saving={saving} error={error} canReprint={canReprint} onToast={onToast} onAdvance={async order => { const status = nextStatus[order.status]; if (status) await mutate({ action: "CHANGE_ORDER_STATUS", orderId: order.id, status }, `${orderLabel(order)}: ${statusLabels[status]}`); }} />;
 
   const selected = snapshot.tables.find(table => table.id === selectedId);
-  if (selected) return <CommandView table={selected} products={products} query={query} setQuery={setQuery} category={category} setCategory={setCategory} saving={saving} error={error} checkout={checkout} setCheckout={setCheckout} canCancelSentItems={canCancelSentItems} cancelTarget={cancelTarget} setCancelTarget={setCancelTarget} onBack={() => setSelectedId(null)} onAdd={(product, optionSelections) => mutate({ action: "ADD_ITEM", tableId: selected.id, productId: product.id, selectedOptions: optionSelections }, `${product.name} adicionado`)} onQuantity={(item, quantity) => mutate({ action: "CHANGE_ITEM", tabItemId: item.id, quantity }, quantity === 0 ? "Item removido" : "Quantidade atualizada")} onCancelSent={(item, quantity, reason) => mutate({ action: "CANCEL_SENT_ITEM", tabItemId: item.id, quantity, reason }, `${quantity} item(ns) cancelado(s)`)} onSend={() => selected.tab ? sendOrder(selected.tab.id, selected.number) : Promise.resolve(false)} onClose={async checkoutData => { if (!selected.tab) return false; const completed = await onFinishSale(selected.tab.items.map(item => ({ id: item.productId ?? "", quantity: item.quantity })), checkoutData, selected.number, selected.tab.id); if (completed) { if (printerDriver === "browser_print") { const subtotal = selected.tab.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0); printReceipt({ establishmentName, items: selected.tab.items.map(item => ({ name: item.selectedOptionsSnapshot?.length ? `${item.productName} — ${item.selectedOptionsSnapshot.map(option => option.optionName).join(", ")}` : item.productName, quantity: item.quantity, unitPrice: item.unitPrice })), total: subtotal * 1.1 - checkoutData.discount, payment: checkoutData.payments.map(item => item.method).join(" + "), channel: "FLOOR", table: selected.number }, printTemplate); } await load(); setSelectedId(null); setCheckout(false); } return completed; }} />;
+  if (selected) return <CommandView table={selected} products={products} query={query} setQuery={setQuery} category={category} setCategory={setCategory} saving={saving} error={error} checkout={checkout} setCheckout={setCheckout} canCancelSentItems={canCancelSentItems} cancelTarget={cancelTarget} setCancelTarget={setCancelTarget} onBack={() => setSelectedId(null)} onAdd={(product, optionSelections) => mutate({ action: "ADD_ITEM", tableId: selected.id, productId: product.id, selectedOptions: optionSelections }, `${product.name} adicionado`)} onQuantity={(item, quantity) => mutate({ action: "CHANGE_ITEM", tabItemId: item.id, quantity }, quantity === 0 ? "Item removido" : "Quantidade atualizada")} onCancelSent={(item, quantity, reason) => mutate({ action: "CANCEL_SENT_ITEM", tabItemId: item.id, quantity, reason }, `${quantity} item(ns) cancelado(s)`)} onSend={() => selected.tab ? sendOrder(selected.tab.id, selected.number) : Promise.resolve(false)} onClose={async checkoutData => {
+          if (!selected.tab) return false;
+          const { ok, fiscal } = await onFinishSale(selected.tab.items.map(item => ({ id: item.productId ?? "", quantity: item.quantity })), checkoutData, selected.number, selected.tab.id);
+          if (ok) {
+            if (printerDriver === "browser_print") {
+              const subtotal = selected.tab.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
+              const receiptItems = selected.tab.items.map(item => ({ name: item.selectedOptionsSnapshot?.length ? `${item.productName} — ${item.selectedOptionsSnapshot.map(option => option.optionName).join(", ")}` : item.productName, quantity: item.quantity, unitPrice: item.unitPrice }));
+              const total = subtotal * 1.1 - checkoutData.discount;
+              const payment = checkoutData.payments.map(item => item.method).join(" + ");
+              // DANFE-NFC-e no lugar do recibo comum (ADR 0049, adendo) — mesmo critério do PDV.
+              if (fiscal?.printDanfe && fiscal.status === "AUTHORIZED" && fiscal.accessKey && fiscal.number && fiscal.series) {
+                printDanfe({ establishmentName, items: receiptItems, total, payment, accessKey: fiscal.accessKey, number: fiscal.number, series: fiscal.series, qrCodeUrl: fiscal.qrCodeUrl, environment: fiscal.environment as "HOMOLOGACAO" | "PRODUCAO" });
+              } else {
+                printReceipt({ establishmentName, items: receiptItems, total, payment, channel: "FLOOR", table: selected.number }, printTemplate);
+              }
+            }
+            await load(); setSelectedId(null); setCheckout(false);
+          }
+          return ok;
+        }} />;
 
   const occupied = snapshot.tables.filter(table => table.tab).length;
   const visible = snapshot.tables.filter(table => filter === "Todas" || (filter === "Livres" ? !table.tab : Boolean(table.tab)));

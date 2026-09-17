@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { buildFocusNfcePayload } from "../lib/fiscal/payload.ts";
 import { mockFiscalProvider } from "../lib/fiscal/mock-provider.ts";
+import { buildDanfeHtml } from "../lib/integrations/print-client.ts";
 
 const completeItem = { productName: "X-Burger da Casa", quantity: 2, unitPrice: 28.9, ncm: "21069090", cfop: "5102", icmsCst: "102", icmsOrigin: "0", unitOfMeasure: "UN" };
 
@@ -53,6 +54,25 @@ test("provedor simulado autoriza instantaneamente sem nenhuma chamada de rede, m
 test("provedor simulado cancela sem chamada de rede", async () => {
   const result = await mockFiscalProvider.cancel("sale-4", "Cliente desistiu da compra", { apiToken: "fake-token", environment: "HOMOLOGACAO" });
   assert.equal(result.status, "CANCELLED");
+});
+
+test("DANFE-NFC-e mostra QR code quando o provedor devolve qrCodeUrl, e um aviso claro na simulação (sem QR falso)", () => {
+  const base = { establishmentName: "Betão Hot Dog", items: [{ name: "X-Burger", quantity: 1, unitPrice: 28.9 }], total: 28.9, payment: "Dinheiro", accessKey: "12345678901234567890123456789012345678901234", number: "123", series: "1", environment: "HOMOLOGACAO" as const };
+
+  const withQrCode = buildDanfeHtml({ ...base, qrCodeUrl: "http://www.fazenda.pr.gov.br/nfce/qrcode/?p=123" });
+  assert.match(withQrCode, /api\.qrserver\.com/);
+  assert.match(withQrCode, /1234 5678 9012/); // chave de acesso formatada em blocos de 4
+
+  const simulated = buildDanfeHtml({ ...base, qrCodeUrl: null });
+  assert.doesNotMatch(simulated, /api\.qrserver\.com/);
+  assert.match(simulated, /simulação/);
+});
+
+test("DANFE-NFC-e sinaliza ambiente de homologação (sem valor fiscal) no próprio cupom", () => {
+  const homologacao = buildDanfeHtml({ establishmentName: "Betão Hot Dog", items: [{ name: "X-Burger", quantity: 1, unitPrice: 28.9 }], total: 28.9, payment: "Dinheiro", accessKey: "1234567890123456789012345678901234567890", number: "1", series: "1", qrCodeUrl: null, environment: "HOMOLOGACAO" });
+  assert.match(homologacao, /HOMOLOGAÇÃO, SEM VALOR FISCAL/);
+  const producao = buildDanfeHtml({ establishmentName: "Betão Hot Dog", items: [{ name: "X-Burger", quantity: 1, unitPrice: 28.9 }], total: 28.9, payment: "Dinheiro", accessKey: "1234567890123456789012345678901234567890", number: "1", series: "1", qrCodeUrl: null, environment: "PRODUCAO" });
+  assert.doesNotMatch(producao, /SEM VALOR FISCAL/);
 });
 
 test("configuração fiscal local: token nunca aparece em texto puro fora do módulo (só booleano na API)", async () => {

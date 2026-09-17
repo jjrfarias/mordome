@@ -4,17 +4,17 @@ export type LocalFiscalTaxRegime = "SIMPLES_NACIONAL" | "LUCRO_PRESUMIDO" | "LUC
 export type LocalFiscalEnvironment = "HOMOLOGACAO" | "PRODUCAO";
 export type LocalFiscalDocumentStatus = "PENDING" | "AUTHORIZED" | "REJECTED" | "CANCELLED" | "ERROR";
 
-export type LocalFiscalConfig = { establishmentId: string; active: boolean; provider: "FOCUS_NFE"; providerApiToken: string | null; environment: LocalFiscalEnvironment; stateRegistration: string | null; taxRegime: LocalFiscalTaxRegime | null };
+export type LocalFiscalConfig = { establishmentId: string; active: boolean; provider: "FOCUS_NFE"; providerApiToken: string | null; environment: LocalFiscalEnvironment; stateRegistration: string | null; taxRegime: LocalFiscalTaxRegime | null; printDanfe: boolean };
 export type LocalFiscalDocument = { id: string; establishmentId: string; saleId: string; status: LocalFiscalDocumentStatus; environment: LocalFiscalEnvironment; accessKey: string | null; number: string | null; series: string | null; statusMessage: string | null; danfeUrl: string | null; qrCodeUrl: string | null; cancelReason: string | null; cancelledAt: string | null; createdAt: string; updatedAt: string };
 
 const configs = new Map<string, LocalFiscalConfig>();
 const documents: LocalFiscalDocument[] = [];
 
 export function getLocalFiscalConfig(establishmentId: string) {
-  return configs.get(establishmentId) ?? { establishmentId, active: false, provider: "FOCUS_NFE" as const, providerApiToken: null, environment: "HOMOLOGACAO" as const, stateRegistration: null, taxRegime: null };
+  return configs.get(establishmentId) ?? { establishmentId, active: false, provider: "FOCUS_NFE" as const, providerApiToken: null, environment: "HOMOLOGACAO" as const, stateRegistration: null, taxRegime: null, printDanfe: false };
 }
 
-export function updateLocalFiscalConfig(establishmentId: string, data: { active?: boolean; providerApiToken?: string | null; environment?: LocalFiscalEnvironment; stateRegistration?: string | null; taxRegime?: LocalFiscalTaxRegime | null }) {
+export function updateLocalFiscalConfig(establishmentId: string, data: { active?: boolean; providerApiToken?: string | null; environment?: LocalFiscalEnvironment; stateRegistration?: string | null; taxRegime?: LocalFiscalTaxRegime | null; printDanfe?: boolean }) {
   const current = getLocalFiscalConfig(establishmentId);
   const updated: LocalFiscalConfig = { ...current, ...Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)) };
   configs.set(establishmentId, updated);

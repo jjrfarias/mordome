@@ -55,7 +55,7 @@ async function tryEmitFiscalDocument(establishmentId: string, saleId: string, cn
     update: { status: result.status, environment: config.environment, statusMessage: result.statusMessage, ...(result.status === "AUTHORIZED" ? { accessKey: result.accessKey, number: result.number, series: result.series, danfeUrl: result.danfeUrl, qrCodeUrl: result.qrCodeUrl } : {}) },
     create: { establishmentId, saleId, status: result.status, environment: config.environment, statusMessage: result.statusMessage, ...(result.status === "AUTHORIZED" ? { accessKey: result.accessKey, number: result.number, series: result.series, danfeUrl: result.danfeUrl, qrCodeUrl: result.qrCodeUrl } : {}) },
   });
-  return { status: document.status, statusMessage: document.statusMessage };
+  return { status: document.status, statusMessage: document.statusMessage, printDanfe: config.printDanfe, accessKey: document.accessKey, number: document.number, series: document.series, qrCodeUrl: document.qrCodeUrl, environment: document.environment };
 }
 
 const listQuerySchema = z.object({ from: z.string().min(1).optional(), to: z.string().min(1).optional() });
@@ -169,7 +169,7 @@ export async function POST(request: Request) {
     const cash = getLocalOpenCashSession(session.establishment.id, session.user.id); if (!cash) return Response.json({ error: "Abra o caixa antes de finalizar uma venda." }, { status: 409 });
     const result = completeLocalSale({ establishmentId: session.establishment.id, idempotencyKey: data.idempotencyKey, channel: data.channel, items: localItems.map(item => ({ productId: item.productId, quantity: item.quantity })), operatorId: session.user.id });
     let kitchenTicket: ReturnType<typeof createLocalCounterOrder>["kitchenTicket"] | null = null;
-    let fiscalStatus: { status: string; statusMessage: string | null } | null = null;
+    let fiscalStatus: { status: string; statusMessage: string | null; printDanfe: boolean; accessKey: string | null; number: string | null; series: string | null; qrCodeUrl: string | null; environment: string } | null = null;
     if (result.status === "PRODUCT_NOT_FOUND") return Response.json({ error: "Produto indisponível nesta unidade ou canal." }, { status: 409 });
     if (result.status === "INSUFFICIENT_STOCK") return Response.json({ error: "Estoque insuficiente para concluir a venda." }, { status: 409 });
     if (result.status === "NOT_CONFIGURED") return Response.json({ error: "A ficha usa um item não configurado nesta unidade." }, { status: 409 });
@@ -234,7 +234,7 @@ export async function POST(request: Request) {
           const saleId = result.sale.id;
           const emitted = await mockFiscalProvider.emit({ saleId, cnpj: "00000000000000", items: fiscalItems, payments: fiscalPayments }, { apiToken: fiscalConfig.providerApiToken, environment: fiscalConfig.environment });
           const document = upsertLocalFiscalDocument(session.establishment.id, saleId, { status: emitted.status, environment: fiscalConfig.environment, statusMessage: emitted.statusMessage, ...(emitted.status === "AUTHORIZED" ? { accessKey: emitted.accessKey, number: emitted.number, series: emitted.series, danfeUrl: emitted.danfeUrl, qrCodeUrl: emitted.qrCodeUrl } : {}) });
-          fiscalStatus = { status: document.status, statusMessage: document.statusMessage };
+          fiscalStatus = { status: document.status, statusMessage: document.statusMessage, printDanfe: fiscalConfig.printDanfe, accessKey: document.accessKey, number: document.number, series: document.series, qrCodeUrl: document.qrCodeUrl, environment: document.environment };
         }
       }
     }

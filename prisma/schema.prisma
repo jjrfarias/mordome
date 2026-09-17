@@ -1410,6 +1410,11 @@ model FiscalConfig {
   environment       FiscalEnvironment @default(HOMOLOGACAO)
   stateRegistration String?
   taxRegime         FiscalTaxRegime?
+  // Opcional por unidade (ver ADR 0049): imprimir o DANFE-NFC-e (com QR code) no lugar do recibo
+  // comum quando a nota sair autorizada. Desligado por padrão mesmo com o módulo fiscal ativo —
+  // algumas unidades preferem manter o recibo interno de sempre e consultar o DANFE só quando
+  // precisar, ao invés de trocar a impressão de todo balcão sem aviso.
+  printDanfe        Boolean           @default(false)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   establishment     Establishment     @relation(fields: [establishmentId], references: [id], onDelete: Cascade)

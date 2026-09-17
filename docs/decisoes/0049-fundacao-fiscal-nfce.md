@@ -119,6 +119,32 @@ usar isso em produção, é necessário: (1) criar uma conta de teste na Focus N
 emissão de homologação de ponta a ponta, (3) ajustar o que a documentação não cobriu perfeitamente
 (mensagens de erro reais da SEFAZ variam por estado, por exemplo).
 
+## Adendo: imprimir o DANFE-NFC-e é opcional por unidade
+
+Pergunta que surgiu na revisão: quando o módulo fiscal está ativo, o operador do caixa escolhe
+nota fiscal ou "cupom" a cada venda? Não — a emissão é automática e nunca por escolha do caixa (ver
+seção acima). Mas ficou uma lacuna real: com o módulo ativo, o recibo impresso continuava sendo o
+recibo interno de sempre, nunca o DANFE-NFC-e (o cupom com QR code que a legislação exige entregar
+ao cliente como comprovante da nota). O cliente pediu explicitamente que essa troca fosse opcional
+por estabelecimento, não automática — algumas unidades preferem manter o recibo interno de sempre
+e consultar o DANFE só quando precisar, em vez de trocar a impressão de todo balcão sem aviso.
+
+Adicionado `FiscalConfig.printDanfe: Boolean @default(false)` — desligado por padrão mesmo com o
+módulo fiscal ativo. Quando ligado, a venda passa a imprimir `buildDanfeHtml`
+(`lib/integrations/print-client.ts`) em vez do recibo comum, mas só quando a nota daquela venda
+saiu `AUTHORIZED` (nota rejeitada/com erro sempre cai no recibo comum, já que não haveria QR code
+válido para mostrar). O QR code é uma imagem gerada a partir da URL de consulta que o provedor
+devolve (`qrCodeUrl`), via um serviço público de imagem de QR code — sem essa URL (emissão simulada
+em modo local, por exemplo), o cupom mostra só a chave de acesso em texto e um aviso deixando claro
+que é uma simulação, nunca inventa um QR falso. Em ambiente de homologação, o próprio cupom exibe
+"AMBIENTE DE HOMOLOGAÇÃO, SEM VALOR FISCAL".
+
+Verificado via Playwright com o provedor simulado: com `printDanfe` ligado, uma venda autorizada
+imprime o DANFE (com o aviso de simulação, já que não há `qrCodeUrl` real em modo local); com
+`printDanfe` desligado, a mesma venda autorizada continua imprimindo o recibo comum de sempre —
+zero regressão no caminho padrão (que é o de toda unidade hoje, já que o módulo fiscal nasce
+desligado).
+
 ## Fora de escopo desta fatia
 
 - Inutilização de faixa de numeração (contrato não verificado).
