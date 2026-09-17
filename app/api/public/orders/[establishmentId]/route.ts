@@ -6,6 +6,7 @@ import { isLocalAuthEnabled, listLocalEstablishments } from "@/lib/local-auth";
 import { listLocalUsers } from "@/lib/local-access-control";
 import { listLocalCatalog } from "@/lib/local-catalog";
 import { attachLocalDeliveryKitchenOrder, createLocalDeliveryOrder } from "@/lib/local-delivery";
+import { listLocalDeliveryAreas, getLocalDeliveryArea } from "@/lib/local-delivery-areas";
 import { createLocalCounterOrder } from "@/lib/local-floor";
 import { rateLimit } from "@/lib/rate-limit";
 
@@ -16,6 +17,7 @@ const orderSchema = z.object({
   destinationLat: z.number().finite().min(-90).max(90).optional(),
   destinationLng: z.number().finite().min(-180).max(180).optional(),
   notes: z.string().trim().max(300).optional(),
+  deliveryAreaId: z.string().min(1).optional(),
   items: z.array(z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(99) })).min(1).max(40),
 });
 
@@ -26,19 +28,24 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     const establishment = listLocalEstablishments().find(item => item.id === establishmentId && item.active);
     if (!establishment) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
     const products = listLocalCatalog(establishmentId).filter(product => product.active && product.channels.includes("DELIVERY"));
-    return Response.json({ establishment: { name: establishment.name }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: null, price: product.price, imageUrl: product.imageUrl })) });
+    const deliveryAreas = listLocalDeliveryAreas(establishmentId).filter(area => area.active);
+    return Response.json({ establishment: { name: establishment.name }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: null, price: product.price, imageUrl: product.imageUrl })), deliveryAreas: deliveryAreas.map(area => ({ id: area.id, name: area.name, deliveryFee: area.deliveryFee })) });
   }
 
   const establishment = await db.establishment.findFirst({ where: { id: establishmentId, active: true, organization: { active: true } } });
   if (!establishment) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
-  const offerings = await db.productOffering.findMany({
-    where: { establishmentId, channel: "DELIVERY", active: true, variant: { active: true, product: { organizationId: establishment.organizationId, active: true } } },
-    include: { variant: { include: { product: { include: { category: true } } } } },
-    orderBy: [{ variant: { product: { category: { sortOrder: "asc" } } } }, { variant: { product: { name: "asc" } } }],
-  });
+  const [offerings, deliveryAreas] = await Promise.all([
+    db.productOffering.findMany({
+      where: { establishmentId, channel: "DELIVERY", active: true, variant: { active: true, product: { organizationId: establishment.organizationId, active: true } } },
+      include: { variant: { include: { product: { include: { category: true } } } } },
+      orderBy: [{ variant: { product: { category: { sortOrder: "asc" } } } }, { variant: { product: { name: "asc" } } }],
+    }),
+    db.deliveryArea.findMany({ where: { establishmentId, active: true }, orderBy: { name: "asc" } }),
+  ]);
   return Response.json({
     establishment: { name: establishment.name },
     products: offerings.map(offering => ({ id: offering.variant.product.id, name: offering.variant.product.name, category: offering.variant.product.category?.name ?? "Outros", description: offering.variant.product.description, price: Number(offering.price), imageUrl: offering.variant.product.imageUrl })),
+    deliveryAreas: deliveryAreas.map(area => ({ id: area.id, name: area.name, deliveryFee: Number(area.deliveryFee) })),
   });
 }
 
@@ -58,7 +65,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
     const catalog = listLocalCatalog(establishmentId);
     const items = data.items.map(item => { const product = catalog.find(candidate => candidate.id === item.productId && candidate.active && candidate.channels.includes("DELIVERY")); return product ? { productId: product.id, productName: product.name, quantity: item.quantity, unitPrice: product.price } : null; });
     if (items.some(item => !item)) return Response.json({ error: "Produto indisponível para pedido online." }, { status: 409 });
-    const order = createLocalDeliveryOrder(establishmentId, { customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", items: items as NonNullable<(typeof items)[number]>[] });
+    let deliveryFee = 0;
+    if (data.deliveryAreaId) {
+      const area = getLocalDeliveryArea(establishmentId, data.deliveryAreaId);
+      if (!area || !area.active) return Response.json({ error: "Área de entrega não encontrada." }, { status: 400 });
+      deliveryFee = area.deliveryFee;
+    }
+    const order = createLocalDeliveryOrder(establishmentId, { customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: data.deliveryAreaId ?? null, deliveryFee, items: items as NonNullable<(typeof items)[number]>[] });
     // Delivery envia para a cozinha (ADR 0050): pedido online é criado sem operador logado, então
     // usa o primeiro usuário ativo com acesso à unidade como autor do tíquete de cozinha — o mesmo
     // critério do ADR 0044 exige um ator, e aqui não existe um atendente por trás do pedido.
@@ -75,10 +88,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
   const offerings = await db.productOffering.findMany({ where: { establishmentId, channel: "DELIVERY", active: true, variant: { productId: { in: data.items.map(item => item.productId) }, active: true, product: { organizationId: establishment.organizationId, active: true } } }, include: { variant: { include: { product: true } } } });
   const priceByProduct = new Map(offerings.map(offering => [offering.variant.product.id, { name: offering.variant.product.name, price: Number(offering.price) }]));
   if (data.items.some(item => !priceByProduct.has(item.productId))) return Response.json({ error: "Produto indisponível para pedido online." }, { status: 409 });
+  let deliveryFee = 0;
+  if (data.deliveryAreaId) {
+    const area = await db.deliveryArea.findFirst({ where: { id: data.deliveryAreaId, establishmentId, active: true } });
+    if (!area) return Response.json({ error: "Área de entrega não encontrada." }, { status: 400 });
+    deliveryFee = Number(area.deliveryFee);
+  }
 
   try {
     const order = await db.$transaction(async tx => {
-      const created = await tx.deliveryOrder.create({ data: { establishmentId, customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", items: { create: data.items.map(item => { const info = priceByProduct.get(item.productId)!; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice: info.price }; }) } }, include: { items: true } });
+      const created = await tx.deliveryOrder.create({ data: { establishmentId, customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: data.deliveryAreaId, deliveryFee, items: { create: data.items.map(item => { const info = priceByProduct.get(item.productId)!; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice: info.price }; }) } }, include: { items: true } });
 
       // Delivery envia para a cozinha (ADR 0050): pedido online não tem operador logado por trás,
       // então usa a primeira pessoa com acesso ativo à unidade como autora do tíquete de cozinha
