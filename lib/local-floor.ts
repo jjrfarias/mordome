@@ -17,6 +17,35 @@ const tablesFor = (establishmentId: string) => {
 };
 const openTab = (table: LocalTable) => table.tabs.find(tab => tab.status === "OPEN");
 
+// Pedidos do PDV (ADR 0044): sem mesa/comanda por trás em modo local — a mesa virtual "Balcão" só
+// existe no schema do servidor (`DiningTable.isCounter`) porque lá `Order`/`OrderItem` exigem uma
+// `Tab` por trás. Em modo local não há essa amarra, então um pedido de balcão é só um `LocalOrder`
+// numa lista própria por estabelecimento, sem passar por `LocalTable`/`LocalTab` nenhum.
+type LocalCounterOrderItem = { id: string; productId: string; productName: string; quantity: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] };
+type LocalCounterOrder = { id: string; status: LocalOrderStatus; sentById: string; sentAt: string; items: LocalCounterOrderItem[]; statusHistory: LocalOrderStatusHistoryEntry[] };
+const counterOrderStores = new Map<string, LocalCounterOrder[]>();
+const counterOrdersFor = (establishmentId: string) => {
+  if (!counterOrderStores.has(establishmentId)) counterOrderStores.set(establishmentId, []);
+  return counterOrderStores.get(establishmentId)!;
+};
+
+export function createLocalCounterOrder(input: { establishmentId: string; operatorId: string; items: { productId: string; productName: string; quantity: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] }[] }) {
+  const sentAt = new Date().toISOString();
+  const order: LocalCounterOrder = { id: `local-order-${randomUUID()}`, status: "RECEIVED", sentById: input.operatorId, sentAt, items: input.items.map(item => ({ id: `local-order-item-${randomUUID()}`, productId: item.productId, productName: item.productName, quantity: item.quantity, selectedOptionsSnapshot: item.selectedOptionsSnapshot })), statusHistory: [{ status: "RECEIVED", actorId: input.operatorId, createdAt: sentAt }] };
+  counterOrdersFor(input.establishmentId).push(order);
+  // Mesmo critério de agrupamento por fila do modo servidor: produto sem fila configurada não
+  // entra em nenhum tíquete (não é erro, só não passa por preparo — ex.: bebida engarrafada).
+  const stations = new Map(listLocalStations(input.establishmentId).map(station => [station.id, station]));
+  const grouped = new Map<string, { stationName: string; printerDriver: string; items: { name: string; quantity: number }[] }>();
+  for (const item of order.items) {
+    const stationId = getLocalProductStation(input.establishmentId, item.productId); if (!stationId) continue;
+    const station = stations.get(stationId); if (!station) continue;
+    if (!grouped.has(stationId)) grouped.set(stationId, { stationName: station.name, printerDriver: station.printerDriver, items: [] });
+    grouped.get(stationId)!.items.push({ name: item.productName, quantity: item.quantity });
+  }
+  return { order, kitchenTicket: { orderId: order.id, sentAt, tickets: [...grouped.values()] } };
+}
+
 export function listLocalTables(establishmentId: string) {
   return tablesFor(establishmentId).map(table => ({ id: table.id, number: table.number, seats: table.seats, name: table.name, area: table.area, assignedWaiterId: table.assignedWaiterId, active: table.active }));
 }
@@ -46,7 +75,9 @@ export function getLocalFloor(establishmentId: string, viewer?: { userId: string
     const tab = openTab(table);
     return { ...table, tab: tab ? { ...tab, items: tab.items.filter(item => item.active), orders: tab.orders.map(order => ({ ...order, items: order.items.map(item => { const tabItem = tab.items.find(candidate => candidate.id === item.tabItemId); const stationId = tabItem ? getLocalProductStation(establishmentId, tabItem.productId) : null; return { ...item, stationId, cancelledQuantity: item.cancellations.reduce((sum, cancellation) => sum + cancellation.quantity, 0) }; }) })) } : null };
   });
-  const orders = tables.flatMap(table => table.tab?.orders.filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: table.tab!.id })) ?? []);
+  const tableOrders = tables.flatMap(table => table.tab?.orders.filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: table.tab!.id, isCounter: false })) ?? []);
+  const counterOrders = counterOrdersFor(establishmentId).filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, items: order.items.map(item => ({ ...item, stationId: getLocalProductStation(establishmentId, item.productId), cancelledQuantity: 0, cancellations: [] as { id: string; quantity: number; reason: string; actorId: string; createdAt: string }[] })), tableId: null, tableNumber: 0, tabId: null, isCounter: true }));
+  const orders = [...tableOrders, ...counterOrders];
   const stations = listLocalStations(establishmentId).filter(station => station.active).map(station => ({ id: station.id, name: station.name, printerDriver: station.printerDriver, printerConfig: station.printerConfig }));
   return { tables, orders, stations };
 }
@@ -120,13 +151,20 @@ export function cancelLocalSentItem(input: { establishmentId: string; tabItemId:
 }
 
 export function changeLocalOrderStatus(input: { establishmentId: string; orderId: string; status: LocalOrderStatus; actorId: string }) {
-  const table = tablesFor(input.establishmentId).find(candidate => openTab(candidate)?.orders.some(order => order.id === input.orderId)); const tab = table && openTab(table); const order = tab?.orders.find(candidate => candidate.id === input.orderId);
-  if (!table || !tab || !order) return "ORDER_NOT_FOUND" as const;
   const next: Partial<Record<LocalOrderStatus, LocalOrderStatus>> = { RECEIVED: "PREPARING", PREPARING: "READY", READY: "DELIVERED" };
-  if (next[order.status] !== input.status) return "INVALID_ORDER_TRANSITION" as const;
-  const before = order.status; order.status = input.status;
-  order.statusHistory.push({ status: input.status, actorId: input.actorId, createdAt: new Date().toISOString() });
-  return { table, tab, order, before };
+  const table = tablesFor(input.establishmentId).find(candidate => openTab(candidate)?.orders.some(order => order.id === input.orderId)); const tab = table && openTab(table); const order = tab?.orders.find(candidate => candidate.id === input.orderId);
+  if (table && tab && order) {
+    if (next[order.status] !== input.status) return "INVALID_ORDER_TRANSITION" as const;
+    const before = order.status; order.status = input.status;
+    order.statusHistory.push({ status: input.status, actorId: input.actorId, createdAt: new Date().toISOString() });
+    return { table, tab, order, before };
+  }
+  const counterOrder = counterOrdersFor(input.establishmentId).find(candidate => candidate.id === input.orderId);
+  if (!counterOrder) return "ORDER_NOT_FOUND" as const;
+  if (next[counterOrder.status] !== input.status) return "INVALID_ORDER_TRANSITION" as const;
+  const before = counterOrder.status; counterOrder.status = input.status;
+  counterOrder.statusHistory.push({ status: input.status, actorId: input.actorId, createdAt: new Date().toISOString() });
+  return { table: null, tab: null, order: counterOrder, before };
 }
 
 // Leitura somente-leitura para os relatórios "Tempo de produção" e "Tempo por status" (ADR 0039):
@@ -147,6 +185,11 @@ export function listLocalOrderTimings(establishmentId: string, from: Date, to: D
         });
       }
     }
+  }
+  for (const order of counterOrdersFor(establishmentId)) {
+    const sentAt = new Date(order.sentAt);
+    if (sentAt < from || sentAt > to) continue;
+    result.push({ orderId: order.id, tableLabel: "Balcão", history: order.statusHistory.map(entry => ({ status: entry.status, at: new Date(entry.createdAt) })) });
   }
   return result;
 }

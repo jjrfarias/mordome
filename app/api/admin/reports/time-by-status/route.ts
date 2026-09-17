@@ -55,7 +55,7 @@ export async function GET(request: Request) {
 
   const records: OrderTimingRecord[] = orders.map(order => ({
     orderId: order.id,
-    tableLabel: `Mesa ${order.tab.table.number}`,
+    tableLabel: order.tab.table.isCounter ? "Balcão" : `Mesa ${order.tab.table.number}`,
     history: order.statusHistory.map(entry => ({ status: entry.status, at: entry.createdAt })),
   }));
 

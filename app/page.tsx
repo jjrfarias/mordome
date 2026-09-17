@@ -18,7 +18,7 @@ import { AuditHistory } from "@/components/admin/AuditHistory";
 import { FloorManagement } from "@/components/operations/FloorManagement";
 import { PaymentComposer, serializeCheckout, type SaleCheckout } from "@/components/operations/PaymentComposer";
 import { ReasonSelect } from "@/components/operations/ReasonSelect";
-import { printReceipt } from "@/lib/integrations/print-client";
+import { printKitchenOrder, printReceipt } from "@/lib/integrations/print-client";
 
 type View = "pdv" | "salão" | "cozinha" | "delivery" | "entregas" | "caixa" | "resumo" | "historico" | "relatorios" | "dashboards" | "config";
 type AuthSession = { user: { name: string; username: string }; organization: { name: string }; establishment: { id: string; name: string }; establishments: { id: string; name: string }[]; permissionKeys: string[]; canManageEstablishments: boolean; canManageCatalog: boolean; canManageStock: boolean; canManageRecipes: boolean; canSellPos: boolean; canCancelSales: boolean; canRefundSales: boolean; canApplyDiscount: boolean; canOverrideDiscount: boolean; canOperateFloor: boolean; canManageFloor: boolean; canOperateDelivery: boolean; canDeliverOrders: boolean; canCancelSentItems: boolean; canOpenCash: boolean; canMoveCash: boolean; canCloseCash: boolean; canViewCashHistory: boolean; canViewAudit: boolean; canViewFinanceSummary: boolean; canManageFinance: boolean; canManageFinanceEntries: boolean; canViewFinanceCashflow: boolean; canManageSettlements: boolean; canViewUsers: boolean; canCreateUsers: boolean; canDisableUsers: boolean; canResetUserPassword: boolean; canManageRoles: boolean; canManageIntegrations: boolean; canReprint: boolean; printerDriver: string; printTemplate: { headerText: string | null; footerText: string | null; showDocument: boolean; paperWidth: number; establishmentDocument: string | null } };
@@ -70,6 +70,10 @@ export default function Home() {
       const response = await fetch("/api/operations/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "COMPLETE", channel, items: items.map(item => ({ productId: item.id, quantity: item.quantity, selectedOptions: item.selectedOptions })), ...checkout, table, tabId, deliveryOrderId, idempotencyKey: crypto.randomUUID() }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) { notify(data.error ?? "Não foi possível concluir a venda"); return false; }
+      // PDV envia para a cozinha (ADR 0044): a rota já monta os tíquetes agrupados por fila —
+      // aqui só dispara a impressão de cada um, mesmo critério do Salão ao enviar um pedido.
+      const kitchenTicket = data.kitchenTicket as { orderId: string; sentAt: string; tickets: { stationName: string; printerDriver: string; items: { name: string; quantity: number }[] }[] } | null | undefined;
+      if (kitchenTicket) for (const ticket of kitchenTicket.tickets) if (ticket.printerDriver === "browser_print") printKitchenOrder({ establishmentName: session.establishment.name, stationName: ticket.stationName, label: "Balcão", orderId: kitchenTicket.orderId, sentAt: kitchenTicket.sentAt, items: ticket.items });
       return true;
     } catch { notify("Não foi possível conectar ao servidor"); return false; }
   };

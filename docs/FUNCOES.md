@@ -40,6 +40,7 @@ Permissões administrativas independentes: `users.view`, `users.invite`, `users.
 - Carregar somente ofertas ativas no canal `POS` da unidade atual.
 - Persistir venda, pagamento, snapshot de preço/receita e consumo de estoque na mesma transação.
 - Impedir consumo duplicado por chave de idempotência.
+- **Envia o pedido para a cozinha (ADR 0044):** cada venda concluída cria, na mesma transação, um pedido (`Order`) na mesa virtual "Balcão" — aparece na aba Cozinha com o mesmo rastreio de status (Recebido → Em preparo → Pronto → Entregue) e a mesma impressão por fila de preparo do Salão, sem precisar de um botão "enviar" separado (finalizar a venda já basta). Produto sem fila de preparo configurada não gera tíquete, mesmo critério do Salão.
 
 Implementado: novas vendas exigem uma sessão de caixa aberta pelo mesmo operador na unidade ativa e recebem seu `cashSessionId`.
 

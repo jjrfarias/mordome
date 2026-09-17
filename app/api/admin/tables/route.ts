@@ -40,7 +40,7 @@ export async function GET(request: Request) {
   if (!actor) return Response.json({ error: "Acesso negado." }, { status: 403 });
 
   const [tables, accesses] = await Promise.all([
-    db.diningTable.findMany({ where: { establishmentId: actor.establishment.id }, orderBy: { number: "asc" } }),
+    db.diningTable.findMany({ where: { establishmentId: actor.establishment.id, isCounter: false }, orderBy: { number: "asc" } }),
     db.establishmentAccess.findMany({ where: { establishmentId: actor.establishment.id, membership: { organizationId: actor.organization.id, status: MembershipStatus.ACTIVE } }, include: { membership: { include: { user: { select: { id: true, name: true, active: true } } } } } }),
   ]);
   const waiters = accesses.map(access => access.membership.user).filter(user => user.active).filter((user, index, list) => list.findIndex(candidate => candidate.id === user.id) === index).map(user => ({ id: user.id, name: user.name }));
@@ -64,7 +64,7 @@ export async function POST(request: Request) {
   const actor = await resolveActor();
   if (!actor) return Response.json({ error: "Acesso negado." }, { status: 403 });
   try {
-    const last = await db.diningTable.findFirst({ where: { establishmentId: actor.establishment.id }, orderBy: { number: "desc" } });
+    const last = await db.diningTable.findFirst({ where: { establishmentId: actor.establishment.id, isCounter: false }, orderBy: { number: "desc" } });
     const nextNumber = (last?.number ?? 0) + 1;
     const tables = await db.$transaction(async tx => {
       const created = [];
@@ -97,7 +97,7 @@ export async function PATCH(request: Request) {
 
   const actor = await resolveActor();
   if (!actor) return Response.json({ error: "Acesso negado." }, { status: 403 });
-  const current = await db.diningTable.findFirst({ where: { id: data.tableId, establishmentId: actor.establishment.id } });
+  const current = await db.diningTable.findFirst({ where: { id: data.tableId, establishmentId: actor.establishment.id, isCounter: false } });
   if (!current) return Response.json({ error: "Mesa não encontrada." }, { status: 404 });
   if (data.assignedWaiterId) {
     const access = await db.establishmentAccess.findFirst({ where: { establishmentId: actor.establishment.id, membership: { userId: data.assignedWaiterId, organizationId: actor.organization.id, status: MembershipStatus.ACTIVE } } });

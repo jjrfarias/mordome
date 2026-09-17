@@ -9,7 +9,7 @@ import { getLocalOpenCashSession, registerLocalCashSale, type LocalPaymentMethod
 import { listLocalCatalog } from "@/lib/local-catalog";
 import { recordLocalAudit } from "@/lib/local-audit";
 import { requestAuditMetadata } from "@/lib/audit";
-import { closeLocalTab, getLocalOpenTab } from "@/lib/local-floor";
+import { closeLocalTab, createLocalCounterOrder, getLocalOpenTab } from "@/lib/local-floor";
 import { attachLocalDeliverySale, getLocalDeliveryOrder } from "@/lib/local-delivery";
 import { getLocalDeliveryArea } from "@/lib/local-delivery-areas";
 import { resolveIngredientSelections, type SelectedOptionSnapshot } from "@/lib/ingredient-options";
@@ -95,6 +95,7 @@ export async function POST(request: Request) {
     }
     const cash = getLocalOpenCashSession(session.establishment.id, session.user.id); if (!cash) return Response.json({ error: "Abra o caixa antes de finalizar uma venda." }, { status: 409 });
     const result = completeLocalSale({ establishmentId: session.establishment.id, idempotencyKey: data.idempotencyKey, channel: data.channel, items: localItems.map(item => ({ productId: item.productId, quantity: item.quantity })), operatorId: session.user.id });
+    let kitchenTicket: ReturnType<typeof createLocalCounterOrder>["kitchenTicket"] | null = null;
     if (result.status === "PRODUCT_NOT_FOUND") return Response.json({ error: "Produto indisponível nesta unidade ou canal." }, { status: 409 });
     if (result.status === "INSUFFICIENT_STOCK") return Response.json({ error: "Estoque insuficiente para concluir a venda." }, { status: 409 });
     if (result.status === "NOT_CONFIGURED") return Response.json({ error: "A ficha usa um item não configurado nesta unidade." }, { status: 409 });
@@ -143,9 +144,16 @@ export async function POST(request: Request) {
           attachLocalDeliverySale(session.establishment.id, data.deliveryOrderId, result.sale.id);
           recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "UPDATE", entityType: "DeliveryOrder", entityId: localDelivery.id, reason: `Pedido de delivery pago e concluído`, before: { status: localDelivery.status }, after: { status: "DELIVERED", saleId: result.sale.id }, ...requestAuditMetadata(request) });
         }
+        // PDV envia para a cozinha (ADR 0044) — só para venda direta de balcão, nunca para
+        // fechamento de mesa (que já envia pela ação SEND_ORDER do Salão) nem delivery.
+        if (data.channel === "POS" && !localTab && !localDelivery) {
+          const created = createLocalCounterOrder({ establishmentId: session.establishment.id, operatorId: session.user.id, items: items.map(item => ({ productId: item.productId ?? "", productName: item.productName, quantity: item.quantity, selectedOptionsSnapshot: item.selectedOptionsSnapshot })) });
+          kitchenTicket = created.kitchenTicket;
+          recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "ORDER_SENT", entityType: "Order", entityId: created.order.id, reason: "Pedido enviado para a cozinha — Balcão (PDV)", after: { items: items.map(item => ({ productName: item.productName, quantity: item.quantity })) }, ...requestAuditMetadata(request) });
+        }
       }
     }
-    return Response.json({ sale: result.sale }, { status: result.status === "DUPLICATE" ? 200 : 201 });
+    return Response.json({ sale: result.sale, kitchenTicket }, { status: result.status === "DUPLICATE" ? 200 : 201 });
   }
 
   const actor = await resolveActor();
@@ -257,9 +265,45 @@ export async function POST(request: Request) {
       }
       if (tab) { await tx.tab.update({ where: { id: tab.id }, data: { status: "PAID", closedAt: new Date(), saleId: created.id } }); await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "TAB_CLOSE", entityType: "Tab", entityId: tab.id, reason: `Comanda da mesa ${tab.table.number} fechada`, before: { status: "OPEN" }, after: { status: "PAID", saleId: created.id, tableNumber: tab.table.number }, ...requestAuditMetadata(request) } }); }
       if (deliveryOrder) { await tx.deliveryOrder.update({ where: { id: deliveryOrder.id }, data: { status: "DELIVERED", saleId: created.id } }); await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: deliveryOrder.id, reason: "Pedido de delivery pago e concluído", before: { status: deliveryOrder.status }, after: { status: "DELIVERED", saleId: created.id }, ...requestAuditMetadata(request) } }); }
-      return created;
+
+      // PDV envia para a cozinha (ADR 0044): reaproveita o mesmo pipeline Tab -> Order -> OrderItem
+      // do Salão, através de uma mesa virtual "Balcão" (`isCounter: true`) — nunca fechada por
+      // status (ver ADR), para que a cozinha continue podendo avançar o pedido depois do pagamento.
+      let kitchenTicket: { orderId: string; sentAt: string; tickets: { stationName: string; printerDriver: string; items: { name: string; quantity: number }[] }[] } | null = null;
+      if (data.channel === "POS") {
+        let counterTable = await tx.diningTable.findFirst({ where: { establishmentId: actor.session.establishment.id, isCounter: true } });
+        if (!counterTable) {
+          try {
+            counterTable = await tx.diningTable.create({ data: { establishmentId: actor.session.establishment.id, number: 0, seats: 0, name: "Balcão", isCounter: true } });
+          } catch (creationError) {
+            if (!(creationError instanceof Prisma.PrismaClientKnownRequestError && creationError.code === "P2002")) throw creationError;
+            counterTable = await tx.diningTable.findFirst({ where: { establishmentId: actor.session.establishment.id, isCounter: true } });
+            if (!counterTable) throw creationError;
+          }
+        }
+        const counterTab = await tx.tab.create({ data: { establishmentId: actor.session.establishment.id, tableId: counterTable.id, openedById: actor.session.user.id, saleId: created.id } });
+        const tabItems = await Promise.all(saleItems.map(item => tx.tabItem.create({ data: { tabId: counterTab.id, productId: item.productId, productName: item.productName, quantity: item.quantity, sentQuantity: item.quantity, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot, addedById: actor.session.user.id } })));
+        const counterOrder = await tx.order.create({ data: { tabId: counterTab.id, sentById: actor.session.user.id, items: { create: tabItems.map((tabItem, index) => ({ tabItemId: tabItem.id, productName: saleItems[index].productName, quantity: saleItems[index].quantity })) }, statusHistory: { create: { status: "RECEIVED", actorId: actor.session.user.id } } } });
+        await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "ORDER_SENT", entityType: "Order", entityId: counterOrder.id, reason: "Pedido enviado para a cozinha — Balcão (PDV)", after: { tabId: counterTab.id, items: saleItems.map(item => ({ productName: item.productName, quantity: item.quantity })) }, ...requestAuditMetadata(request) } });
+
+        const [links, stations] = await Promise.all([
+          tx.productStation.findMany({ where: { establishmentId: actor.session.establishment.id } }),
+          tx.preparationStation.findMany({ where: { establishmentId: actor.session.establishment.id, active: true }, include: { integrations: { where: { category: "PRINTER", active: true }, take: 1 } } }),
+        ]);
+        const byProduct = new Map(links.map(link => [link.productId, link.stationId]));
+        const stationMeta = new Map(stations.map(station => [station.id, { name: station.name, printerDriver: station.integrations[0]?.driver ?? "manual" }]));
+        const grouped = new Map<string, { stationName: string; printerDriver: string; items: { name: string; quantity: number }[] }>();
+        for (const item of saleItems) {
+          const stationId = byProduct.get(item.productId); if (!stationId) continue; // produto sem fila configurada: sem tíquete, mesmo critério do Salão
+          const meta = stationMeta.get(stationId); if (!meta) continue;
+          if (!grouped.has(stationId)) grouped.set(stationId, { stationName: meta.name, printerDriver: meta.printerDriver, items: [] });
+          grouped.get(stationId)!.items.push({ name: item.productName, quantity: item.quantity });
+        }
+        kitchenTicket = { orderId: counterOrder.id, sentAt: counterOrder.sentAt.toISOString(), tickets: [...grouped.values()] };
+      }
+      return { sale: created, kitchenTicket };
     });
-    return Response.json({ sale: { id: sale.id, total: Number(sale.total) } }, { status: 201 });
+    return Response.json({ sale: { id: sale.sale.id, total: Number(sale.sale.total) }, kitchenTicket: sale.kitchenTicket }, { status: 201 });
   } catch (error) {
     if (error instanceof IngredientOptionError) return Response.json({ error: error.message }, { status: 400 });
     if (error instanceof Error && error.message === "PRODUCT_NOT_AVAILABLE") return Response.json({ error: "Produto indisponível nesta unidade ou canal." }, { status: 409 });

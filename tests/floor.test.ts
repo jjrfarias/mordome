@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { addLocalTabItem, cancelLocalSentItem, changeLocalOrderStatus, changeLocalTabItem, closeLocalTab, getLocalFloor, sendLocalOrder } from "../lib/local-floor.ts";
+import { addLocalTabItem, cancelLocalSentItem, changeLocalOrderStatus, changeLocalTabItem, closeLocalTab, createLocalCounterOrder, getLocalFloor, listLocalOrderTimings, sendLocalOrder } from "../lib/local-floor.ts";
 
 test("primeiro item abre comanda e mantém salão isolado por unidade", () => {
   const suffix = Date.now().toString(); const unitA = `floor-a-${suffix}`; const unitB = `floor-b-${suffix}`;
@@ -42,4 +42,39 @@ test("cancelamento justificado reduz item enviado e avisa a cozinha", () => {
   const kitchenItem = getLocalFloor(unit).orders[0]?.items[0];
   assert.equal(kitchenItem?.cancellations[0]?.quantity, 1);
   assert.equal(cancelLocalSentItem({ establishmentId: unit, tabItemId: first.item.id, quantity: 2, reason: "Excesso", actorId: "manager" }), "INVALID_CANCEL_QUANTITY");
+});
+
+// ADR 0044: PDV rápido passa a enviar o pedido para a cozinha — sem mesa/comanda por trás em modo
+// local, um pedido de balcão é só um `LocalOrder` numa lista própria (ver `createLocalCounterOrder`).
+test("venda direta do PDV cria pedido de balcão visível na cozinha, sem mesa vinculada", () => {
+  const unit = `floor-counter-${Date.now()}`;
+  const { order, kitchenTicket } = createLocalCounterOrder({ establishmentId: unit, operatorId: "cashier", items: [{ productId: "product-hotdog", productName: "Cachorro-quente", quantity: 2 }] });
+  assert.equal(order.status, "RECEIVED");
+  assert.equal(kitchenTicket.orderId, order.id);
+  const floor = getLocalFloor(unit);
+  const counterOrder = floor.orders.find(candidate => candidate.id === order.id);
+  assert.ok(counterOrder, "pedido de balcão deve aparecer na consulta usada pela tela de Cozinha");
+  assert.equal(counterOrder?.isCounter, true);
+  assert.equal(counterOrder?.tableId, null);
+});
+
+test("pedido de balcão avança de status do mesmo jeito que um pedido de mesa", () => {
+  const unit = `floor-counter-status-${Date.now()}`;
+  const { order } = createLocalCounterOrder({ establishmentId: unit, operatorId: "cashier", items: [{ productId: "product-hotdog", productName: "Cachorro-quente", quantity: 1 }] });
+  const advanced = changeLocalOrderStatus({ establishmentId: unit, orderId: order.id, status: "PREPARING", actorId: "cook" });
+  assert.equal(typeof advanced, "object"); if (typeof advanced === "string") return;
+  assert.equal(advanced.before, "RECEIVED"); assert.equal(advanced.table, null);
+  assert.equal(getLocalFloor(unit).orders.find(candidate => candidate.id === order.id)?.status, "PREPARING");
+  // Ao chegar em DELIVERED, some da lista da Cozinha (mesmo filtro já usado para pedidos de mesa).
+  changeLocalOrderStatus({ establishmentId: unit, orderId: order.id, status: "READY", actorId: "cook" });
+  changeLocalOrderStatus({ establishmentId: unit, orderId: order.id, status: "DELIVERED", actorId: "cook" });
+  assert.equal(getLocalFloor(unit).orders.find(candidate => candidate.id === order.id), undefined);
+});
+
+test("pedido de balcão entra nos relatórios de tempo de produção rotulado como Balcão", () => {
+  const unit = `floor-counter-timing-${Date.now()}`;
+  const { order } = createLocalCounterOrder({ establishmentId: unit, operatorId: "cashier", items: [{ productId: "product-hotdog", productName: "Cachorro-quente", quantity: 1 }] });
+  const timings = listLocalOrderTimings(unit, new Date(Date.now() - 60_000), new Date(Date.now() + 60_000));
+  const timing = timings.find(candidate => candidate.orderId === order.id);
+  assert.equal(timing?.tableLabel, "Balcão");
 });
