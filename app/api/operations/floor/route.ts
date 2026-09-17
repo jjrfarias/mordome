@@ -8,6 +8,7 @@ import { recordLocalAudit } from "@/lib/local-audit";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
 import { listLocalCatalog } from "@/lib/local-catalog";
 import { resolveIngredientSelections } from "@/lib/ingredient-options";
+import { comboGroupsInclude, mapComboGroupsToIngredientGroups } from "@/lib/combo-catalog";
 
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const actionSchema = z.discriminatedUnion("action", [
@@ -125,9 +126,10 @@ type Session = NonNullable<Awaited<ReturnType<typeof getCurrentSession>>>;
 async function addItem(session: Session, data: Extract<z.infer<typeof actionSchema>, { action: "ADD_ITEM" }>, request: Request) {
   await db.$transaction(async tx => {
     const table = await tx.diningTable.findFirst({ where: { id: data.tableId, establishmentId: session.establishment.id, active: true, isCounter: false } }); if (!table) throw new Error("TABLE_NOT_FOUND");
-    const product = await tx.product.findFirst({ where: { id: data.productId, organizationId: session.organization.id, active: true }, include: { ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } }, variants: { where: { isDefault: true, active: true }, take: 1, include: { offerings: { where: { establishmentId: session.establishment.id, channel: "FLOOR", active: true }, take: 1 } } } } });
+    const product = await tx.product.findFirst({ where: { id: data.productId, organizationId: session.organization.id, active: true }, include: { ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } }, comboGroups: comboGroupsInclude, variants: { where: { isDefault: true, active: true }, take: 1, include: { offerings: { where: { establishmentId: session.establishment.id, channel: "FLOOR", active: true }, take: 1 } } } } });
     const offering = product?.variants[0]?.offerings[0]; if (!product || !offering) throw new Error("PRODUCT_NOT_AVAILABLE");
-    const resolved = resolveIngredientSelections(product.ingredientGroups.map(group => ({ id: group.id, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) })), data.selectedOptions);
+    const groups = product.isCombo ? mapComboGroupsToIngredientGroups(product.comboGroups) : product.ingredientGroups.map(group => ({ id: group.id, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) }));
+    const resolved = resolveIngredientSelections(groups, data.selectedOptions);
     if ("error" in resolved) throw new IngredientOptionError(resolved.error);
     const unitPrice = Math.round((Number(offering.price) + resolved.priceDelta + Number.EPSILON) * 100) / 100;
     const selectedOptionsSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull = resolved.snapshot.length ? resolved.snapshot : Prisma.JsonNull;

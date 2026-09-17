@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
 import { listLocalCatalog } from "@/lib/local-catalog";
+import { comboGroupsInclude, mapComboGroupsToIngredientGroups } from "@/lib/combo-catalog";
 
 const querySchema = z.object({ channel: z.enum(CatalogChannel) });
 
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
   if (parsed.data.channel === "FLOOR" && !session.canOperateFloor) return Response.json({ error: "Acesso negado ao salão." }, { status: 403 });
   const offerings = await db.productOffering.findMany({
     where: { establishmentId: session.establishment.id, channel: parsed.data.channel, active: true, variant: { active: true, product: { organizationId: session.organization.id, active: true } } },
-    include: { variant: { include: { product: { include: { category: true, ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } } } } } } },
+    include: { variant: { include: { product: { include: { category: true, ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } }, comboGroups: comboGroupsInclude } } } } },
     orderBy: [{ variant: { product: { category: { sortOrder: "asc" } } } }, { variant: { product: { name: "asc" } } }],
   });
   return Response.json({ products: offerings.map(offering => ({
@@ -39,6 +40,8 @@ export async function GET(request: Request) {
     price: Number(offering.price),
     active: true,
     imageUrl: offering.variant.product.imageUrl,
-    ingredientGroups: offering.variant.product.ingredientGroups.map(group => ({ id: group.id, productId: group.productId, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) })),
+    ingredientGroups: offering.variant.product.isCombo
+      ? mapComboGroupsToIngredientGroups(offering.variant.product.comboGroups)
+      : offering.variant.product.ingredientGroups.map(group => ({ id: group.id, productId: group.productId, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) })),
   })) });
 }

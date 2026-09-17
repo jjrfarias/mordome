@@ -13,6 +13,7 @@ import { closeLocalTab, createLocalCounterOrder, getLocalOpenTab } from "@/lib/l
 import { attachLocalDeliverySale, getLocalDeliveryOrder } from "@/lib/local-delivery";
 import { getLocalDeliveryArea } from "@/lib/local-delivery-areas";
 import { resolveIngredientSelections, type SelectedOptionSnapshot } from "@/lib/ingredient-options";
+import { comboGroupsInclude, mapComboGroupsToIngredientGroups } from "@/lib/combo-catalog";
 import { validateCoupon, normalizeCouponCode, type CouponRecord } from "@/lib/coupons";
 import { findLocalCouponByCode, redeemLocalCoupon } from "@/lib/local-coupons";
 import { listLocalSalesForManagement } from "@/lib/local-finance";
@@ -278,14 +279,15 @@ export async function POST(request: Request) {
       for (const requested of requestedItems) {
         const product = await tx.product.findFirst({
           where: { id: requested.productId, organizationId: actor.session.organization.id, active: true },
-          include: { ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } }, variants: { where: { isDefault: true, active: true }, take: 1, include: { offerings: { where: { establishmentId: actor.session.establishment.id, channel: data.channel, active: true }, take: 1 }, recipes: { where: { establishmentId: actor.session.establishment.id, kind: "SALE", active: true }, take: 1, include: { components: { include: { inventoryItem: { include: { establishments: { where: { establishmentId: actor.session.establishment.id, active: true }, include: { movements: { select: { quantity: true, unitCost: true } } } } } } } } } } } } },
+          include: { ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } }, comboGroups: comboGroupsInclude, variants: { where: { isDefault: true, active: true }, take: 1, include: { offerings: { where: { establishmentId: actor.session.establishment.id, channel: data.channel, active: true }, take: 1 }, recipes: { where: { establishmentId: actor.session.establishment.id, kind: "SALE", active: true }, take: 1, include: { components: { include: { inventoryItem: { include: { establishments: { where: { establishmentId: actor.session.establishment.id, active: true }, include: { movements: { select: { quantity: true, unitCost: true } } } } } } } } } } } } },
         });
         const variant = product?.variants[0]; const offering = variant?.offerings[0];
         if (!product || !variant || !offering) throw new Error("PRODUCT_NOT_AVAILABLE");
         let ingredientPriceDelta = 0;
         let selectedOptionsSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull = Prisma.JsonNull;
         if (applyIngredientOptions) {
-          const resolved = resolveIngredientSelections(product.ingredientGroups.map(group => ({ id: group.id, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) })), requested.selectedOptions);
+          const groups = product.isCombo ? mapComboGroupsToIngredientGroups(product.comboGroups) : product.ingredientGroups.map(group => ({ id: group.id, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) }));
+          const resolved = resolveIngredientSelections(groups, requested.selectedOptions);
           if ("error" in resolved) throw new IngredientOptionError(resolved.error);
           ingredientPriceDelta = resolved.priceDelta;
           if (resolved.snapshot.length) selectedOptionsSnapshot = resolved.snapshot;

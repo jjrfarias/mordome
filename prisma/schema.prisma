@@ -824,6 +824,7 @@ model Product {
   description    String?
   imageUrl       String?
   active         Boolean          @default(true)
+  isCombo        Boolean          @default(false)
   // Dados fiscais (ADR 0049) — todos opcionais: só passam a ser exigidos de fato no momento da
   // emissão da NFC-e, quando a unidade tem o módulo fiscal ativo (`FiscalConfig.active`).
   ncm            String?
@@ -841,10 +842,53 @@ model Product {
   stationLinks   ProductStation[]
   ingredientGroups IngredientGroup[]
   highlightedBy  Establishment[]
+  comboGroups    ComboGroup[]       @relation("ComboGroups")
+  comboOptionOf  ComboGroupOption[] @relation("ComboGroupOptionProduct")
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
   @@index([categoryId])
+}
+
+// Combos (ADR 0054): um combo é um Product normal (mesma variante/oferta/preço por canal que
+// qualquer produto) com `isCombo = true` e um ou mais ComboGroup — mesma estrutura de
+// IngredientGroup/IngredientOption (ADR 0022), mas cada opção aponta para OUTRO Product inteiro em
+// vez de só um nome com priceDelta. Isso permite reaproveitar 100% do pipeline de personalização já
+// existente (resolveIngredientSelections, IngredientPicker, selectedOptionsSnapshot em
+// SaleItem/TabItem/DeliveryOrderItem) tratando cada opção de combo como uma "opção de ingrediente"
+// cujo nome é o nome do produto escolhido — nenhuma tabela nova precisou ser criada para o carrinho
+// ou a venda em si, só o cadastro do combo.
+model ComboGroup {
+  id            String             @id @default(cuid())
+  productId     String
+  name          String
+  minSelections Int                @default(1)
+  maxSelections Int                @default(1)
+  active        Boolean            @default(true)
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @updatedAt
+  product       Product            @relation("ComboGroups", fields: [productId], references: [id], onDelete: Cascade)
+  options       ComboGroupOption[]
+
+  @@index([productId, active])
+}
+
+model ComboGroupOption {
+  id           String     @id @default(cuid())
+  comboGroupId String
+  productId    String
+  priceDelta   Decimal    @default(0) @db.Decimal(12, 2)
+  active       Boolean    @default(true)
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+  comboGroup   ComboGroup @relation(fields: [comboGroupId], references: [id], onDelete: Cascade)
+  // Restrict (nunca SetNull/Cascade): um produto usado dentro de um combo não pode ser excluído
+  // fisicamente sem antes remover essa opção — mas como produtos nunca são excluídos de verdade
+  // neste app (só inativados), isso nunca bloqueia o fluxo normal de "descontinuar um produto".
+  optionProduct Product   @relation("ComboGroupOptionProduct", fields: [productId], references: [id], onDelete: Restrict)
+
+  @@unique([comboGroupId, productId])
+  @@index([comboGroupId, active])
 }
 
 model IngredientGroup {

@@ -20,7 +20,9 @@ export function formatSelectedOptions(options: SelectedIngredientOption[] | null
 
 export function IngredientPicker({ product, onClose, onConfirm }: { product: IngredientPickerProduct; onClose: () => void; onConfirm: (unitPrice: number, selectedOptions: SelectedIngredientOption[], optionSelections: { groupId: string; optionIds: string[] }[]) => void }) {
   const groups = (product.ingredientGroups ?? []).filter((group: IngredientGroup) => group.active && group.options.some(option => option.active));
-  const [choices, setChoices] = useState<Record<string, string[]>>({});
+  // Grupo com só 1 opção ativa não é de fato uma escolha (ex.: combo fixo com um único item por
+  // etapa) — pré-seleciona pra não obrigar o cliente a clicar num radio sem alternativa real.
+  const [choices, setChoices] = useState<Record<string, string[]>>(() => Object.fromEntries(groups.filter(group => group.options.filter(option => option.active).length === 1).map(group => [group.id, [group.options.find(option => option.active)!.id]])));
   const [error, setError] = useState("");
 
   const toggleOption = (group: IngredientGroup, optionId: string) => setChoices(current => {
