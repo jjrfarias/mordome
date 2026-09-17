@@ -46,17 +46,21 @@ export default function PublicMenuPage() {
 
   return <div className="public-menu">
     {data.establishment.bannerUrl && <div className="public-menu-banner"><img src={data.establishment.bannerUrl} alt="" /></div>}
-    <div className="public-menu-header">
+    <div className={`public-menu-header${data.establishment.bannerUrl ? " with-banner" : ""}`}>
       {data.establishment.logoUrl ? <img src={data.establishment.logoUrl} alt="" width={56} height={56} className="public-menu-logo" /> : <Image src="/clientes/betao/simbolo-compacto-v1.png" alt="" width={56} height={56} priority />}
-      <span className="section-kicker">CARDÁPIO ONLINE</span>
-      <h1>{data.establishment.name}</h1>
-      <div className="search"><Search/><input placeholder="Buscar produto..." value={query} onChange={event => setQuery(event.target.value)} /></div>
-      <Link href={`/pedido-online/${params.establishmentId}`} className="primary" style={{ marginTop: 14, textDecoration: "none" }}><ShoppingBag style={{ width: 16 }} /> Fazer pedido online</Link>
+      <div className="public-menu-heading">
+        <span className="section-kicker">CARDÁPIO ONLINE</span>
+        <h1>{data.establishment.name}</h1>
+      </div>
+    </div>
+    <div className={`public-menu-actions${data.establishment.bannerUrl ? "" : " centered"}`}>
+      <div className="search public-menu-search"><Search/><input placeholder="Buscar produto..." value={query} onChange={event => setQuery(event.target.value)} /></div>
+      <Link href={`/pedido-online/${params.establishmentId}`} className="primary" style={{ textDecoration: "none" }}><ShoppingBag style={{ width: 16 }} /> Fazer pedido online</Link>
     </div>
 
     {highlight && <section className="public-menu-highlight">
       <div className="public-menu-highlight-photo">{highlight.imageUrl ? <img src={highlight.imageUrl} alt="" /> : <UtensilsCrossed />}</div>
-      <div><span>{data.establishment.highlightHeadline || "Destaque"}</span><b>{highlight.name}</b><strong>{money(highlight.price)}</strong></div>
+      <div className="public-menu-highlight-body"><span>{data.establishment.highlightHeadline || "Destaque"}</span><b>{highlight.name}</b><strong>{money(highlight.price)}</strong></div>
     </section>}
 
     {data.products.length === 0 ? <div className="big-empty"><UtensilsCrossed/><h2>Cardápio em preparação</h2><p>Nenhum produto disponível para consulta online no momento.</p></div> : <div className="public-menu-groups">

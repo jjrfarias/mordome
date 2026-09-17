@@ -81,17 +81,19 @@ export default function OnlineOrderPage() {
 
   return <div className="public-menu" style={{ paddingBottom: items.length > 0 ? 110 : 60 }}>
     {data.establishment.bannerUrl && step === "catalog" && <div className="public-menu-banner"><img src={data.establishment.bannerUrl} alt="" /></div>}
-    <div className="public-menu-header">
+    <div className={`public-menu-header${data.establishment.bannerUrl ? " with-banner" : ""}`}>
       {data.establishment.logoUrl ? <img src={data.establishment.logoUrl} alt="" width={56} height={56} className="public-menu-logo" /> : <Image src="/clientes/betao/simbolo-compacto-v1.png" alt="" width={56} height={56} priority />}
-      <span className="section-kicker">PEDIDO ONLINE</span>
-      <h1>{data.establishment.name}</h1>
-      {step === "catalog" && <div className="search"><Search /><input placeholder="Buscar produto..." value={query} onChange={event => setQuery(event.target.value)} /></div>}
+      <div className="public-menu-heading">
+        <span className="section-kicker">PEDIDO ONLINE</span>
+        <h1>{data.establishment.name}</h1>
+      </div>
     </div>
+    {step === "catalog" && <div className="search public-menu-search"><Search /><input placeholder="Buscar produto..." value={query} onChange={event => setQuery(event.target.value)} /></div>}
 
     {step === "catalog" && highlight && <section className="public-menu-highlight" onClick={() => setQuantity(highlight.id, (quantities[highlight.id] ?? 0) + 1)} role="button" tabIndex={0}>
       <div className="public-menu-highlight-photo">{highlight.imageUrl ? <img src={highlight.imageUrl} alt="" /> : <UtensilsCrossed />}</div>
-      <div><span>{data.establishment.highlightHeadline || "Destaque"}</span><b>{highlight.name}</b><strong>{money(highlight.price)}</strong></div>
-      <Plus style={{ width: 18 }} />
+      <div className="public-menu-highlight-body"><span>{data.establishment.highlightHeadline || "Destaque"}</span><b>{highlight.name}</b><strong>{money(highlight.price)}</strong></div>
+      <Plus />
     </section>}
 
     {step === "catalog" && (data.products.length === 0 ? <div className="big-empty"><UtensilsCrossed /><h2>Pedidos indisponíveis</h2><p>Nenhum produto disponível para pedido online no momento.</p></div> : <>
