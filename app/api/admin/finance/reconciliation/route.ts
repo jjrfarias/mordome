@@ -54,7 +54,7 @@ export async function GET(request: Request) {
   if (!account) return Response.json({ error: "Conta bancária inválida." }, { status: 400 });
   const fromDate = new Date(from);
   const toDate = new Date(to);
-  toDate.setHours(23, 59, 59, 999);
+  toDate.setUTCHours(23, 59, 59, 999);
   if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) return Response.json({ error: "Período inválido." }, { status: 400 });
 
   const [entries, bankAccounts] = await Promise.all([

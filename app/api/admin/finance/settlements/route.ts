@@ -37,7 +37,7 @@ function resolveRange(from?: string, to?: string) {
   }
   const fromDate = new Date(from);
   const toDate = new Date(to);
-  toDate.setHours(23, 59, 59, 999);
+  toDate.setUTCHours(23, 59, 59, 999);
   return { fromDate, toDate };
 }
 
@@ -117,7 +117,7 @@ export async function POST(request: Request) {
   const data = parsed.data;
   const fromDate = new Date(data.from);
   const toDate = new Date(data.to);
-  toDate.setHours(23, 59, 59, 999);
+  toDate.setUTCHours(23, 59, 59, 999);
   if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) return Response.json({ error: "Período inválido." }, { status: 400 });
 
   if (isLocalAuthEnabled()) {
