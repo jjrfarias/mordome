@@ -178,8 +178,10 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 .public-menu-actions .primary{width:fit-content}
 .public-menu-actions.centered{display:flex;flex-direction:column;align-items:center}
 .public-menu-actions.centered .public-menu-search{margin-bottom:14px}
-.public-menu-header.with-banner{flex-direction:row;align-items:center;text-align:left;gap:16px;margin-top:-34px;margin-bottom:20px}
-.public-menu-header.with-banner .public-menu-logo,.public-menu-header.with-banner img:first-child{width:68px;height:68px;flex:0 0 68px;margin-bottom:0;box-shadow:0 4px 14px rgba(0,0,0,.18)}
+.public-menu-header.with-banner{flex-direction:row;align-items:flex-end;text-align:left;gap:16px;margin-top:0;margin-bottom:20px}
+.public-menu-header.with-banner .public-menu-logo,.public-menu-header.with-banner img:first-child{width:96px;height:96px;flex:0 0 96px;margin-bottom:0;margin-top:-48px;box-shadow:0 4px 14px rgba(0,0,0,.18);position:relative;z-index:1}
+.public-menu-header.with-banner .public-menu-heading{padding-bottom:4px}
+@media(max-width:560px){.public-menu-header.with-banner .public-menu-logo,.public-menu-header.with-banner img:first-child{width:72px;height:72px;flex:0 0 72px;margin-top:-32px}}
 .public-menu-header.with-banner .public-menu-heading{min-width:0}
 .public-menu-header.with-banner h1{font-size:22px}
 .public-menu-header.with-banner ~ .public-menu-search{max-width:none;margin:0 0 20px}
