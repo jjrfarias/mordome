@@ -51,13 +51,8 @@ export function SalesTrackingDashboard() {
 
   return <>
     <section className="panel settings-shell">
-      <div className="settings-shell-header"><div><span className="section-kicker">Acompanhamento de vendas</span><h2>Dia</h2></div></div>
+      <div className="settings-shell-header"><div><span className="section-kicker">Acompanhamento de vendas</span><h2>Período</h2></div></div>
       <p className="section-note">Faturamento, horário de pico e composição por canal do dia escolhido, na unidade ativa.</p>
-    </section>
-
-    <section className="panel settings-shell">
-      <div className="settings-shell-header"><div><span className="section-kicker">Dia</span><h2>Período</h2></div></div>
-      <p className="section-note">Escolha o dia para ver o resumo, o horário de pico e a composição por canal.</p>
       <div className="settings-form">
         <div className="field">
           <label htmlFor="sales-tracking-date">Data</label>
