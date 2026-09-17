@@ -1,9 +1,12 @@
 import { z } from "zod";
+import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { requestAuditMetadata } from "@/lib/audit";
 import { isLocalAuthEnabled, listLocalEstablishments } from "@/lib/local-auth";
+import { listLocalUsers } from "@/lib/local-access-control";
 import { listLocalCatalog } from "@/lib/local-catalog";
-import { createLocalDeliveryOrder } from "@/lib/local-delivery";
+import { attachLocalDeliveryKitchenOrder, createLocalDeliveryOrder } from "@/lib/local-delivery";
+import { createLocalCounterOrder } from "@/lib/local-floor";
 import { rateLimit } from "@/lib/rate-limit";
 
 const orderSchema = z.object({
@@ -56,6 +59,14 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
     const items = data.items.map(item => { const product = catalog.find(candidate => candidate.id === item.productId && candidate.active && candidate.channels.includes("DELIVERY")); return product ? { productId: product.id, productName: product.name, quantity: item.quantity, unitPrice: product.price } : null; });
     if (items.some(item => !item)) return Response.json({ error: "Produto indisponível para pedido online." }, { status: 409 });
     const order = createLocalDeliveryOrder(establishmentId, { customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", items: items as NonNullable<(typeof items)[number]>[] });
+    // Delivery envia para a cozinha (ADR 0050): pedido online é criado sem operador logado, então
+    // usa o primeiro usuário ativo com acesso à unidade como autor do tíquete de cozinha — o mesmo
+    // critério do ADR 0044 exige um ator, e aqui não existe um atendente por trás do pedido.
+    const systemActor = listLocalUsers().find(user => user.userActive && user.establishmentIds.includes(establishmentId));
+    if (systemActor) {
+      const kitchen = createLocalCounterOrder({ establishmentId, operatorId: systemActor.userId, items: order.items.map(item => ({ productId: item.productId, productName: item.productName, quantity: item.quantity, selectedOptionsSnapshot: item.selectedOptionsSnapshot })) });
+      attachLocalDeliveryKitchenOrder(establishmentId, order.id, kitchen.order.id);
+    }
     return Response.json({ orderId: order.id }, { status: 201 });
   }
 
@@ -66,7 +77,33 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
   if (data.items.some(item => !priceByProduct.has(item.productId))) return Response.json({ error: "Produto indisponível para pedido online." }, { status: 409 });
 
   try {
-    const order = await db.deliveryOrder.create({ data: { establishmentId, customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", items: { create: data.items.map(item => { const info = priceByProduct.get(item.productId)!; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice: info.price }; }) } } });
+    const order = await db.$transaction(async tx => {
+      const created = await tx.deliveryOrder.create({ data: { establishmentId, customerName: data.customerName, customerPhone: data.customerPhone, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", items: { create: data.items.map(item => { const info = priceByProduct.get(item.productId)!; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice: info.price }; }) } }, include: { items: true } });
+
+      // Delivery envia para a cozinha (ADR 0050): pedido online não tem operador logado por trás,
+      // então usa a primeira pessoa com acesso ativo à unidade como autora do tíquete de cozinha
+      // (Tab.openedById/Order.sentById exigem um User real) — mesmo critério do modo local.
+      const access = await tx.establishmentAccess.findFirst({ where: { establishmentId, membership: { organizationId: establishment.organizationId, status: "ACTIVE" } }, orderBy: { membership: { createdAt: "asc" } }, include: { membership: { select: { userId: true } } } });
+      if (access) {
+        let counterTable = await tx.diningTable.findFirst({ where: { establishmentId, isCounter: true } });
+        if (!counterTable) {
+          try {
+            counterTable = await tx.diningTable.create({ data: { establishmentId, number: 0, seats: 0, name: "Balcão", isCounter: true } });
+          } catch (creationError) {
+            if (!(creationError instanceof Prisma.PrismaClientKnownRequestError && creationError.code === "P2002")) throw creationError;
+            counterTable = await tx.diningTable.findFirst({ where: { establishmentId, isCounter: true } });
+            if (!counterTable) throw creationError;
+          }
+        }
+        const actorId = access.membership.userId;
+        const counterTab = await tx.tab.create({ data: { establishmentId, tableId: counterTable.id, openedById: actorId } });
+        const tabItems = await Promise.all(created.items.map(item => tx.tabItem.create({ data: { tabId: counterTab.id, productId: item.productId, productName: item.productName, quantity: item.quantity, sentQuantity: item.quantity, unitPrice: item.unitPrice, addedById: actorId } })));
+        const counterOrder = await tx.order.create({ data: { tabId: counterTab.id, sentById: actorId, items: { create: tabItems.map((tabItem, index) => ({ tabItemId: tabItem.id, productName: created.items[index].productName, quantity: created.items[index].quantity })) }, statusHistory: { create: { status: "RECEIVED", actorId } } } });
+        await tx.deliveryOrder.update({ where: { id: created.id }, data: { kitchenOrderId: counterOrder.id } });
+        await tx.auditEvent.create({ data: { organizationId: establishment.organizationId, establishmentId, actorId, action: "ORDER_SENT", entityType: "Order", entityId: counterOrder.id, reason: `Pedido enviado para a cozinha — Delivery online (${created.customerName})`, after: { tabId: counterTab.id, deliveryOrderId: created.id, items: created.items.map(item => ({ productName: item.productName, quantity: item.quantity })) } } });
+      }
+      return created;
+    });
     return Response.json({ orderId: order.id }, { status: 201 });
   } catch {
     return Response.json({ error: "Não foi possível registrar o pedido." }, { status: 500 });

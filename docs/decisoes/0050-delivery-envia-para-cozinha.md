@@ -13,10 +13,22 @@ ser preparado — descobria só quando o entregador ou o balcão avisava.
 
 ## Decisão
 
-1. **`POST /api/operations/delivery` (ação `CREATE`) agora também cria a comanda/pedido na mesa
-   "Balcão"**, no mesmo momento em que o pedido de delivery é criado — mesma mesa virtual e mesmas
-   tabelas (`Tab`/`TabItem`/`Order`/`OrderItem`) do ADR 0044, para a Cozinha continuar sendo uma
-   única tela agregando PDV, Salão e agora Delivery.
+1. **Dois pontos de entrada criam `DeliveryOrder` e ambos passaram a criar a comanda/pedido na mesa
+   "Balcão"**: `POST /api/operations/delivery` (ação `CREATE`, pedido tirado por um atendente) e
+   `POST /api/public/orders/[establishmentId]` (pedido feito pelo próprio cliente na tela pública de
+   pedido online, ADR 0045) — os dois reaproveitam as mesmas tabelas `Tab`/`TabItem`/`Order`/
+   `OrderItem` do ADR 0044, para a Cozinha continuar sendo uma única tela agregando PDV, Salão e
+   Delivery (interno ou online).
+
+1a. **Pedido online não tem operador logado por trás** (é o cliente final preenchendo o formulário
+   público, sem sessão de staff) — mas `Tab.openedById`/`Order.sentById` exigem um `User` real
+   (chave estrangeira `onDelete: Restrict`). A rota pública resolve isso usando a primeira pessoa com
+   acesso ATIVO à unidade (`EstablishmentAccess` mais antigo da organização) como autora do tíquete
+   de cozinha — não representa quem realmente "atendeu" o pedido (ninguém atendeu, foi direto do
+   cliente), só satisfaz a obrigação de autoria do pipeline Tab/Order. Se a unidade não tiver
+   nenhum acesso ativo (situação anômala — não deveria acontecer, toda unidade operante tem ao menos
+   o dono), o pedido de delivery é criado normalmente e só o tíquete de cozinha fica de fora, sem
+   derrubar o pedido do cliente.
 
 2. **Diferente do PDV, a comanda é criada no PEDIDO, não no pagamento.** No PDV, pedido e pagamento
    acontecem juntos (finaliza a venda e já é PDV); no Delivery, o pedido precisa ser preparado e
