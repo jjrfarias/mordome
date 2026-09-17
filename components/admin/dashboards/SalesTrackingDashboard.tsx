@@ -53,14 +53,21 @@ export function SalesTrackingDashboard() {
     <section className="panel settings-shell">
       <div className="settings-shell-header"><div><span className="section-kicker">Acompanhamento de vendas</span><h2>Dia</h2></div></div>
       <p className="section-note">Faturamento, horário de pico e composição por canal do dia escolhido, na unidade ativa.</p>
-      <div className="field" style={{ maxWidth: 220 }}>
-        <label htmlFor="sales-tracking-date">Data</label>
-        <input id="sales-tracking-date" type="date" value={date} max={todayInput()} onChange={event => setDate(event.target.value)} />
+    </section>
+
+    <section className="panel settings-shell">
+      <div className="settings-shell-header"><div><span className="section-kicker">Dia</span><h2>Período</h2></div></div>
+      <p className="section-note">Escolha o dia para ver o resumo, o horário de pico e a composição por canal.</p>
+      <div className="settings-form">
+        <div className="field">
+          <label htmlFor="sales-tracking-date">Data</label>
+          <input id="sales-tracking-date" type="date" value={date} max={todayInput()} onChange={event => setDate(event.target.value)} />
+        </div>
+        <nav className="settings-tabs" aria-label="Atalhos de data">
+          <button className={date === todayInput() ? "active" : ""} onClick={() => setDate(todayInput())}>Hoje</button>
+          <button className={date === yesterdayInput() ? "active" : ""} onClick={() => setDate(yesterdayInput())}>Ontem</button>
+        </nav>
       </div>
-      <nav className="settings-tabs" aria-label="Atalhos de data">
-        <button className={date === todayInput() ? "active" : ""} onClick={() => setDate(todayInput())}>Hoje</button>
-        <button className={date === yesterdayInput() ? "active" : ""} onClick={() => setDate(yesterdayInput())}>Ontem</button>
-      </nav>
     </section>
 
     {error && <div className="auth-error">{error}</div>}
