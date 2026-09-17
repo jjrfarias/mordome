@@ -7,6 +7,7 @@ import { slugify } from "@/lib/auth-validation";
 import { canDeactivateEstablishment } from "@/lib/permissions";
 import { requestAuditMetadata } from "@/lib/audit";
 import { recordLocalAudit } from "@/lib/local-audit";
+import { PRODUCT_IMAGE_URL_MAX_LENGTH } from "@/lib/catalog-validation";
 
 const createSchema = z.object({
   name: z.string().trim().min(2).max(100),
@@ -22,12 +23,23 @@ const addressSchema = z.object({
   state: z.string().trim().max(2).optional(),
 });
 
+// Vitrine do delivery (ADR 0053): logoUrl/bannerUrl aceitam string vazia para "remover a imagem" —
+// mesmo critério do endereço (campo vazio = limpa o valor), diferente de "campo não enviado" (não
+// mexe no que já existe). Reaproveita o limite de tamanho de PRODUCT_IMAGE_URL_MAX_LENGTH (ADR 0032).
+const imageOrEmpty = z.string().max(PRODUCT_IMAGE_URL_MAX_LENGTH).refine(value => value === "" || value.startsWith("data:image/"), { message: "Formato de imagem inválido." });
+const storefrontSchema = z.object({
+  logoUrl: imageOrEmpty.optional(),
+  bannerUrl: imageOrEmpty.optional(),
+  highlightProductId: z.string().trim().max(100).optional(),
+  highlightHeadline: z.string().trim().max(120).optional(),
+});
+
 const patchSchema = z.object({
   establishmentId: z.string().trim().min(1),
   name: z.string().trim().min(2).max(100).optional(),
   active: z.boolean().optional(),
-}).merge(addressSchema).refine(value => value.name !== undefined || value.active !== undefined || Object.keys(addressSchema.shape).some(key => value[key as keyof typeof value] !== undefined), {
-  message: "Informe um nome, um novo status ou um endereço.",
+}).merge(addressSchema).merge(storefrontSchema).refine(value => value.name !== undefined || value.active !== undefined || [...Object.keys(addressSchema.shape), ...Object.keys(storefrontSchema.shape)].some(key => value[key as keyof typeof value] !== undefined), {
+  message: "Informe um nome, um novo status, um endereço ou dados da vitrine.",
 });
 
 const addressKeys = ["postalCode", "street", "number", "complement", "neighborhood", "city", "state"] as const;
@@ -37,6 +49,17 @@ function addressPatch(data: z.infer<typeof patchSchema>) {
     const value = data[key];
     if (value === undefined) continue;
     patch[key] = key === "postalCode" ? value.replace(/\D/g, "") || null : value || null;
+  }
+  return patch;
+}
+
+const storefrontKeys = ["logoUrl", "bannerUrl", "highlightProductId", "highlightHeadline"] as const;
+function storefrontPatch(data: z.infer<typeof patchSchema>) {
+  const patch: Partial<Record<(typeof storefrontKeys)[number], string | null>> = {};
+  for (const key of storefrontKeys) {
+    const value = data[key];
+    if (value === undefined) continue;
+    patch[key] = value || null;
   }
   return patch;
 }
@@ -53,6 +76,10 @@ type EstablishmentPayload = {
   neighborhood: string | null;
   city: string | null;
   state: string | null;
+  logoUrl: string | null;
+  bannerUrl: string | null;
+  highlightProductId: string | null;
+  highlightHeadline: string | null;
 };
 
 async function resolveActor() {
@@ -100,6 +127,10 @@ export async function GET(request: Request) {
       neighborhood: establishment.neighborhood,
       city: establishment.city,
       state: establishment.state,
+      logoUrl: establishment.logoUrl,
+      bannerUrl: establishment.bannerUrl,
+      highlightProductId: establishment.highlightProductId,
+      highlightHeadline: establishment.highlightHeadline,
     })),
   } satisfies { establishments: EstablishmentPayload[] });
 };
@@ -173,6 +204,7 @@ export async function PATCH(request: Request) {
       ...(data.name === undefined ? {} : { name: data.name, slug: slugify(data.name) }),
       ...(data.active === undefined ? {} : { active: data.active }),
       ...addressPatch(data),
+      ...storefrontPatch(data),
     });
     if (updated === "DUPLICATE") return Response.json({ error: "Já existe um estabelecimento com esse nome." }, { status: 409 });
     if (!updated) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
@@ -194,6 +226,11 @@ export async function PATCH(request: Request) {
     where: { id: data.establishmentId, organizationId: actor.organizationId },
   });
   if (!current) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
+
+  if (data.highlightProductId) {
+    const product = await db.product.findFirst({ where: { id: data.highlightProductId, organizationId: actor.organizationId } });
+    if (!product) return Response.json({ error: "Produto em destaque não encontrado." }, { status: 400 });
+  }
 
   try {
     const updated = await db.$transaction(async (tx) => {
@@ -225,6 +262,11 @@ export async function PATCH(request: Request) {
         Object.assign(payload, addressChanges);
         Object.assign(after, addressChanges);
       }
+      const storefrontChanges = storefrontPatch(data);
+      if (Object.keys(storefrontChanges).length > 0) {
+        Object.assign(payload, storefrontChanges);
+        Object.assign(after, { ...storefrontChanges, logoUrl: storefrontChanges.logoUrl ? "(imagem atualizada)" : storefrontChanges.logoUrl, bannerUrl: storefrontChanges.bannerUrl ? "(imagem atualizada)" : storefrontChanges.bannerUrl });
+      }
 
       const changed = await tx.establishment.update({ where: { id: fresh.id }, data: payload });
       await tx.auditEvent.create({
@@ -252,7 +294,7 @@ export async function PATCH(request: Request) {
       return changed;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    return Response.json({ establishment: { id: updated.id, name: updated.name, slug: updated.slug, active: updated.active, postalCode: updated.postalCode, street: updated.street, number: updated.number, complement: updated.complement, neighborhood: updated.neighborhood, city: updated.city, state: updated.state } });
+    return Response.json({ establishment: { id: updated.id, name: updated.name, slug: updated.slug, active: updated.active, postalCode: updated.postalCode, street: updated.street, number: updated.number, complement: updated.complement, neighborhood: updated.neighborhood, city: updated.city, state: updated.state, logoUrl: updated.logoUrl, bannerUrl: updated.bannerUrl, highlightProductId: updated.highlightProductId, highlightHeadline: updated.highlightHeadline } });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return Response.json({ error: "Já existe um estabelecimento com esse nome." }, { status: 409 });

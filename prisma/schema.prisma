@@ -251,6 +251,11 @@ model Establishment {
   neighborhood     String?
   city             String?
   state            String?
+  logoUrl          String?
+  bannerUrl        String?
+  highlightProductId String?
+  highlightHeadline  String?
+  highlightProduct Product?                     @relation(fields: [highlightProductId], references: [id], onDelete: SetNull)
   timezone         String                       @default("America/Sao_Paulo")
   serviceRate      Decimal                      @default(10) @db.Decimal(5, 2)
   active           Boolean                      @default(true)
@@ -835,6 +840,7 @@ model Product {
   tabItems       TabItem[]
   stationLinks   ProductStation[]
   ingredientGroups IngredientGroup[]
+  highlightedBy  Establishment[]
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])

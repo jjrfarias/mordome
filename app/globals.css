@@ -156,6 +156,16 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 .kitchen-pin-button{font-size:10px;padding:9px 14px}
 @media(max-width:760px){.kitchen-station-bar{flex-direction:column;align-items:stretch}}
 .public-menu{max-width:640px;margin:0 auto;padding:28px 20px 60px;min-height:100vh;background:var(--cream)}
+.public-menu-banner{margin:-28px -20px 0;height:180px;overflow:hidden}
+.public-menu-banner img{width:100%;height:100%;object-fit:cover}
+.public-menu-logo{width:56px;height:56px;object-fit:cover;border-radius:50%;margin-bottom:6px;border:3px solid var(--paper);background:white}
+.public-menu-highlight{display:flex;align-items:center;gap:12px;background:linear-gradient(135deg,var(--gold,#e2a400),var(--orange));color:white;border-radius:16px;padding:14px 16px;margin-bottom:24px;cursor:pointer;border:0;text-align:left}
+.public-menu-highlight-photo{width:56px;height:56px;flex:0 0 56px;border-radius:12px;overflow:hidden;background:rgba(255,255,255,.25);display:grid;place-items:center}
+.public-menu-highlight-photo img{width:100%;height:100%;object-fit:cover}
+.public-menu-highlight div{flex:1;min-width:0}
+.public-menu-highlight span{font-size:9px;text-transform:uppercase;letter-spacing:.08em;opacity:.85}
+.public-menu-highlight b{display:block;font-size:14px;margin:2px 0}
+.public-menu-highlight strong{font-size:13px}
 .public-menu-header{display:flex;flex-direction:column;align-items:center;text-align:center;gap:6px;margin-bottom:30px}
 .public-menu-header img{border-radius:50%;margin-bottom:6px}
 .public-menu-header h1{font-family:var(--font-fraunces),serif;font-size:28px;font-weight:600;letter-spacing:-.025em;margin:2px 0 20px;color:var(--ink)}

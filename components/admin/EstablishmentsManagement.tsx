@@ -1,4 +1,6 @@
 ﻿import { useEffect, useState } from "react";
+import { ImagePlus, UtensilsCrossed } from "lucide-react";
+import { compressImageFile } from "@/lib/image-compression";
 
 type EstablishmentAddress = {
   postalCode: string | null;
@@ -10,12 +12,21 @@ type EstablishmentAddress = {
   state: string | null;
 };
 
+type EstablishmentStorefront = {
+  logoUrl: string | null;
+  bannerUrl: string | null;
+  highlightProductId: string | null;
+  highlightHeadline: string | null;
+};
+
 type EstablishmentItem = {
   id: string;
   name: string;
   slug: string;
   active: boolean;
-} & EstablishmentAddress;
+} & EstablishmentAddress & EstablishmentStorefront;
+
+type CatalogProductOption = { id: string; name: string };
 
 type EstablishmentsPayload = {
   establishments: EstablishmentItem[];
@@ -30,6 +41,8 @@ type EstablishmentFormState = {
 };
 
 type AddressFormState = { postalCode: string; street: string; number: string; complement: string; neighborhood: string; city: string; state: string; editing: boolean; saving: boolean; error: string; lookingUp: boolean };
+
+type StorefrontFormState = { logoUrl: string | null; bannerUrl: string | null; highlightProductId: string; highlightHeadline: string; editing: boolean; saving: boolean; error: string; busy: boolean };
 
 function formatCep(value: string) {
   const digits = value.replace(/\D/g, "").slice(0, 8);
@@ -49,6 +62,8 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
   const [name, setName] = useState("");
   const [edits, setEdits] = useState<EstablishmentFormState[]>([]);
   const [addressEdits, setAddressEdits] = useState<Record<string, AddressFormState>>({});
+  const [storefrontEdits, setStorefrontEdits] = useState<Record<string, StorefrontFormState>>({});
+  const [catalogProducts, setCatalogProducts] = useState<CatalogProductOption[]>([]);
   const [copied, setCopied] = useState<string | null>(null);
 
   const activeCount = rows.filter((row) => row.active).length;
@@ -80,12 +95,24 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
       if (previous?.editing) return [establishment.id, previous];
       return [establishment.id, { postalCode: establishment.postalCode ? formatCep(establishment.postalCode) : "", street: establishment.street ?? "", number: establishment.number ?? "", complement: establishment.complement ?? "", neighborhood: establishment.neighborhood ?? "", city: establishment.city ?? "", state: establishment.state ?? "", editing: false, saving: false, error: "", lookingUp: false }];
     })));
+    setStorefrontEdits(current => Object.fromEntries(parsed.establishments.map(establishment => {
+      const previous = current[establishment.id];
+      if (previous?.editing) return [establishment.id, previous];
+      return [establishment.id, { logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightProductId: establishment.highlightProductId ?? "", highlightHeadline: establishment.highlightHeadline ?? "", editing: false, saving: false, error: "", busy: false }];
+    })));
     setLoading(false);
   };
 
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void load();
+    // Lista de produtos para o seletor de "destaque" (ADR 0053) — reaproveita o catálogo da unidade
+    // ativa na sessão; nome/id do produto não muda entre unidades, só preço/canais (não usados aqui).
+    void (async () => {
+      const response = await fetch("/api/admin/catalog", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (response.ok) setCatalogProducts((data.products ?? []).map((product: { id: string; name: string }) => ({ id: product.id, name: product.name })));
+    })();
   }, []);
 
   const setEditMode = (id: string, editing: boolean) => {
@@ -241,6 +268,45 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
     }
   };
 
+  const storefrontState = (id: string) => storefrontEdits[id];
+  const setStorefrontDraft = (id: string, patch: Partial<StorefrontFormState>) => setStorefrontEdits(current => ({ ...current, [id]: { ...current[id], ...patch } }));
+  const startEditStorefront = (id: string) => setStorefrontDraft(id, { editing: true, error: "" });
+  const cancelEditStorefront = (id: string, establishment: EstablishmentItem) => setStorefrontDraft(id, { editing: false, error: "", logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightProductId: establishment.highlightProductId ?? "", highlightHeadline: establishment.highlightHeadline ?? "" });
+
+  const handleStorefrontImage = async (id: string, field: "logoUrl" | "bannerUrl", file: File | undefined) => {
+    if (!file) return;
+    setStorefrontDraft(id, { busy: true, error: "" });
+    try {
+      const compressed = await compressImageFile(file);
+      setStorefrontDraft(id, { [field]: compressed } as Partial<StorefrontFormState>);
+    } catch (cause) {
+      setStorefrontDraft(id, { error: cause instanceof Error ? cause.message : "Não foi possível processar a imagem." });
+    } finally {
+      setStorefrontDraft(id, { busy: false });
+    }
+  };
+
+  const saveStorefront = async (id: string) => {
+    const draft = storefrontState(id);
+    if (!draft || saving) return;
+    setStorefrontDraft(id, { saving: true, error: "" });
+    try {
+      const response = await fetch("/api/admin/establishments", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ establishmentId: id, logoUrl: draft.logoUrl ?? "", bannerUrl: draft.bannerUrl ?? "", highlightProductId: draft.highlightProductId, highlightHeadline: draft.highlightHeadline }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { setStorefrontDraft(id, { error: data.error ?? "Não foi possível salvar a vitrine." }); return; }
+      setStorefrontDraft(id, { editing: false });
+      await load();
+    } catch {
+      setStorefrontDraft(id, { error: "Falha ao conectar no servidor." });
+    } finally {
+      setStorefrontDraft(id, { saving: false });
+    }
+  };
+
   // Links públicos (ADR 0045): a URL usa o `id` do estabelecimento, nunca gerada/exibida em
   // nenhuma outra tela — dono precisava montar isso manualmente para compartilhar com o cliente
   // final. Copiado direto do navegador (window.location.origin), sem depender de variável de
@@ -355,6 +421,54 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
                   <div className="settings-actions" style={{ marginTop: 10 }}>
                     <button type="button" className="primary" disabled={addr.saving} onClick={() => void saveAddress(establishment.id)}>{addr.saving ? "Salvando…" : "Salvar endereço"}</button>
                     <button type="button" className="secondary" onClick={() => cancelEditAddress(establishment.id, establishment)}>Cancelar</button>
+                  </div>
+                </div>;
+              })()}
+            </div>
+            <div className="settings-address">
+              {(() => {
+                const store = storefrontState(establishment.id);
+                if (!store) return null;
+                if (!store.editing) return <div className="settings-address-line">
+                  <span>{establishment.logoUrl || establishment.bannerUrl || establishment.highlightProductId ? "Vitrine configurada" : "Vitrine do delivery não configurada"}</span>
+                  <button type="button" className="secondary" onClick={() => startEditStorefront(establishment.id)}>Editar vitrine do delivery</button>
+                </div>;
+                return <div>
+                  {store.error && <div className="auth-error" style={{ marginBottom: 8 }}>{store.error}</div>}
+                  <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+                    <div className="product-image-field">
+                      <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", color: "#82786c", display: "block", marginBottom: 6 }}>Logo</span>
+                      <div className="product-image-preview">{store.logoUrl ? <img src={store.logoUrl} alt="" /> : <UtensilsCrossed />}</div>
+                      <div className="product-image-actions">
+                        <label className="secondary product-image-upload">
+                          <ImagePlus />{store.busy ? "Processando…" : store.logoUrl ? "Trocar logo" : "Adicionar logo"}
+                          <input type="file" accept="image/*" hidden disabled={store.busy} onChange={event => void handleStorefrontImage(establishment.id, "logoUrl", event.target.files?.[0])} />
+                        </label>
+                        {store.logoUrl && <button type="button" className="secondary" disabled={store.busy} onClick={() => setStorefrontDraft(establishment.id, { logoUrl: null })}>Remover</button>}
+                      </div>
+                    </div>
+                    <div className="product-image-field">
+                      <span style={{ fontSize: 9, fontWeight: 700, textTransform: "uppercase", color: "#82786c", display: "block", marginBottom: 6 }}>Banner de capa</span>
+                      <div className="product-image-preview" style={{ width: 160 }}>{store.bannerUrl ? <img src={store.bannerUrl} alt="" /> : <UtensilsCrossed />}</div>
+                      <div className="product-image-actions">
+                        <label className="secondary product-image-upload">
+                          <ImagePlus />{store.busy ? "Processando…" : store.bannerUrl ? "Trocar banner" : "Adicionar banner"}
+                          <input type="file" accept="image/*" hidden disabled={store.busy} onChange={event => void handleStorefrontImage(establishment.id, "bannerUrl", event.target.files?.[0])} />
+                        </label>
+                        {store.bannerUrl && <button type="button" className="secondary" disabled={store.busy} onClick={() => setStorefrontDraft(establishment.id, { bannerUrl: null })}>Remover</button>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="settings-address-form" style={{ gridTemplateColumns: "1fr 1fr", marginTop: 14 }}>
+                    <label className="field"><span>Produto em destaque</span><select value={store.highlightProductId} onChange={event => setStorefrontDraft(establishment.id, { highlightProductId: event.target.value })}>
+                      <option value="">Nenhum</option>
+                      {catalogProducts.map(product => <option key={product.id} value={product.id}>{product.name}</option>)}
+                    </select></label>
+                    <label className="field"><span>Chamada de promoção</span><input value={store.highlightHeadline} maxLength={120} placeholder="Ex.: Burger do mês!" onChange={event => setStorefrontDraft(establishment.id, { highlightHeadline: event.target.value })} /></label>
+                  </div>
+                  <div className="settings-actions" style={{ marginTop: 10 }}>
+                    <button type="button" className="primary" disabled={store.saving || store.busy} onClick={() => void saveStorefront(establishment.id)}>{store.saving ? "Salvando…" : "Salvar vitrine"}</button>
+                    <button type="button" className="secondary" onClick={() => cancelEditStorefront(establishment.id, establishment)}>Cancelar</button>
                   </div>
                 </div>;
               })()}

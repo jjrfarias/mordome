@@ -8,8 +8,9 @@ import { CheckCircle2, Minus, Plus, Search, ShoppingBag, UtensilsCrossed } from 
 import { MapPicker } from "@/components/operations/MapPicker";
 
 type MenuProduct = { id: string; name: string; category: string; description: string | null; price: number; imageUrl: string | null };
+type HighlightProduct = { id: string; name: string; price: number; imageUrl: string | null };
 type DeliveryAreaOption = { id: string; name: string; deliveryFee: number };
-type MenuData = { establishment: { name: string }; products: MenuProduct[]; deliveryAreas: DeliveryAreaOption[] };
+type MenuData = { establishment: { name: string; logoUrl: string | null; bannerUrl: string | null; highlightHeadline: string | null; highlightProduct: HighlightProduct | null }; products: MenuProduct[]; deliveryAreas: DeliveryAreaOption[] };
 
 const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -76,13 +77,22 @@ export default function OnlineOrderPage() {
     <footer className="public-menu-footer">Mordomê <em>by JCS</em></footer>
   </div>;
 
+  const highlight = data.establishment.highlightProduct;
+
   return <div className="public-menu" style={{ paddingBottom: items.length > 0 ? 110 : 60 }}>
+    {data.establishment.bannerUrl && step === "catalog" && <div className="public-menu-banner"><img src={data.establishment.bannerUrl} alt="" /></div>}
     <div className="public-menu-header">
-      <Image src="/clientes/betao/simbolo-compacto-v1.png" alt="" width={56} height={56} priority />
+      {data.establishment.logoUrl ? <img src={data.establishment.logoUrl} alt="" width={56} height={56} className="public-menu-logo" /> : <Image src="/clientes/betao/simbolo-compacto-v1.png" alt="" width={56} height={56} priority />}
       <span className="section-kicker">PEDIDO ONLINE</span>
       <h1>{data.establishment.name}</h1>
       {step === "catalog" && <div className="search"><Search /><input placeholder="Buscar produto..." value={query} onChange={event => setQuery(event.target.value)} /></div>}
     </div>
+
+    {step === "catalog" && highlight && <section className="public-menu-highlight" onClick={() => setQuantity(highlight.id, (quantities[highlight.id] ?? 0) + 1)} role="button" tabIndex={0}>
+      <div className="public-menu-highlight-photo">{highlight.imageUrl ? <img src={highlight.imageUrl} alt="" /> : <UtensilsCrossed />}</div>
+      <div><span>{data.establishment.highlightHeadline || "Destaque"}</span><b>{highlight.name}</b><strong>{money(highlight.price)}</strong></div>
+      <Plus style={{ width: 18 }} />
+    </section>}
 
     {step === "catalog" && (data.products.length === 0 ? <div className="big-empty"><UtensilsCrossed /><h2>Pedidos indisponíveis</h2><p>Nenhum produto disponível para pedido online no momento.</p></div> : <>
       {grouped.length > 1 && <nav className="public-menu-tabs">{grouped.map(([category]) => <button key={category} type="button" onClick={() => document.getElementById(`categoria-${category}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}>{category}</button>)}</nav>}

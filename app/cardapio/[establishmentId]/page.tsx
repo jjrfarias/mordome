@@ -7,7 +7,8 @@ import { useParams } from "next/navigation";
 import { Search, ShoppingBag, UtensilsCrossed } from "lucide-react";
 
 type MenuProduct = { id: string; name: string; category: string; description: string | null; price: number; imageUrl: string | null };
-type MenuData = { establishment: { name: string }; products: MenuProduct[] };
+type HighlightProduct = { id: string; name: string; price: number; imageUrl: string | null };
+type MenuData = { establishment: { name: string; logoUrl: string | null; bannerUrl: string | null; highlightHeadline: string | null; highlightProduct: HighlightProduct | null }; products: MenuProduct[] };
 
 const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 
@@ -41,14 +42,22 @@ export default function PublicMenuPage() {
   const visible = data.products.filter(product => product.name.toLocaleLowerCase("pt-BR").includes(query.toLocaleLowerCase("pt-BR")));
   const grouped = groupByCategory(visible);
 
+  const highlight = data.establishment.highlightProduct;
+
   return <div className="public-menu">
+    {data.establishment.bannerUrl && <div className="public-menu-banner"><img src={data.establishment.bannerUrl} alt="" /></div>}
     <div className="public-menu-header">
-      <Image src="/clientes/betao/simbolo-compacto-v1.png" alt="" width={56} height={56} priority />
+      {data.establishment.logoUrl ? <img src={data.establishment.logoUrl} alt="" width={56} height={56} className="public-menu-logo" /> : <Image src="/clientes/betao/simbolo-compacto-v1.png" alt="" width={56} height={56} priority />}
       <span className="section-kicker">CARDÁPIO ONLINE</span>
       <h1>{data.establishment.name}</h1>
       <div className="search"><Search/><input placeholder="Buscar produto..." value={query} onChange={event => setQuery(event.target.value)} /></div>
       <Link href={`/pedido-online/${params.establishmentId}`} className="primary" style={{ marginTop: 14, textDecoration: "none" }}><ShoppingBag style={{ width: 16 }} /> Fazer pedido online</Link>
     </div>
+
+    {highlight && <section className="public-menu-highlight">
+      <div className="public-menu-highlight-photo">{highlight.imageUrl ? <img src={highlight.imageUrl} alt="" /> : <UtensilsCrossed />}</div>
+      <div><span>{data.establishment.highlightHeadline || "Destaque"}</span><b>{highlight.name}</b><strong>{money(highlight.price)}</strong></div>
+    </section>}
 
     {data.products.length === 0 ? <div className="big-empty"><UtensilsCrossed/><h2>Cardápio em preparação</h2><p>Nenhum produto disponível para consulta online no momento.</p></div> : <div className="public-menu-groups">
       {grouped.map(([category, products]) => <section className="public-menu-category" key={category}>
