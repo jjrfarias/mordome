@@ -565,6 +565,7 @@ model DeliveryOrder {
   deliveryAreaId  String?
   deliveryFee     Decimal?       @db.Decimal(10, 2)
   saleId          String?        @unique
+  kitchenOrderId  String?        @unique
   createdById     String?
   customerId      String?
   createdAt       DateTime       @default(now())

@@ -3,7 +3,8 @@ import { z } from "zod";
 import { requestAuditMetadata } from "@/lib/audit";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { assignLocalCourier, changeLocalDeliveryStatus, createLocalDeliveryOrder, getLocalCourierLocations, listLocalDeliveryOrders } from "@/lib/local-delivery";
+import { assignLocalCourier, attachLocalDeliveryKitchenOrder, changeLocalDeliveryStatus, createLocalDeliveryOrder, getLocalCourierLocations, listLocalDeliveryOrders } from "@/lib/local-delivery";
+import { cancelLocalCounterOrder, createLocalCounterOrder } from "@/lib/local-floor";
 import { findOrCreateLocalCustomerByPhone } from "@/lib/local-customers";
 import { getLocalDeliveryArea, listLocalDeliveryAreas } from "@/lib/local-delivery-areas";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
@@ -108,10 +109,15 @@ export async function POST(request: Request) {
       const customer = findOrCreateLocalCustomerByPhone(session.organization.id, { name: data.customerName, phone: data.customerPhone });
       const order = createLocalDeliveryOrder(session.establishment.id, { customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: session.user.id, deliveryAreaId: data.deliveryAreaId ?? null, deliveryFee, items: items as ResolvedItem[] });
       recordLocalAudit({ ...base, action: "CREATE", entityType: "DeliveryOrder", entityId: order.id, reason: `Pedido de delivery criado para ${order.customerName}`, after: { customerName: order.customerName, address: order.address, items: order.items } });
-      return Response.json({ order }, { status: 201 });
+      // Delivery envia para a cozinha: mesmo pipeline da mesa virtual "Balcão" do PDV (ADR 0044),
+      // já no momento do pedido (não do pagamento) — ver comentário equivalente no modo Prisma.
+      const kitchen = createLocalCounterOrder({ establishmentId: session.establishment.id, operatorId: session.user.id, items: order.items.map(item => ({ productId: item.productId, productName: item.productName, quantity: item.quantity, selectedOptionsSnapshot: item.selectedOptionsSnapshot })) });
+      attachLocalDeliveryKitchenOrder(session.establishment.id, order.id, kitchen.order.id);
+      recordLocalAudit({ ...base, action: "ORDER_SENT", entityType: "Order", entityId: kitchen.order.id, reason: `Pedido enviado para a cozinha — Delivery (${order.customerName})`, after: { deliveryOrderId: order.id, items: order.items.map(item => ({ productName: item.productName, quantity: item.quantity })) } });
+      return Response.json({ order: { ...order, kitchenOrderId: kitchen.order.id } }, { status: 201 });
     }
     if (data.action === "CHANGE_STATUS") {
-      const result = changeLocalDeliveryStatus(session.establishment.id, data.orderId, data.status);
+      const result = changeLocalDeliveryStatus(session.establishment.id, data.orderId, data.status, kitchenOrderId => cancelLocalCounterOrder(session.establishment.id, kitchenOrderId, session.user.id));
       if (result === "NOT_FOUND") return Response.json({ error: "Pedido não encontrado." }, { status: 404 });
       if (result === "INVALID_TRANSITION") return Response.json({ error: "Esta mudança de etapa não é permitida." }, { status: 409 });
       recordLocalAudit({ ...base, action: "UPDATE", entityType: "DeliveryOrder", entityId: result.order.id, reason: `Etapa do delivery alterada`, before: { status: result.before }, after: { status: result.order.status } });
@@ -151,6 +157,27 @@ export async function POST(request: Request) {
         });
         const created = await tx.deliveryOrder.create({ data: { establishmentId: actor.establishment.id, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, createdById: actor.user.id, deliveryAreaId: data.deliveryAreaId, deliveryFee, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
         await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "CREATE", entityType: "DeliveryOrder", entityId: created.id, reason: `Pedido de delivery criado para ${created.customerName}`, after: { customerName: created.customerName, address: created.address, items: created.items.map(item => ({ productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice), selectedOptionsSnapshot: item.selectedOptionsSnapshot })) } } });
+
+        // Delivery envia para a cozinha: mesmo pipeline Tab -> Order -> OrderItem do PDV (ADR 0044),
+        // via a mesa virtual "Balcão" — mas, diferente do PDV, a comanda é criada já no pedido (não
+        // no pagamento), porque a cozinha precisa preparar antes de o pedido sair para entrega e ser
+        // pago. Fica OPEN indefinidamente (nunca fechada por aqui); `kitchenOrderId` liga de volta
+        // para o pedido de delivery só para referência — nada no fluxo de pagamento depende dele.
+        let counterTable = await tx.diningTable.findFirst({ where: { establishmentId: actor.establishment.id, isCounter: true } });
+        if (!counterTable) {
+          try {
+            counterTable = await tx.diningTable.create({ data: { establishmentId: actor.establishment.id, number: 0, seats: 0, name: "Balcão", isCounter: true } });
+          } catch (creationError) {
+            if (!(creationError instanceof Prisma.PrismaClientKnownRequestError && creationError.code === "P2002")) throw creationError;
+            counterTable = await tx.diningTable.findFirst({ where: { establishmentId: actor.establishment.id, isCounter: true } });
+            if (!counterTable) throw creationError;
+          }
+        }
+        const counterTab = await tx.tab.create({ data: { establishmentId: actor.establishment.id, tableId: counterTable.id, openedById: actor.user.id } });
+        const tabItems = await Promise.all(created.items.map(item => tx.tabItem.create({ data: { tabId: counterTab.id, productId: item.productId, productName: item.productName, quantity: item.quantity, sentQuantity: item.quantity, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? undefined, addedById: actor.user.id } })));
+        const counterOrder = await tx.order.create({ data: { tabId: counterTab.id, sentById: actor.user.id, items: { create: tabItems.map((tabItem, index) => ({ tabItemId: tabItem.id, productName: created.items[index].productName, quantity: created.items[index].quantity })) }, statusHistory: { create: { status: "RECEIVED", actorId: actor.user.id } } } });
+        await tx.deliveryOrder.update({ where: { id: created.id }, data: { kitchenOrderId: counterOrder.id } });
+        await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "ORDER_SENT", entityType: "Order", entityId: counterOrder.id, reason: `Pedido enviado para a cozinha — Delivery (${created.customerName})`, after: { tabId: counterTab.id, deliveryOrderId: created.id, items: created.items.map(item => ({ productName: item.productName, quantity: item.quantity })) } } });
         return created;
       });
       return Response.json({ order: serializeOrder(order) }, { status: 201 });
@@ -166,6 +193,10 @@ export async function POST(request: Request) {
     if (!validTransition) return Response.json({ error: "Esta mudança de etapa não é permitida." }, { status: 409 });
     const updated = await db.$transaction(async tx => {
       const result = await tx.deliveryOrder.update({ where: { id: current.id }, data: { status: data.status } });
+      if (data.status === "CANCELLED" && current.kitchenOrderId) {
+        await tx.order.update({ where: { id: current.kitchenOrderId }, data: { status: "CANCELLED" } });
+        await tx.orderStatusHistory.create({ data: { orderId: current.kitchenOrderId, status: "CANCELLED", actorId: actor.user.id } });
+      }
       await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: current.id, reason: "Etapa do delivery alterada", before: { status: current.status }, after: { status: result.status } } });
       return result;
     });

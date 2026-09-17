@@ -167,6 +167,16 @@ export function changeLocalOrderStatus(input: { establishmentId: string; orderId
   return { table: null, tab: null, order: counterOrder, before };
 }
 
+// Cancelamento do pedido de delivery (regra de negócio própria do Delivery, não do Salão) cancela o
+// tíquete de cozinha correspondente direto, sem passar pela máquina de transição RECEIVED->PREPARING
+// ->READY->DELIVERED de changeLocalOrderStatus (que nunca aceita CANCELLED como destino).
+export function cancelLocalCounterOrder(establishmentId: string, orderId: string, actorId: string) {
+  const counterOrder = counterOrdersFor(establishmentId).find(candidate => candidate.id === orderId);
+  if (!counterOrder || counterOrder.status === "DELIVERED" || counterOrder.status === "CANCELLED") return;
+  counterOrder.status = "CANCELLED";
+  counterOrder.statusHistory.push({ status: "CANCELLED", actorId, createdAt: new Date().toISOString() });
+}
+
 // Leitura somente-leitura para os relatórios "Tempo de produção" e "Tempo por status" (ADR 0039):
 // varre todas as mesas/comandas (abertas ou já fechadas — comandas pagas continuam na lista, nunca
 // são removidas) e devolve, para cada pedido enviado dentro do período (`sentAt`), seu histórico de
