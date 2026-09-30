@@ -64,7 +64,7 @@ export async function getLocalSession() {
   return {
     sessionId: "local",
     user: { id: localUser?.userId ?? "local-admin", name: localUser?.name ?? "Administrador", username: localUser?.username ?? process.env.LOCAL_AUTH_USERNAME ?? "admin" },
-    organization: { id: "local-demo", name: "Restaurante demonstração" },
+    organization: { id: "local-demo", name: "Restaurante demonstração", branding: { logoUrl: null, primary: "#173f35", accent: "#e97c4b" } },
     establishment,
     establishments: activeEstablishments.map(({ id, name }) => ({ id, name })),
     permissionKeys: localUser?.effectivePermissionKeys ?? ["establishments.manage", "catalog.manage", "recipes.manage", "stock.manage", "stock.adjust", "pos.sell", "discount.apply", "discount.override", "sale.refund", "pos.cancel_sale", "floor.operate", "floor.manage", "delivery.operate", "delivery.deliver", "tabs.cancel_item", "cash.open", "cash.move", "cash.close", "cash.history.view", "audit.view", "finance.summary.view", "finance.manage", "finance.entries.manage", "finance.cashflow.view", "settlements.manage", "users.view", "users.invite", "users.disable", "users.password.reset", "roles.manage", "integrations.manage", "customers.manage", "fiscal.manage", "reports.sales_by_period.view", "reports.revenue_by_day.view", "reports.performance_by_staff.view", "reports.payment_methods.view", "reports.sales_by_delivery_area.view", "reports.items_sold.view", "reports.items_consumed.view", "reports.production_time.view", "reports.time_by_status.view", "reports.dre.view", "reports.coupons_generated.view", "dashboards.sales_tracking.view", "dashboards.multi_store_tracking.view", "dashboards.channels.view", "dashboards.sales_by_hour.view"],

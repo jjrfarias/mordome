@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type CSSProperties } from "react";
 import { BarChart3, Bell, Bike, Check, ChefHat, ChevronDown, CircleDollarSign, FileBarChart, FileClock, LayoutDashboard, LayoutGrid, LogOut, Minus, Navigation, Plus, Printer, Receipt, Search, Settings, ShoppingBag, Sparkles, UtensilsCrossed, X } from "lucide-react";
 import { money, OrderItem, products, SelectedIngredientOption } from "@/lib/domain";
 import { IngredientPicker, productHasIngredientChoices } from "@/components/operations/IngredientPicker";
@@ -22,7 +22,7 @@ import { printDanfe, printKitchenOrder, printReceipt } from "@/lib/integrations/
 import type { FiscalPrintInfo } from "@/lib/fiscal/print-info";
 
 type View = "pdv" | "salão" | "cozinha" | "delivery" | "entregas" | "caixa" | "vendas" | "resumo" | "historico" | "relatorios" | "dashboards" | "config";
-type AuthSession = { user: { name: string; username: string }; organization: { name: string }; establishment: { id: string; name: string }; establishments: { id: string; name: string }[]; permissionKeys: string[]; canManageEstablishments: boolean; canManageCatalog: boolean; canManageStock: boolean; canManageRecipes: boolean; canSellPos: boolean; canCancelSales: boolean; canRefundSales: boolean; canApplyDiscount: boolean; canOverrideDiscount: boolean; canOperateFloor: boolean; canManageFloor: boolean; canOperateDelivery: boolean; canDeliverOrders: boolean; canCancelSentItems: boolean; canOpenCash: boolean; canMoveCash: boolean; canCloseCash: boolean; canViewCashHistory: boolean; canViewAudit: boolean; canViewFinanceSummary: boolean; canManageFinance: boolean; canManageFinanceEntries: boolean; canViewFinanceCashflow: boolean; canManageSettlements: boolean; canViewUsers: boolean; canCreateUsers: boolean; canDisableUsers: boolean; canResetUserPassword: boolean; canManageRoles: boolean; canManageIntegrations: boolean; canReprint: boolean; canManageCustomers: boolean; canManageFiscal: boolean; printerDriver: string; printTemplate: { headerText: string | null; footerText: string | null; showDocument: boolean; paperWidth: number; establishmentDocument: string | null } };
+type AuthSession = { user: { name: string; username: string }; organization: { name: string; branding: { logoUrl: string | null; primary: string; accent: string } }; establishment: { id: string; name: string }; establishments: { id: string; name: string }[]; permissionKeys: string[]; canManageEstablishments: boolean; canManageCatalog: boolean; canManageStock: boolean; canManageRecipes: boolean; canSellPos: boolean; canCancelSales: boolean; canRefundSales: boolean; canApplyDiscount: boolean; canOverrideDiscount: boolean; canOperateFloor: boolean; canManageFloor: boolean; canOperateDelivery: boolean; canDeliverOrders: boolean; canCancelSentItems: boolean; canOpenCash: boolean; canMoveCash: boolean; canCloseCash: boolean; canViewCashHistory: boolean; canViewAudit: boolean; canViewFinanceSummary: boolean; canManageFinance: boolean; canManageFinanceEntries: boolean; canViewFinanceCashflow: boolean; canManageSettlements: boolean; canViewUsers: boolean; canCreateUsers: boolean; canDisableUsers: boolean; canResetUserPassword: boolean; canManageRoles: boolean; canManageIntegrations: boolean; canReprint: boolean; canManageCustomers: boolean; canManageFiscal: boolean; printerDriver: string; printTemplate: { headerText: string | null; footerText: string | null; showDocument: boolean; paperWidth: number; establishmentDocument: string | null } };
 
 export default function Home() {
   const [authLoading, setAuthLoading] = useState(true);
@@ -79,9 +79,9 @@ export default function Home() {
     } catch { notify("Não foi possível conectar ao servidor"); return { ok: false, fiscal: null }; }
   };
 
-  return <div className="app-shell">
+  return <div className="app-shell" style={{ "--green": session.organization.branding.primary, "--green-2": session.organization.branding.primary, "--orange": session.organization.branding.accent, "--gold": session.organization.branding.accent } as CSSProperties}>
     <aside className="sidebar">
-      <Brand compact />
+      <div className="tenant-brand-lockup"><Brand compact />{session.organization.branding.logoUrl && <><span className="tenant-brand-divider"/><img src={session.organization.branding.logoUrl} alt={`Logo de ${session.organization.name}`} className="tenant-brand-logo"/></>}</div>
       <nav>
         <span className="nav-label">Operação</span>
         {session.canSellPos && <NavItem active={view === "pdv"} icon={<ShoppingBag />} label="PDV rápido" onClick={() => { setView("pdv"); }} />}

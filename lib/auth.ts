@@ -101,7 +101,7 @@ export async function getCurrentSession() {
   return {
     sessionId: session.id,
     user: { id: session.user.id, name: session.user.name, username: session.user.username },
-    organization: { id: membership.organization.id, name: membership.organization.name },
+    organization: { id: membership.organization.id, name: membership.organization.name, branding: { logoUrl: membership.organization.brandLogoUrl, primary: membership.organization.brandPrimary, accent: membership.organization.brandAccent } },
     establishment: { id: establishment.id, name: establishment.name },
     establishments: establishments.map(item => ({ id: item.id, name: item.name })),
     permissionKeys: [...permissionKeys],

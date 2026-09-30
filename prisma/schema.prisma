@@ -262,6 +262,9 @@ model Organization {
   name           String
   slug           String                   @unique
   active         Boolean                  @default(true)
+  brandLogoUrl   String?
+  brandPrimary   String                   @default("#173f35")
+  brandAccent    String                   @default("#e97c4b")
   createdAt      DateTime                 @default(now())
   updatedAt      DateTime                 @updatedAt
   establishments Establishment[]
