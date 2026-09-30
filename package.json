@@ -25,7 +25,7 @@
     "jspdf-autotable": "^5.0.8",
     "leaflet": "^1.9.4",
     "lucide-react": "latest",
-    "next": "latest",
+    "next": "16.3.8",
     "pg": "^8.23.0",
     "react": "latest",
     "react-dom": "latest",
@@ -40,9 +40,14 @@
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "eslint": "latest",
-    "eslint-config-next": "latest",
+    "eslint-config-next": "16.3.8",
     "prisma": "^7.10.0",
     "tsx": "latest",
     "typescript": "latest"
+  },
+  "overrides": {
+    "deepmerge-ts": "8.0.2",
+    "mysql2": "3.24.5",
+    "uuid": "11.1.1"
   }
 }
