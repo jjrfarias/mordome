@@ -6,7 +6,7 @@
   --text: #181818;
   --muted: #6b7280;
   --red: #e21b23;
-  --red-hover: #c9141c;
+  --red-hover: color-mix(in srgb, var(--red) 86%, #000);
   --red-soft: #fdecec;
   --border: #ececec;
   --border-strong: #dcdcdc;

@@ -15,6 +15,7 @@ import { comboGroupsInclude, mapComboGroupsToIngredientGroups } from "@/lib/comb
 import { areaNeighborhoods, findDeliveryAreaByNeighborhood } from "@/lib/delivery-area-match";
 import { listLocalDeliveryOrders } from "@/lib/local-delivery";
 import { rankPopularProducts } from "@/lib/storefront/catalog";
+import { formatBrazilPhone } from "@/lib/phone";
 
 // Janela do ranking "Mais pedidos" da vitrine (ADR 0056): só pedidos reais, não cancelados.
 const POPULARITY_WINDOW_DAYS = 60;
@@ -56,10 +57,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     const since = popularitySince().toISOString();
     const offeredIds = new Set(products.map(product => product.id));
     const popularProductIds = rankPopularProducts(listLocalDeliveryOrders(establishmentId).filter(order => order.status !== "CANCELLED" && order.createdAt >= since).flatMap(order => order.items)).filter(productId => offeredIds.has(productId));
-    return Response.json({ popularProductIds, establishment: { name: establishment.name, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightHeadline: establishment.highlightHeadline, phone: null, address: formatEstablishmentAddress(establishment), highlightProduct: highlightProduct ? { id: highlightProduct.id, name: highlightProduct.name, price: highlightProduct.price, imageUrl: highlightProduct.imageUrl } : null }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: product.description, price: product.price, imageUrl: product.imageUrl, ingredientGroups: product.ingredientGroups })), deliveryAreas: deliveryAreas.map(area => ({ id: area.id, name: area.name, deliveryFee: area.deliveryFee, neighborhoods: area.neighborhoods })) });
+    return Response.json({ popularProductIds, branding: { primary: "#173f35", accent: "#e97c4b" }, establishment: { name: establishment.name, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightHeadline: establishment.highlightHeadline, phone: formatBrazilPhone(establishment.phone), address: formatEstablishmentAddress(establishment), highlightProduct: highlightProduct ? { id: highlightProduct.id, name: highlightProduct.name, price: highlightProduct.price, imageUrl: highlightProduct.imageUrl } : null }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: product.description, price: product.price, imageUrl: product.imageUrl, ingredientGroups: product.ingredientGroups })), deliveryAreas: deliveryAreas.map(area => ({ id: area.id, name: area.name, deliveryFee: area.deliveryFee, neighborhoods: area.neighborhoods })) });
   }
 
-  const establishment = await db.establishment.findFirst({ where: { id: establishmentId, active: true, organization: { active: true } }, include: { highlightProduct: true } });
+  const establishment = await db.establishment.findFirst({ where: { id: establishmentId, active: true, organization: { active: true } }, include: { highlightProduct: true, organization: { select: { brandPrimary: true, brandAccent: true } } } });
   if (!establishment) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
   const [offerings, deliveryAreas, popularity] = await Promise.all([
     db.productOffering.findMany({
@@ -81,9 +82,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
   const highlightOffering = establishment.highlightProduct ? offerings.find(offering => offering.variant.product.id === establishment.highlightProduct!.id) : undefined;
   return Response.json({
     popularProductIds,
+    branding: { primary: establishment.organization.brandPrimary, accent: establishment.organization.brandAccent },
     establishment: {
       name: establishment.name,
-      phone: establishment.phone,
+      phone: formatBrazilPhone(establishment.phone),
       address: formatEstablishmentAddress(establishment),
       logoUrl: establishment.logoUrl,
       bannerUrl: establishment.bannerUrl,

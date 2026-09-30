@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { RotateCcw, SearchX, UtensilsCrossed } from "lucide-react";
 import { addToCart, cartStorageKey, cartSubtotalCents, cartUnits, changeLineQuantity, evaluateCoupon, favoritesStorageKey, orderTotals, parseStoredCart, priceSelection, productRequiresChoice, reconcileCart, restoreLine, serializeCart, type CartLine, type PricedSelection } from "@/lib/storefront/cart";
@@ -252,7 +252,9 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
   const refined = hasActiveRefinements(filters);
   const sectionTitle = filters.query.trim() ? `Resultados para “${filters.query.trim()}”` : filters.categoryId ? categoryName(filters.categoryId) : "Destaques do cardápio";
 
-  return <div className={cx(styles.root, units > 0 && styles.rootWithBar)}>
+  const themeStyle = { "--red": data.branding.primary, "--warm": data.branding.accent } as CSSProperties;
+
+  return <div className={cx(styles.root, units > 0 && styles.rootWithBar)} style={themeStyle}>
     <a href="#cardapio" className={styles.skipLink}>Pular para o cardápio</a>
     {isDemo && <p className={styles.demoStrip}>Demonstração com dados fictícios — nenhum pedido é enviado ou cobrado.</p>}
     <Header logoUrl={data.establishment.logoUrl} name={data.establishment.name} nav={nav} activeSection={activeSection} query={filters.query}

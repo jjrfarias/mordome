@@ -55,7 +55,7 @@ export function SafeImage({ src, alt, className, eager = false, sizes }: { src: 
 export function BrandMark({ logoUrl, name }: { logoUrl: string | null; name: string }) {
   if (logoUrl) return <span className={styles.brand}>
     <SafeImage src={logoUrl} alt="" className={styles.brandLogo} />
-    <span className={styles.brandText}><strong>{name}</strong><small>Pedido online</small></span>
+    <span className={styles.brandText}><strong>{name}</strong><small>com Mordomê</small></span>
   </span>;
   return <span className={styles.brand}>
     <ChefHat className={styles.brandHat} aria-hidden strokeWidth={2.3} />
