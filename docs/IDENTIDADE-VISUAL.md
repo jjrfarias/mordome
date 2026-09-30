@@ -32,3 +32,7 @@ A barra lateral possui três zonas: marca fixa, navegação central rolável e r
 - PDV privilegia toque e velocidade; Salão privilegia leitura espacial; KDS privilegia tempo e status.
 - Não depender apenas de cor para estado: sempre combinar cor, texto e, quando necessário, ícone.
 - Áreas tocáveis mínimas de 40 px em fluxos operacionais.
+
+## Vitrine do consumidor (pedido online)
+
+A vitrine pública de pedidos (`/pedido-online/*`) tem tema próprio, definido no ADR 0056 e isolado em `components/storefront/storefront.module.css`: fundo `#FAF9F6`, superfícies brancas, texto `#181818`/`#6B7280`, ações em vermelho `#E21B23` (hover `#C9141C`), bordas `#ECECEC`, destaques quentes `#F5B34C` e bloco de fidelidade `#FFF0D6`. A tipografia é Inter. A identidade operacional acima continua valendo para o painel. Logo e banner configurados pela unidade substituem a marca Mordomê no cabeçalho da vitrine.

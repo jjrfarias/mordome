@@ -13,6 +13,18 @@ import { rateLimit } from "@/lib/rate-limit";
 import { resolveIngredientSelections } from "@/lib/ingredient-options";
 import { comboGroupsInclude, mapComboGroupsToIngredientGroups } from "@/lib/combo-catalog";
 import { areaNeighborhoods, findDeliveryAreaByNeighborhood } from "@/lib/delivery-area-match";
+import { listLocalDeliveryOrders } from "@/lib/local-delivery";
+import { rankPopularProducts } from "@/lib/storefront/catalog";
+
+// Janela do ranking "Mais pedidos" da vitrine (ADR 0056): só pedidos reais, não cancelados.
+const POPULARITY_WINDOW_DAYS = 60;
+const popularitySince = () => new Date(Date.now() - POPULARITY_WINDOW_DAYS * 24 * 60 * 60 * 1000);
+
+function formatEstablishmentAddress(establishment: { street: string | null; number: string | null; neighborhood: string | null; city: string | null; state: string | null }) {
+  const first = [establishment.street, establishment.number].filter(Boolean).join(", ");
+  const second = [establishment.neighborhood, [establishment.city, establishment.state].filter(Boolean).join(" - ")].filter(Boolean).join(", ");
+  return [first, second].filter(Boolean).join(" · ") || null;
+}
 
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const orderSchema = z.object({
@@ -41,23 +53,38 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     const products = catalog.filter(product => product.active && product.channels.includes("DELIVERY"));
     const deliveryAreas = listLocalDeliveryAreas(establishmentId).filter(area => area.active);
     const highlightProduct = establishment.highlightProductId ? catalog.find(product => product.id === establishment.highlightProductId) : undefined;
-    return Response.json({ establishment: { name: establishment.name, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightHeadline: establishment.highlightHeadline, highlightProduct: highlightProduct ? { id: highlightProduct.id, name: highlightProduct.name, price: highlightProduct.price, imageUrl: highlightProduct.imageUrl } : null }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: product.description, price: product.price, imageUrl: product.imageUrl, ingredientGroups: product.ingredientGroups })), deliveryAreas: deliveryAreas.map(area => ({ id: area.id, name: area.name, deliveryFee: area.deliveryFee, neighborhoods: area.neighborhoods })) });
+    const since = popularitySince().toISOString();
+    const offeredIds = new Set(products.map(product => product.id));
+    const popularProductIds = rankPopularProducts(listLocalDeliveryOrders(establishmentId).filter(order => order.status !== "CANCELLED" && order.createdAt >= since).flatMap(order => order.items)).filter(productId => offeredIds.has(productId));
+    return Response.json({ popularProductIds, establishment: { name: establishment.name, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightHeadline: establishment.highlightHeadline, phone: null, address: formatEstablishmentAddress(establishment), highlightProduct: highlightProduct ? { id: highlightProduct.id, name: highlightProduct.name, price: highlightProduct.price, imageUrl: highlightProduct.imageUrl } : null }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: product.description, price: product.price, imageUrl: product.imageUrl, ingredientGroups: product.ingredientGroups })), deliveryAreas: deliveryAreas.map(area => ({ id: area.id, name: area.name, deliveryFee: area.deliveryFee, neighborhoods: area.neighborhoods })) });
   }
 
   const establishment = await db.establishment.findFirst({ where: { id: establishmentId, active: true, organization: { active: true } }, include: { highlightProduct: true } });
   if (!establishment) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
-  const [offerings, deliveryAreas] = await Promise.all([
+  const [offerings, deliveryAreas, popularity] = await Promise.all([
     db.productOffering.findMany({
       where: { establishmentId, channel: "DELIVERY", active: true, variant: { active: true, product: { organizationId: establishment.organizationId, active: true } } },
       include: { variant: { include: { product: { include: { category: true, ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } }, comboGroups: comboGroupsInclude } } } } },
       orderBy: [{ variant: { product: { category: { sortOrder: "asc" } } } }, { variant: { product: { name: "asc" } } }],
     }),
     db.deliveryArea.findMany({ where: { establishmentId, active: true }, orderBy: { name: "asc" } }),
+    db.deliveryOrderItem.groupBy({
+      by: ["productId"],
+      where: { productId: { not: null }, deliveryOrder: { is: { establishmentId, status: { not: "CANCELLED" }, createdAt: { gte: popularitySince() } } } },
+      _sum: { quantity: true },
+      orderBy: { _sum: { quantity: "desc" } },
+      take: 50,
+    }),
   ]);
+  const offeredIds = new Set(offerings.map(offering => offering.variant.product.id));
+  const popularProductIds = rankPopularProducts(popularity.map(entry => ({ productId: entry.productId, quantity: entry._sum.quantity ?? 0 }))).filter(productId => offeredIds.has(productId));
   const highlightOffering = establishment.highlightProduct ? offerings.find(offering => offering.variant.product.id === establishment.highlightProduct!.id) : undefined;
   return Response.json({
+    popularProductIds,
     establishment: {
       name: establishment.name,
+      phone: establishment.phone,
+      address: formatEstablishmentAddress(establishment),
       logoUrl: establishment.logoUrl,
       bannerUrl: establishment.bannerUrl,
       highlightHeadline: establishment.highlightHeadline,

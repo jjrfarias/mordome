@@ -383,3 +383,13 @@ Obrigatória para alteração de permissões, cancelamento, desconto, mudança d
 
 - Configurações → Estabelecimentos exibe, por unidade, botões para copiar o link do cardápio público (`/cardapio/[id]`, só visualização) e do pedido online (`/pedido-online/[id]`, carrinho completo com endereço de entrega).
 - Link montado no navegador a partir de `window.location.origin`, sem depender de configuração de domínio.
+
+## Vitrine do pedido online implementada (ADR 0056)
+
+- `/pedido-online/[id]` tem cabeçalho com busca e carrinho, banner da vitrine (logo, banner e produto em destaque do ADR 0053), faixa de categorias reais, cards com foto e carrinho lateral fixo no desktop. No celular, o carrinho vira um painel inferior com barra fixa "Ver pedido".
+- Busca por nome, descrição e categoria, sem diferenciar acentos nem maiúsculas. Categoria, atalhos (mais pedidos, promoções etc.) e o painel "Filtrar" (ordenação, favoritos, preço máximo) funcionam em conjunto, com estado vazio e ação para limpar.
+- Um produto com opção obrigatória abre os detalhes antes de entrar no carrinho; sem escolha obrigatória, "Adicionar" inclui direto. Diminuir até zero remove o item, com opção de "Desfazer". "Limpar tudo" pede confirmação.
+- O carrinho persiste por estabelecimento no navegador e é revalidado contra o cardápio ao abrir a página. Itens indisponíveis ou com preço alterado geram aviso.
+- O endereço usa consulta de CEP e as áreas de entrega da unidade. A taxa aparece como "A calcular" sem endereço e como "A confirmar" quando a unidade não tem áreas cadastradas.
+- O checkout tem identificação, entrega, pagamento (combinado com o estabelecimento) e revisão. O envio usa o `POST` público existente, com recálculo no servidor e idempotência.
+- Atalhos, selos, cupom, fidelidade, benefícios, prazo e retirada só aparecem quando existem dados ou integração reais. A demonstração completa fica em `/pedido-online/demonstracao`, desligada em produção salvo `STOREFRONT_DEMO_ENABLED=true`.
