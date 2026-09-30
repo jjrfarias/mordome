@@ -100,6 +100,8 @@ export async function POST(request: Request) {
       if (items.some(item => !item)) return Response.json({ error: "Produto indisponível no delivery." }, { status: 409 });
       const optionError = items.find(item => item && "error" in item) as { error: string } | undefined;
       if (optionError) return Response.json({ error: optionError.error }, { status: 400 });
+      const activeAreas = listLocalDeliveryAreas(session.establishment.id).filter(area => area.active);
+      if (activeAreas.length > 0 && !data.deliveryAreaId) return Response.json({ error: "Selecione uma área de entrega." }, { status: 400 });
       let deliveryFee = 0;
       if (data.deliveryAreaId) {
         const area = getLocalDeliveryArea(session.establishment.id, data.deliveryAreaId);
@@ -121,6 +123,7 @@ export async function POST(request: Request) {
       const result = changeLocalDeliveryStatus(session.establishment.id, data.orderId, data.status, kitchenOrderId => cancelLocalCounterOrder(session.establishment.id, kitchenOrderId, session.user.id));
       if (result === "NOT_FOUND") return Response.json({ error: "Pedido não encontrado." }, { status: 404 });
       if (result === "INVALID_TRANSITION") return Response.json({ error: "Esta mudança de etapa não é permitida." }, { status: 409 });
+      if (result === "COURIER_REQUIRED") return Response.json({ error: "Defina o entregador antes de iniciar a rota." }, { status: 409 });
       recordLocalAudit({ ...base, action: "UPDATE", entityType: "DeliveryOrder", entityId: result.order.id, reason: `Etapa do delivery alterada`, before: { status: result.before }, after: { status: result.order.status } });
       return Response.json({ order: result.order });
     }
@@ -141,6 +144,8 @@ export async function POST(request: Request) {
       const resolvedItems = data.items.map(item => { const info = infoByProduct.get(item.productId)!; const resolved = resolveIngredientSelections(info.ingredientGroups, item.selectedOptions); return { item, info, resolved }; });
       const optionError = resolvedItems.find(entry => "error" in entry.resolved);
       if (optionError && "error" in optionError.resolved) return Response.json({ error: optionError.resolved.error }, { status: 400 });
+      const activeAreaCount = await db.deliveryArea.count({ where: { establishmentId: actor.establishment.id, active: true } });
+      if (activeAreaCount > 0 && !data.deliveryAreaId) return Response.json({ error: "Selecione uma área de entrega." }, { status: 400 });
       let deliveryFee = 0;
       if (data.deliveryAreaId) {
         const area = await db.deliveryArea.findFirst({ where: { id: data.deliveryAreaId, establishmentId: actor.establishment.id, active: true } });
@@ -183,6 +188,7 @@ export async function POST(request: Request) {
       });
       return Response.json({ order: serializeOrder(order) }, { status: 201 });
     } catch {
+      console.error({ event: "delivery_creation_failed", establishmentId: actor.establishment.id });
       return Response.json({ error: "Não foi possível criar o pedido de delivery." }, { status: 500 });
     }
   }
@@ -190,13 +196,15 @@ export async function POST(request: Request) {
   if (data.action === "CHANGE_STATUS") {
     const current = await db.deliveryOrder.findFirst({ where: { id: data.orderId, establishmentId: actor.establishment.id } });
     if (!current) return Response.json({ error: "Pedido não encontrado." }, { status: 404 });
+    if (data.status === DeliveryStatus.OUT_FOR_DELIVERY && !current.courierId) return Response.json({ error: "Defina o entregador antes de iniciar a rota." }, { status: 409 });
     const validTransition = data.status === "CANCELLED" ? current.status !== "DELIVERED" && current.status !== "CANCELLED" : nextStatus[current.status] === data.status;
     if (!validTransition) return Response.json({ error: "Esta mudança de etapa não é permitida." }, { status: 409 });
     const updated = await db.$transaction(async tx => {
       const result = await tx.deliveryOrder.update({ where: { id: current.id }, data: { status: data.status } });
       if (data.status === "CANCELLED" && current.kitchenOrderId) {
-        await tx.order.update({ where: { id: current.kitchenOrderId }, data: { status: "CANCELLED" } });
+        const kitchenOrder = await tx.order.update({ where: { id: current.kitchenOrderId }, data: { status: "CANCELLED" }, select: { id: true, tabId: true } });
         await tx.orderStatusHistory.create({ data: { orderId: current.kitchenOrderId, status: "CANCELLED", actorId: actor.user.id } });
+        await tx.tab.updateMany({ where: { id: kitchenOrder.tabId, status: "OPEN" }, data: { status: "CANCELLED", closedAt: new Date() } });
       }
       await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: current.id, reason: "Etapa do delivery alterada", before: { status: current.status }, after: { status: result.status } } });
       return result;

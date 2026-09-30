@@ -3,7 +3,7 @@ import { Check, ChevronDown, ImagePlus, MapPin, PackagePlus, Plus, Save, Trash2,
 import { compressImageFile } from "@/lib/image-compression";
 
 type Channel = "POS" | "FLOOR" | "ONLINE" | "DELIVERY";
-type CatalogProduct = { id: string; name: string; category: string; price: number; channels: Channel[]; active: boolean; imageUrl: string | null; isCombo: boolean };
+type CatalogProduct = { id: string; name: string; category: string; description: string | null; price: number; channels: Channel[]; active: boolean; imageUrl: string | null; isCombo: boolean };
 type IngredientOption = { id: string; name: string; priceDelta: number; active: boolean };
 type IngredientGroup = { id: string; productId: string; name: string; minSelections: number; maxSelections: number; active: boolean; options: IngredientOption[] };
 type ComboOption = { id: string; productId: string; productName: string; priceDelta: number; active: boolean };
@@ -23,6 +23,7 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
+  const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [selectedChannels, setSelectedChannels] = useState<Channel[]>(["POS", "FLOOR"]);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
@@ -55,10 +56,10 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
     if (!canCreate || saving) return;
     setSaving(true); setError("");
     try {
-      const response = await fetch("/api/admin/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), category: category.trim(), price: numericPrice, channels: selectedChannels, imageUrl: imageUrl ?? undefined, isCombo }) });
+      const response = await fetch("/api/admin/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), category: category.trim(), description: description.trim() || undefined, price: numericPrice, channels: selectedChannels, imageUrl: imageUrl ?? undefined, isCombo }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível cadastrar o produto.");
-      setName(""); setCategory(""); setPrice(""); setSelectedChannels(["POS", "FLOOR"]); setImageUrl(null); setIsCombo(false);
+      setName(""); setCategory(""); setDescription(""); setPrice(""); setSelectedChannels(["POS", "FLOOR"]); setImageUrl(null); setIsCombo(false);
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível cadastrar o produto.");
@@ -74,9 +75,10 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
       <form className="catalog-create-form" onSubmit={create}>
         <label className="field"><span>Produto</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Ex.: Cachorro-quente simples" /></label>
         <label className="field"><span>Categoria</span><input value={category} onChange={event => setCategory(event.target.value)} placeholder="Ex.: Cachorros-quentes" /></label>
+        <label className="field catalog-description-field"><span>Descrição <small>(opcional)</small></span><textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={500} placeholder="Ex.: Pão brioche, carnes, cheddar e bacon." rows={2} /></label>
         <label className="field"><span>Preço</span><div className="money-input"><span>R$</span><input inputMode="decimal" value={price} onChange={event => setPrice(event.target.value)} placeholder="0,00" /></div></label>
         <fieldset className="channel-field"><legend>Canais de venda</legend><div className="channel-options">{channels.map(channel => <button type="button" key={channel.id} className={selectedChannels.includes(channel.id) ? "active" : ""} onClick={() => toggleChannel(channel.id)}>{selectedChannels.includes(channel.id) && <Check />}{channel.label}</button>)}</div></fieldset>
-        <label className="check-line"><input type="checkbox" checked={isCombo} onChange={event => setIsCombo(event.target.checked)} /> Este produto é um combo (composto por outros produtos do cardápio)</label>
+        <label className="check-line catalog-combo-toggle"><input type="checkbox" checked={isCombo} onChange={event => setIsCombo(event.target.checked)} /><span><strong>Produto combo</strong><small>Permite escolher itens do cardápio na montagem.</small></span></label>
         <ProductImageField imageUrl={imageUrl} onChange={setImageUrl} />
         <button className="primary catalog-add" disabled={!canCreate || saving}><PackagePlus />{saving ? "Incluindo…" : "Incluir produto"}</button>
       </form>
@@ -94,6 +96,7 @@ function CatalogRow({ product, onSaved }: { product: CatalogProduct; onSaved: ()
   const [saving, setSaving] = useState(false);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [price, setPrice] = useState(product.price.toFixed(2).replace(".", ","));
+  const [description, setDescription] = useState(product.description ?? "");
   const [selectedChannels, setSelectedChannels] = useState<Channel[]>(product.channels);
   const [imageUrl, setImageUrl] = useState<string | null>(product.imageUrl);
   const toggle = (channel: Channel) => setSelectedChannels(current => current.includes(channel) ? current.filter(item => item !== channel) : [...current, channel]);
@@ -101,7 +104,7 @@ function CatalogRow({ product, onSaved }: { product: CatalogProduct; onSaved: ()
     const numericPrice = Number(price.replace(",", "."));
     if (!Number.isFinite(numericPrice) || numericPrice < 0 || selectedChannels.length === 0) return;
     setSaving(true);
-    const response = await fetch("/api/admin/catalog", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId: product.id, price: numericPrice, channels: selectedChannels, imageUrl: imageUrl ?? undefined }) });
+    const response = await fetch("/api/admin/catalog", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId: product.id, price: numericPrice, description: description.trim(), channels: selectedChannels, imageUrl: imageUrl ?? undefined }) });
     setSaving(false);
     if (response.ok) { setEditing(false); await onSaved(); }
   };
@@ -114,11 +117,11 @@ function CatalogRow({ product, onSaved }: { product: CatalogProduct; onSaved: ()
       <div className="catalog-channel-list">{channels.map(channel => <button type="button" disabled={!editing} key={channel.id} className={selectedChannels.includes(channel.id) ? "active" : ""} onClick={() => toggle(channel.id)}>{channel.label}</button>)}</div>
       <div className="catalog-row-price">{editing ? <div className="money-input compact"><span>R$</span><input inputMode="decimal" value={price} onChange={event => setPrice(event.target.value)} /></div> : <strong>{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(product.price)}</strong>}</div>
       <div className="catalog-row-actions">
-        {editing ? <><button type="button" className="secondary" onClick={() => { setEditing(false); setPrice(product.price.toFixed(2).replace(".", ",")); setSelectedChannels(product.channels); setImageUrl(product.imageUrl); }}>Cancelar</button><button type="button" className="primary" disabled={saving || selectedChannels.length === 0} onClick={() => void save()}><Save />Salvar</button></> : <button type="button" className="secondary" onClick={() => setEditing(true)}>Editar oferta</button>}
+        {editing ? <><button type="button" className="secondary" onClick={() => { setEditing(false); setPrice(product.price.toFixed(2).replace(".", ",")); setDescription(product.description ?? ""); setSelectedChannels(product.channels); setImageUrl(product.imageUrl); }}>Cancelar</button><button type="button" className="primary" disabled={saving || selectedChannels.length === 0} onClick={() => void save()}><Save />Salvar</button></> : <button type="button" className="secondary" onClick={() => setEditing(true)}>Editar oferta</button>}
         <button type="button" className="secondary catalog-groups-toggle" onClick={() => setGroupsOpen(current => !current)}><ChevronDown style={{ transform: groupsOpen ? "rotate(180deg)" : undefined }} />{product.isCombo ? "Produtos do combo" : "Grupos de ingrediente"}</button>
       </div>
     </div>
-    {editing && <div className="catalog-row-image-edit"><ProductImageField imageUrl={imageUrl} onChange={setImageUrl} /></div>}
+    {editing && <div className="catalog-row-image-edit"><label className="field catalog-edit-description"><span>Descrição <small>(opcional)</small></span><textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={500} placeholder="Ingredientes e diferenciais do produto." rows={3} /></label><ProductImageField imageUrl={imageUrl} onChange={setImageUrl} /></div>}
     {groupsOpen && (product.isCombo ? <ComboGroupsPanel productId={product.id} /> : <IngredientGroupsPanel productId={product.id} />)}
   </article>;
 }

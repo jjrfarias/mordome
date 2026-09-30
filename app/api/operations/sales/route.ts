@@ -250,7 +250,8 @@ export async function POST(request: Request) {
   if (data.channel === "FLOOR" && !actor.session.canOperateFloor) return Response.json({ error: "Acesso negado ao salão." }, { status: 403 });
   if (data.channel === "DELIVERY" && !actor.session.canOperateDelivery) return Response.json({ error: "Acesso negado ao delivery." }, { status: 403 });
 
-  const duplicate = await db.sale.findUnique({ where: { idempotencyKey: data.idempotencyKey } });
+  const saleIdempotency = { establishmentId: actor.session.establishment.id, idempotencyKey: data.idempotencyKey };
+  const duplicate = await db.sale.findUnique({ where: { establishmentId_idempotencyKey: saleIdempotency } });
   if (duplicate) return Response.json({ sale: { id: duplicate.id, total: Number(duplicate.total) } });
 
   try {
@@ -313,10 +314,16 @@ export async function POST(request: Request) {
         fiscalItems.push({ productName: product.name, quantity: requested.quantity, unitPrice, ncm: product.ncm, cfop: product.cfop, icmsCst: product.icmsCst, icmsOrigin: product.icmsOrigin, unitOfMeasure: product.unitOfMeasure });
       }
 
-      for (const [establishmentItemId, consumption] of aggregated) {
-        const balance = consumption.movements.reduce((sum, movement) => sum + Number(movement.quantity), 0);
+      for (const [establishmentItemId, consumption] of [...aggregated].sort(([left], [right]) => left.localeCompare(right))) {
+        // Serializa o consumo por item dentro da transação. Depois do lock, releia as
+        // movimentações para não decidir com o retrato obtido antes de outra venda concluir.
+        // A função retorna `void`; $queryRaw tenta desserializar esse tipo e falha no adapter-pg.
+        // $executeRaw mantém a trava transacional sem tentar ler o resultado.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`stock:${establishmentItemId}`}))`;
+        const movements = await tx.stockMovement.findMany({ where: { establishmentItemId }, select: { quantity: true, unitCost: true } });
+        const balance = movements.reduce((sum, movement) => sum + Number(movement.quantity), 0);
         if (!consumption.allowNegative && balance < consumption.quantity) throw new Error("INSUFFICIENT_STOCK");
-        const valued = consumption.movements.filter(movement => movement.unitCost !== null);
+        const valued = movements.filter(movement => movement.unitCost !== null);
         const value = valued.reduce((sum, movement) => sum + Number(movement.quantity) * Number(movement.unitCost), 0);
         const unitCost = balance > 0 && valued.length ? (value / balance).toFixed(4) : undefined;
         await tx.stockMovement.create({ data: { establishmentItemId, type: "CONSUMPTION", quantity: -consumption.quantity, unitCost, actorId: actor.session.user.id, sourceType: "SALE", sourceId: data.idempotencyKey, reason: `Consumo automático da venda ${data.channel}`, idempotencyKey: `${data.idempotencyKey}:${establishmentItemId}` } });
@@ -332,7 +339,9 @@ export async function POST(request: Request) {
       let resolvedDiscount = data.discount;
       let resolvedDiscountReason = data.discountReason;
       if (data.couponCode) {
-        const coupon = await tx.coupon.findFirst({ where: { organizationId: actor.session.organization.id, code: normalizeCouponCode(data.couponCode) } });
+        const couponCode = normalizeCouponCode(data.couponCode);
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`coupon:${actor.session.organization.id}:${couponCode}`}))`;
+        const coupon = await tx.coupon.findFirst({ where: { organizationId: actor.session.organization.id, code: couponCode } });
         const record: CouponRecord | null = coupon && { id: coupon.id, code: coupon.code, discountType: coupon.discountType, discountValue: Number(coupon.discountValue), validFrom: coupon.validFrom?.toISOString() ?? null, validUntil: coupon.validUntil?.toISOString() ?? null, maxUses: coupon.maxUses, usesCount: coupon.usesCount, active: coupon.active };
         const result = validateCoupon(record, subtotal);
         if (!result.ok) throw new Error("COUPON_INVALID");
@@ -355,7 +364,14 @@ export async function POST(request: Request) {
         await tx.coupon.update({ where: { id: appliedCoupon.id }, data: { usesCount: { increment: 1 } } });
       }
       if (tab) { await tx.tab.update({ where: { id: tab.id }, data: { status: "PAID", closedAt: new Date(), saleId: created.id } }); await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "TAB_CLOSE", entityType: "Tab", entityId: tab.id, reason: `Comanda da mesa ${tab.table.number} fechada`, before: { status: "OPEN" }, after: { status: "PAID", saleId: created.id, tableNumber: tab.table.number }, ...requestAuditMetadata(request) } }); }
-      if (deliveryOrder) { await tx.deliveryOrder.update({ where: { id: deliveryOrder.id }, data: { status: "DELIVERED", saleId: created.id } }); await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: deliveryOrder.id, reason: "Pedido de delivery pago e concluído", before: { status: deliveryOrder.status }, after: { status: "DELIVERED", saleId: created.id }, ...requestAuditMetadata(request) } }); }
+      if (deliveryOrder) {
+        await tx.deliveryOrder.update({ where: { id: deliveryOrder.id }, data: { status: "DELIVERED", saleId: created.id } });
+        if (deliveryOrder.kitchenOrderId) {
+          const kitchenOrder = await tx.order.findUnique({ where: { id: deliveryOrder.kitchenOrderId }, select: { tabId: true } });
+          if (kitchenOrder) await tx.tab.updateMany({ where: { id: kitchenOrder.tabId, status: "OPEN" }, data: { status: "PAID", closedAt: new Date(), saleId: created.id } });
+        }
+        await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: deliveryOrder.id, reason: "Pedido de delivery pago e concluído", before: { status: deliveryOrder.status }, after: { status: "DELIVERED", saleId: created.id }, ...requestAuditMetadata(request) } });
+      }
 
       // PDV envia para a cozinha (ADR 0044): reaproveita o mesmo pipeline Tab -> Order -> OrderItem
       // do Salão, através de uma mesa virtual "Balcão" (`isCounter: true`) — nunca fechada por
@@ -419,8 +435,13 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "COUPON_INVALID") return Response.json({ error: "Cupom inválido para esta venda." }, { status: 400 });
     if (error instanceof Error && error.message === "PAYMENT_MISMATCH") return Response.json({ error: "A soma dos pagamentos deve ser igual ao total da venda." }, { status: 400 });
     if (error instanceof Error && error.message === "CHANGE_ONLY_CASH") return Response.json({ error: "Valor recebido e troco são permitidos apenas em dinheiro." }, { status: 400 });
-    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") { const existing = await db.sale.findUnique({ where: { idempotencyKey: data.idempotencyKey } }); return Response.json({ sale: existing ? { id: existing.id, total: Number(existing.total) } : null }); }
-    return Response.json({ error: "Não foi possível concluir a venda." }, { status: 500 });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      const existing = await db.sale.findUnique({ where: { establishmentId_idempotencyKey: saleIdempotency } });
+      if (existing) return Response.json({ sale: { id: existing.id, total: Number(existing.total) } });
+      return Response.json({ error: "Conflito ao concluir a venda. Atualize os dados e tente novamente." }, { status: 409 });
+    }
+    console.error({ event: "sale_completion_failed", code: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : "UNEXPECTED", establishmentId: actor.session.establishment.id });
+    return Response.json({ error: "Não foi possível concluir a venda. O erro foi registrado para diagnóstico." }, { status: 500 });
   }
 }
 

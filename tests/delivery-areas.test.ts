@@ -2,7 +2,48 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { createLocalDeliveryArea, getLocalDeliveryArea, listLocalDeliveryAreas, updateLocalDeliveryArea } from "../lib/local-delivery-areas.ts";
 import { createLocalCatalogProduct } from "../lib/local-catalog.ts";
-import { createLocalDeliveryOrder } from "../lib/local-delivery.ts";
+import { assignLocalCourier, changeLocalDeliveryStatus, createLocalDeliveryOrder, findLocalDeliveryOrderByRequestId } from "../lib/local-delivery.ts";
+import { findDeliveryAreaByNeighborhood } from "../lib/delivery-area-match.ts";
+
+test("Pedido online local pode ser recuperado pela chave idempotente dentro da unidade", () => {
+  const establishmentId = `delivery-idempotency-${Date.now()}`;
+  const requestId = crypto.randomUUID();
+  const order = createLocalDeliveryOrder(establishmentId, {
+    clientRequestId: requestId,
+    customerName: "Cliente",
+    customerPhone: "22999999999",
+    address: "Rua de teste, 10",
+    origin: "ONLINE",
+    items: [{ productId: "product-1", productName: "Produto", quantity: 1, unitPrice: 10 }],
+  });
+  assert.equal(findLocalDeliveryOrderByRequestId(establishmentId, requestId)?.id, order.id);
+  assert.equal(findLocalDeliveryOrderByRequestId(`${establishmentId}-other`, requestId), null);
+});
+
+test("Delivery: não inicia rota sem entregador definido", () => {
+  const establishmentId = `delivery-courier-${Date.now()}`;
+  const order = createLocalDeliveryOrder(establishmentId, {
+    customerName: "Cliente",
+    customerPhone: "22999999999",
+    address: "Rua de teste, 10",
+    items: [{ productId: "product-1", productName: "Produto", quantity: 1, unitPrice: 10 }],
+  });
+  assert.notEqual(changeLocalDeliveryStatus(establishmentId, order.id, "PREPARING"), "INVALID_TRANSITION");
+  assert.equal(changeLocalDeliveryStatus(establishmentId, order.id, "OUT_FOR_DELIVERY"), "COURIER_REQUIRED");
+  assignLocalCourier(establishmentId, order.id, "courier-1");
+  const result = changeLocalDeliveryStatus(establishmentId, order.id, "OUT_FOR_DELIVERY");
+  assert.equal(typeof result === "string" ? result : result.order.status, "OUT_FOR_DELIVERY");
+});
+
+test("Áreas de entrega: identifica o bairro do CEP ignorando acentos e caixa", () => {
+  const areas = [
+    { id: "area-1", neighborhoods: "Parque Aeroporto, Aroeira" },
+    { id: "area-2", neighborhoods: "Cavaleiros; Glória" },
+  ];
+  assert.equal(findDeliveryAreaByNeighborhood(areas, "parque aeroporto")?.id, "area-1");
+  assert.equal(findDeliveryAreaByNeighborhood(areas, "GLORIA")?.id, "area-2");
+  assert.equal(findDeliveryAreaByNeighborhood(areas, "Centro"), null);
+});
 
 test("Áreas de entrega: criação com nome duplicado é rejeitada", () => {
   const establishmentId = `delivery-area-dup-${Date.now()}`;

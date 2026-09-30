@@ -53,11 +53,11 @@ export function DeliveryAreaSettings({ onClose, onChanged }: { onClose: () => vo
     <button className="modal-close" onClick={onClose}><X /></button>
     <span className="modal-icon"><MapPin /></span>
     <h2>Áreas de entrega</h2>
-    <p>Cadastre bairros/zonas com uma taxa fixa para agilizar o pedido de delivery.</p>
+    <p>Cadastre os bairros atendidos em cada faixa de taxa. No pedido online, o CEP identifica o bairro e aplica a área automaticamente.</p>
     {error && <div className="auth-error">{error}</div>}
     <label className="field"><span>Nome da área</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Ex.: Parque Aeroporto" /></label>
     <label className="field"><span>Taxa de entrega</span><input value={fee} onChange={event => setFee(event.target.value)} placeholder="0,00" inputMode="decimal" /></label>
-    <label className="field"><span>Bairros atendidos (opcional)</span><input value={neighborhoods} onChange={event => setNeighborhoods(event.target.value)} placeholder="Ex.: Parque Aeroporto, Botafogo" /></label>
+    <label className="field"><span>Bairros atendidos</span><input value={neighborhoods} onChange={event => setNeighborhoods(event.target.value)} placeholder="Separe por vírgula: Parque Aeroporto, Botafogo" /><small style={{ color: "var(--muted)" }}>Use o nome oficial retornado pelo CEP. Um bairro só pode pertencer a uma faixa de taxa.</small></label>
     <button className="primary wide" style={{ marginTop: 8 }} disabled={saving} onClick={() => void create()}><Plus /> Adicionar área</button>
 
     <div className="inventory-list" style={{ marginTop: 18 }}>

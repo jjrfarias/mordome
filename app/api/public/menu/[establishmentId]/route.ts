@@ -13,7 +13,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     const highlightProduct = establishment.highlightProductId ? catalog.find(product => product.id === establishment.highlightProductId) : undefined;
     return Response.json({
       establishment: { name: establishment.name, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightHeadline: establishment.highlightHeadline, highlightProduct: highlightProduct ? { id: highlightProduct.id, name: highlightProduct.name, price: highlightProduct.price, imageUrl: highlightProduct.imageUrl } : null },
-      products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: null, price: product.price, imageUrl: product.imageUrl })),
+      products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: product.description, price: product.price, imageUrl: product.imageUrl })),
     });
   }
 

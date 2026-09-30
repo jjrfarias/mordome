@@ -514,7 +514,7 @@ model Sale {
   organizationId  String
   establishmentId String
   cashSessionId   String?
-  idempotencyKey  String        @unique
+  idempotencyKey  String
   operatorId      String
   channel         SaleChannel
   status          SaleStatus    @default(COMPLETED)
@@ -532,6 +532,8 @@ model Sale {
   items           SaleItem[]
   payments        Payment[]
   refunds         Refund[]
+
+  @@unique([establishmentId, idempotencyKey])
   tab             Tab?
   deliveryOrder   DeliveryOrder?
   couponRedemption CouponRedemption?
@@ -580,6 +582,7 @@ model DeliveryOrder {
   kitchenOrderId  String?        @unique
   createdById     String?
   customerId      String?
+  clientRequestId String?
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt
   establishment   Establishment  @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
@@ -593,6 +596,7 @@ model DeliveryOrder {
   @@index([establishmentId, status])
   @@index([establishmentId, deliveryAreaId])
   @@index([customerId])
+  @@unique([establishmentId, clientRequestId])
 }
 
 // Áreas/zonas de entrega cadastradas por estabelecimento, com taxa fixa e bairros atendidos em

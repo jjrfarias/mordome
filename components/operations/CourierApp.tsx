@@ -32,7 +32,13 @@ export function CourierApp() {
 
   useEffect(() => {
     if (!sharing) { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); watchIdRef.current = null; return; }
-    if (!navigator.geolocation) { setError("Este navegador não permite compartilhar localização."); setSharing(false); return; }
+    if (!navigator.geolocation) {
+      queueMicrotask(() => {
+        setError("Este navegador não permite compartilhar localização.");
+        setSharing(false);
+      });
+      return;
+    }
     watchIdRef.current = navigator.geolocation.watchPosition(position => {
       const point = { lat: position.coords.latitude, lng: position.coords.longitude };
       setMyPosition(point); setError("");

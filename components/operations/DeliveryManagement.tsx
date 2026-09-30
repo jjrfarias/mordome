@@ -90,9 +90,9 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
           </div>
           <div className="kds-foot">
             <span>{money(total)}</span>
-            {order.status === "OUT_FOR_DELIVERY" ? <button onClick={() => setCheckoutOrder(order)}><CircleDollarSign /> Cobrar e concluir</button> : nextStatus[order.status] ? <button disabled={saving} onClick={() => void act({ action: "CHANGE_STATUS", orderId: order.id, status: nextStatus[order.status] }, `Pedido de ${order.customerName}: ${statusLabels[nextStatus[order.status]!]}`)}>{nextActionLabel[nextStatus[order.status]!]}</button> : null}
+            {order.status === "OUT_FOR_DELIVERY" ? <button onClick={() => setCheckoutOrder(order)}><CircleDollarSign /> Cobrar e concluir</button> : nextStatus[order.status] ? <button disabled={saving || (nextStatus[order.status] === "OUT_FOR_DELIVERY" && !order.courierId)} title={nextStatus[order.status] === "OUT_FOR_DELIVERY" && !order.courierId ? "Defina o entregador antes de iniciar a rota." : undefined} onClick={() => void act({ action: "CHANGE_STATUS", orderId: order.id, status: nextStatus[order.status] }, `Pedido de ${order.customerName}: ${statusLabels[nextStatus[order.status]!]}`)}>{nextActionLabel[nextStatus[order.status]!]}</button> : null}
           </div>
-          <button type="button" className="cancel-sent-item" style={{ margin: "0 18px 14px" }} disabled={saving} onClick={() => void act({ action: "CHANGE_STATUS", orderId: order.id, status: "CANCELLED" }, "Pedido cancelado")}>Cancelar pedido</button>
+          <button type="button" className="cancel-sent-item" style={{ margin: "0 18px 14px" }} disabled={saving} onClick={() => { if (window.confirm(`Cancelar o pedido de ${order.customerName}? O tíquete da cozinha também será cancelado.`)) void act({ action: "CHANGE_STATUS", orderId: order.id, status: "CANCELLED" }, "Pedido cancelado"); }}>Cancelar pedido</button>
         </article>;
       })}
     </div>}
@@ -142,7 +142,7 @@ function NewOrderModal({ products, deliveryAreas, saving, onClose, onCreate }: {
   const plainItems = Object.entries(quantities).filter(([, quantity]) => quantity > 0).map(([productId, quantity]) => ({ productId, quantity }));
   const optionItems = lines.map(line => ({ productId: line.productId, quantity: line.quantity, selectedOptions: line.optionSelections }));
   const items = [...plainItems, ...optionItems];
-  const valid = customerName.trim().length > 1 && customerPhone.trim().length > 7 && address.trim().length > 4 && items.length > 0;
+  const valid = customerName.trim().length > 1 && customerPhone.trim().length > 7 && address.trim().length > 4 && items.length > 0 && (deliveryAreas.length === 0 || Boolean(deliveryAreaId));
   const itemsTotal = Object.entries(quantities).reduce((sum, [productId, quantity]) => sum + (products.find(product => product.id === productId)?.price ?? 0) * quantity, 0) + lines.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
   const selectedArea = deliveryAreas.find(area => area.id === deliveryAreaId);
   const orderTotal = itemsTotal + (selectedArea?.deliveryFee ?? 0);
@@ -165,7 +165,7 @@ function NewOrderModal({ products, deliveryAreas, saving, onClose, onCreate }: {
     {deliveryAreas.length > 0 && <label className="field"><span>Área de entrega</span><select value={deliveryAreaId} onChange={event => setDeliveryAreaId(event.target.value)}>
       <option value="">Sem área cadastrada (taxa por fora)</option>
       {deliveryAreas.map(area => <option key={area.id} value={area.id}>{area.name} · {money(area.deliveryFee)}</option>)}
-    </select></label>}
+    </select><small style={{ color: "var(--muted)" }}>Necessário para calcular a taxa do pedido.</small></label>}
     <div style={{ marginTop: 12 }}><MapPicker value={point} onChange={setPoint} /></div>
     <div className="permission-groups" style={{ marginTop: 14 }}>
       {categories.map(category => <div key={category} className="permission-group">
