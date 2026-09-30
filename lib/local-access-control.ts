@@ -28,7 +28,7 @@ export const localPermissionCatalog = [
 ].map(([key, module, description]) => ({ key, module, description }));
 
 const roles: LocalRole[] = [{ id: "role-owner", name: "Proprietário", active: true, systemTemplate: true, permissionKeys: [...OWNER_PERMISSIONS] }];
-const users: LocalUserAccess[] = [{ membershipId: "membership-owner", userId: "local-admin", name: "Administrador Betão", username: "betao", userActive: true, status: "ACTIVE", establishmentIds: ["parque-aeroporto", "anexo", "cavaleiros", "lagomar"], roleIds: ["role-owner"], overrides: [], isSelf: true }];
+const users: LocalUserAccess[] = [{ membershipId: "membership-owner", userId: "local-admin", name: "Administrador", username: "admin", userActive: true, status: "ACTIVE", establishmentIds: ["parque-aeroporto", "anexo", "cavaleiros", "lagomar"], roleIds: ["role-owner"], overrides: [], isSelf: true }];
 const localPasswords = new Map<string, string>();
 
 export function listLocalRoles() { return roles.map(role => ({ ...role, permissionKeys: [...role.permissionKeys] })); }

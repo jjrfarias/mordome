@@ -32,7 +32,7 @@ export async function POST(request: Request) {
     if (!localCredentialsAreValid(username, parsed.data.password)) return Response.json({ error: "Usuário ou senha inválidos." }, { status: 401 });
     resetRateLimit(rateLimitKey);
     await createLocalSession(username);
-    recordLocalAudit({ organizationId: "local-betao", establishmentId: null, actorId: "local-admin", actorName: "Administrador Betão", actorUsername: username, action: "LOGIN", entityType: "Session", entityId: "local", reason: "Login realizado", ...requestAuditMetadata(request) });
+    recordLocalAudit({ organizationId: "local-demo", establishmentId: null, actorId: "local-admin", actorName: "Administrador", actorUsername: username, action: "LOGIN", entityType: "Session", entityId: "local", reason: "Login realizado", ...requestAuditMetadata(request) });
     return Response.json({ ok: true });
   }
 

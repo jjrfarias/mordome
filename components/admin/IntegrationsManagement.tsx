@@ -118,7 +118,7 @@ function PrintTemplateManagement({ activeEstablishmentId }: { activeEstablishmen
   if (loading) return <section className="panel settings-shell"><div className="empty"><span>Carregando modelo de impressão…</span></div></section>;
 
   const previewHtml = buildReceiptHtml(
-    { establishmentName: "Betão Hot Dog", items: [{ name: "X-Salada", quantity: 2, unitPrice: 18 }, { name: "Refrigerante lata", quantity: 1, unitPrice: 6 }], total: 42, payment: "Pix", channel: "POS" },
+    { establishmentName: "Restaurante demonstração", items: [{ name: "X-Salada", quantity: 2, unitPrice: 18 }, { name: "Refrigerante lata", quantity: 1, unitPrice: 6 }], total: 42, payment: "Pix", channel: "POS" },
     { headerText: form.headerText || null, footerText: form.footerText || null, showDocument: form.showDocument, paperWidth: form.paperWidth, establishmentDocument },
   );
 
@@ -130,7 +130,7 @@ function PrintTemplateManagement({ activeEstablishmentId }: { activeEstablishmen
     <div className="print-template-editor">
       <div className="print-template-fields">
         <label className="field"><span>Texto de cabeçalho (opcional)</span><input value={form.headerText} placeholder="Ex.: Rua das Flores, 123 — (21) 99999-0000" onChange={event => setForm(current => ({ ...current, headerText: event.target.value }))} /></label>
-        <label className="field"><span>Texto de rodapé (opcional)</span><input value={form.footerText} placeholder="Ex.: Volte sempre! Família Betão" onChange={event => setForm(current => ({ ...current, footerText: event.target.value }))} /></label>
+        <label className="field"><span>Texto de rodapé (opcional)</span><input value={form.footerText} placeholder="Ex.: Volte sempre!" onChange={event => setForm(current => ({ ...current, footerText: event.target.value }))} /></label>
         <label className="field"><span>Largura do papel</span>
           <select value={form.paperWidth} onChange={event => setForm(current => ({ ...current, paperWidth: event.target.value === "58" ? 58 : 80 }))}>
             <option value={80}>80mm (padrão)</option>

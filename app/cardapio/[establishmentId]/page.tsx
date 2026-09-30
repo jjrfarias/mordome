@@ -1,10 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { Search, ShoppingBag, UtensilsCrossed } from "lucide-react";
+import { Brand } from "@/components/ui";
 
 type MenuProduct = { id: string; name: string; category: string; description: string | null; price: number; imageUrl: string | null };
 type HighlightProduct = { id: string; name: string; price: number; imageUrl: string | null };
@@ -36,7 +36,7 @@ export default function PublicMenuPage() {
   }); }, [params.establishmentId]);
 
   if (loading) return <div className="public-menu"><div className="empty"><span>Carregando cardápio…</span></div></div>;
-  if (error) return <div className="public-menu"><div className="public-menu-header"><Image src="/clientes/betao/simbolo-compacto-v1.png" alt="" width={56} height={56} priority /><h1>Cardápio indisponível</h1></div><div className="auth-error">{error}</div></div>;
+  if (error) return <div className="public-menu"><div className="public-menu-header"><Brand compact /><h1>Cardápio indisponível</h1></div><div className="auth-error">{error}</div></div>;
   if (!data) return null;
 
   const visible = data.products.filter(product => product.name.toLocaleLowerCase("pt-BR").includes(query.toLocaleLowerCase("pt-BR")));
@@ -47,7 +47,7 @@ export default function PublicMenuPage() {
   return <div className="public-menu">
     {data.establishment.bannerUrl && <div className="public-menu-banner"><img src={data.establishment.bannerUrl} alt="" /></div>}
     <div className={`public-menu-header${data.establishment.bannerUrl ? " with-banner" : ""}`}>
-      {data.establishment.logoUrl ? <img src={data.establishment.logoUrl} alt="" width={56} height={56} className="public-menu-logo" /> : <Image src="/clientes/betao/simbolo-compacto-v1.png" alt="" width={56} height={56} priority />}
+      {data.establishment.logoUrl ? <img src={data.establishment.logoUrl} alt="" width={56} height={56} className="public-menu-logo" /> : <Brand compact />}
       <div className="public-menu-heading">
         <span className="section-kicker">CARDÁPIO ONLINE</span>
         <h1>{data.establishment.name}</h1>

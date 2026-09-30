@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import { CheckCircle2, Minus, Plus, Search, ShoppingBag, UtensilsCrossed } from "lucide-react";
 import { IngredientPicker, productHasIngredientChoices } from "@/components/operations/IngredientPicker";
 import type { IngredientGroup, SelectedIngredientOption } from "@/lib/domain";
 import { areaNeighborhoods, findDeliveryAreaByNeighborhood } from "@/lib/delivery-area-match";
+import { Brand } from "@/components/ui";
 
 type MenuProduct = { id: string; name: string; category: string; description: string | null; price: number; imageUrl: string | null; ingredientGroups?: IngredientGroup[] };
 type HighlightProduct = { id: string; name: string; price: number; imageUrl: string | null };
@@ -63,7 +63,7 @@ export default function OnlineOrderPage() {
   }); }, [params.establishmentId]);
 
   if (loading) return <div className="public-menu"><div className="empty"><span>Carregando cardápio…</span></div></div>;
-  if (error) return <div className="public-menu"><div className="public-menu-header"><Image src="/clientes/betao/simbolo-compacto-v1.png" alt="" width={56} height={56} priority /><h1>Pedido indisponível</h1></div><div className="auth-error">{error}</div></div>;
+  if (error) return <div className="public-menu"><div className="public-menu-header"><Brand compact /><h1>Pedido indisponível</h1></div><div className="auth-error">{error}</div></div>;
   if (!data) return null;
 
   const subtotal = cart.reduce((sum, line) => sum + line.unitPrice * line.quantity, 0);
@@ -118,7 +118,7 @@ export default function OnlineOrderPage() {
   };
 
   if (step === "done") return <div className="public-menu">
-    <div className="public-menu-header"><Image src="/clientes/betao/simbolo-compacto-v1.png" alt="" width={56} height={56} priority /><span className="section-kicker">PEDIDO ONLINE</span><h1>{data.establishment.name}</h1></div>
+    <div className="public-menu-header"><Brand compact /><span className="section-kicker">PEDIDO ONLINE</span><h1>{data.establishment.name}</h1></div>
     <div className="big-empty" style={{ background: "var(--paper)" }}><CheckCircle2 style={{ color: "#3e9a70" }} /><h2>Pedido recebido!</h2><p>Nº {orderId.slice(-6).toUpperCase()} · A equipe vai confirmar seu pedido{data.deliveryAreas.length === 0 ? " e a taxa de entrega" : ""}.</p></div>
     <footer className="public-menu-footer">Mordomê <em>by JCS</em></footer>
   </div>;
@@ -130,7 +130,7 @@ export default function OnlineOrderPage() {
   return <div className="public-menu" style={{ paddingBottom: cart.length > 0 ? 110 : 60 }}>
     {data.establishment.bannerUrl && step === "catalog" && <div className="public-menu-banner"><img src={data.establishment.bannerUrl} alt="" /></div>}
     <div className={`public-menu-header${data.establishment.bannerUrl ? " with-banner" : ""}`}>
-      {data.establishment.logoUrl ? <img src={data.establishment.logoUrl} alt="" width={56} height={56} className="public-menu-logo" /> : <Image src="/clientes/betao/simbolo-compacto-v1.png" alt="" width={56} height={56} priority />}
+      {data.establishment.logoUrl ? <img src={data.establishment.logoUrl} alt="" width={56} height={56} className="public-menu-logo" /> : <Brand compact />}
       <div className="public-menu-heading">
         <span className="section-kicker">PEDIDO ONLINE</span>
         <h1>{data.establishment.name}</h1>

@@ -16,10 +16,10 @@ const blankAddress: LocalEstablishmentAddress = { postalCode: null, street: null
 const blankStorefront: LocalEstablishmentStorefront = { logoUrl: null, bannerUrl: null, highlightProductId: null, highlightHeadline: null };
 
 const localEstablishments: LocalEstablishment[] = [
-  { id: "parque-aeroporto", name: "Parque Aeroporto", slug: "parque-aeroporto", active: true, ...blankAddress, ...blankStorefront },
-  { id: "anexo", name: "Anexo", slug: "anexo", active: true, ...blankAddress, ...blankStorefront },
-  { id: "cavaleiros", name: "Cavaleiros", slug: "cavaleiros", active: true, ...blankAddress, ...blankStorefront },
-  { id: "lagomar", name: "Lagomar", slug: "lagomar", active: true, ...blankAddress, ...blankStorefront },
+  { id: "parque-aeroporto", name: "Unidade Centro", slug: "unidade-centro", active: true, ...blankAddress, ...blankStorefront },
+  { id: "anexo", name: "Unidade Norte", slug: "unidade-norte", active: true, ...blankAddress, ...blankStorefront },
+  { id: "cavaleiros", name: "Unidade Sul", slug: "unidade-sul", active: true, ...blankAddress, ...blankStorefront },
+  { id: "lagomar", name: "Unidade Leste", slug: "unidade-leste", active: true, ...blankAddress, ...blankStorefront },
 ];
 
 export function isLocalAuthEnabled() {
@@ -63,8 +63,8 @@ export async function getLocalSession() {
   if (!establishment) return null;
   return {
     sessionId: "local",
-    user: { id: localUser?.userId ?? "local-admin", name: localUser?.name ?? "Administrador Betão", username: localUser?.username ?? process.env.LOCAL_AUTH_USERNAME ?? "betao" },
-    organization: { id: "local-betao", name: "Betão Hot Dog" },
+    user: { id: localUser?.userId ?? "local-admin", name: localUser?.name ?? "Administrador", username: localUser?.username ?? process.env.LOCAL_AUTH_USERNAME ?? "admin" },
+    organization: { id: "local-demo", name: "Restaurante demonstração" },
     establishment,
     establishments: activeEstablishments.map(({ id, name }) => ({ id, name })),
     permissionKeys: localUser?.effectivePermissionKeys ?? ["establishments.manage", "catalog.manage", "recipes.manage", "stock.manage", "stock.adjust", "pos.sell", "discount.apply", "discount.override", "sale.refund", "pos.cancel_sale", "floor.operate", "floor.manage", "delivery.operate", "delivery.deliver", "tabs.cancel_item", "cash.open", "cash.move", "cash.close", "cash.history.view", "audit.view", "finance.summary.view", "finance.manage", "finance.entries.manage", "finance.cashflow.view", "settlements.manage", "users.view", "users.invite", "users.disable", "users.password.reset", "roles.manage", "integrations.manage", "customers.manage", "fiscal.manage", "reports.sales_by_period.view", "reports.revenue_by_day.view", "reports.performance_by_staff.view", "reports.payment_methods.view", "reports.sales_by_delivery_area.view", "reports.items_sold.view", "reports.items_consumed.view", "reports.production_time.view", "reports.time_by_status.view", "reports.dre.view", "reports.coupons_generated.view", "dashboards.sales_tracking.view", "dashboards.multi_store_tracking.view", "dashboards.channels.view", "dashboards.sales_by_hour.view"],

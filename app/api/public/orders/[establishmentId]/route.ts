@@ -117,7 +117,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
       if (!area || !area.active) return Response.json({ error: "Área de entrega não encontrada." }, { status: 400 });
       deliveryFee = area.deliveryFee;
     }
-    const customer = findLocalCustomerByPhone("local-betao", data.customerPhone) ?? findOrCreateLocalCustomerByPhone("local-betao", { name: data.customerName, phone: data.customerPhone });
+    const customer = findLocalCustomerByPhone("local-demo", data.customerPhone) ?? findOrCreateLocalCustomerByPhone("local-demo", { name: data.customerName, phone: data.customerPhone });
     const order = createLocalDeliveryOrder(establishmentId, { clientRequestId: data.clientRequestId, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: resolvedAreaId ?? null, deliveryFee, items });
     // Delivery envia para a cozinha (ADR 0050): pedido online é criado sem operador logado, então
     // usa o primeiro usuário ativo com acesso à unidade como autor do tíquete de cozinha — o mesmo
