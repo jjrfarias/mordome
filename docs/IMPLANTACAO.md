@@ -18,6 +18,12 @@ A configuração está em `railway.json`. Em 12/09/2026, a migração oficial pa
 
 ## Estado e limitações
 
+### Exceção de publicação autorizada em 30/09/2026
+
+O responsável autorizou explicitamente nesta sessão o deploy manual dos ajustes do commit `2965bf9`, pela branch `cliente/betao`, incluindo a migração pendente `20260917130000_harden_order_idempotency`. A autorização é pontual: não altera a regra corporativa de publicação pela `main`, com revisão e CI (`AI_RULES/04_ARCHITECTURE_STANDARDS.md`, seção 4).
+
+O pacote passou por 259 testes, TypeScript, build e validação do schema Prisma. Foram informadas e aceitas as limitações: a migração e a concorrência não foram validadas em PostgreSQL real nesta revisão. A publicação deve manter o pre-deploy de migrations e o health check existentes; esta autorização não permite desativar autenticação, isolamento ou proteções de dados.
+
 - Deploy e health check validados em 12/09/2026.
 - O banco contém a migração inicial, mas a interface ainda usa o adaptador demonstrativo em `localStorage`; publicar não transforma o protótipo em operação multiusuário.
 - Backups automáticos e recuperação point-in-time ainda não estão habilitados.
