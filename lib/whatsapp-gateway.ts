@@ -64,7 +64,7 @@ async function start(unit: string) {
   socket.ev.on("creds.update", () => { void save().catch(() => {}); });  socket.ev.on("messages.upsert", ({ type, messages }) => {
     if (type !== "notify") return;
     for (const message of messages) {
-      const jid = message.key.remoteJid;
+      const jid = message.key.remoteJidAlt ?? message.key.remoteJid;
       const messageId = message.key.id;
       if (message.key.fromMe || !jid || !messageId || !jid.endsWith("@s.whatsapp.net")) continue;
       const content = message.message;
