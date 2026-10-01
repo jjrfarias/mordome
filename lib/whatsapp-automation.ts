@@ -1,7 +1,7 @@
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { sendWhatsAppMessage } from "@/lib/whatsapp-gateway";
-import { parseWhatsAppAutomation, renderWhatsAppAutomation, type WhatsAppAutomation, type WhatsAppAutomationEventName } from "@/lib/whatsapp-automation-settings";
+import { formatWhatsAppOrderItems, parseWhatsAppAutomation, renderWhatsAppAutomation, type WhatsAppAutomation, type WhatsAppAutomationEventName } from "@/lib/whatsapp-automation-settings";
 
 export { automationEvents, automationSchema, defaultWhatsAppAutomation, parseWhatsAppAutomation, type WhatsAppAutomation, type WhatsAppAutomationEventName } from "@/lib/whatsapp-automation-settings";
 
@@ -15,7 +15,7 @@ export async function writeWhatsAppAutomation(establishmentId: string, automatio
 }
 
 export async function dispatchDeliveryWhatsAppAutomation(orderId: string, event: WhatsAppAutomationEventName) {
-  const order = await db.deliveryOrder.findUnique({ where: { id: orderId }, include: { establishment: { select: { name: true } } } });
+  const order = await db.deliveryOrder.findUnique({ where: { id: orderId }, include: { establishment: { select: { name: true } }, items: { select: { quantity: true, productName: true, selectedOptionsSnapshot: true } } } });
   if (!order || order.origin !== "ONLINE") return;
   if (event === "INVITE_ACCOUNT" && (order.customerAccountId || !order.accountInviteOptIn)) return;
   const automation = await readWhatsAppAutomation(order.establishmentId);
@@ -32,6 +32,7 @@ export async function dispatchDeliveryWhatsAppAutomation(orderId: string, event:
       nome: order.customerName,
       pedido: `#${order.id.slice(-6).toUpperCase()}`,
       estabelecimento: order.establishment.name,
+      itens: formatWhatsAppOrderItems(order.items),
     }));
     await db.whatsAppAutomationEvent.update({ where: { deliveryOrderId_event: { deliveryOrderId: order.id, event } }, data: { sentAt: new Date() } });
   } catch {
