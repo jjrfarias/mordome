@@ -3,6 +3,7 @@ import pino from "pino";
 import QRCode from "qrcode";
 import { db } from "@/lib/db";
 import { decryptWhatsAppSession, encryptWhatsAppSession } from "@/lib/whatsapp-session";
+import { handleWhatsAppOrderingInbound } from "@/lib/whatsapp-ordering";
 
 type Status = "DISCONNECTED" | "CONNECTING" | "QR" | "READY";
 type Archive = { creds: AuthenticationCreds; keys: Record<string, unknown> };
@@ -60,7 +61,19 @@ async function start(unit: string) {
   const socket = makeWASocket({ auth: state, logger, printQRInTerminal: false, version, syncFullHistory: false, markOnlineOnConnect: false });
   const connection: Connection = { socket, status: "CONNECTING" };
   connections.clients.set(unit, connection);
-  socket.ev.on("creds.update", () => { void save().catch(() => {}); });
+  socket.ev.on("creds.update", () => { void save().catch(() => {}); });  socket.ev.on("messages.upsert", ({ type, messages }) => {
+    if (type !== "notify") return;
+    for (const message of messages) {
+      const jid = message.key.remoteJid;
+      const messageId = message.key.id;
+      if (message.key.fromMe || !jid || !messageId || !jid.endsWith("@s.whatsapp.net")) continue;
+      const content = message.message;
+      const text = content?.conversation ?? content?.extendedTextMessage?.text ?? content?.buttonsResponseMessage?.selectedDisplayText ?? content?.listResponseMessage?.title;
+      const phone = jid.split("@")[0]?.replace(/\D/g, "");
+      if (!text || !phone || !/^55[1-9]\d{10,11}$/.test(phone)) continue;
+      void handleWhatsAppOrderingInbound({ establishmentId: unit, phone: phone.slice(2), messageId, text }, reply => sendWhatsAppMessage(unit, phone, reply)).catch(() => {});
+    }
+  });
   socket.ev.on("connection.update", update => { void (async () => {
     if (update.qr) { connection.status = "QR"; connection.qr = await QRCode.toDataURL(update.qr); }
     if (update.connection === "open") { connection.status = "READY"; connection.qr = undefined; }

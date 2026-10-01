@@ -1,9 +1,9 @@
-﻿"use client";
+"use client";
 
 import { useCallback, useEffect, useState } from "react";
 
 export function WhatsAppConnection({ establishmentId }: { establishmentId: string }) {
-  const [data, setData] = useState<{ configured: boolean; status?: string; qr?: string } | null>(null);
+  const [data, setData] = useState<{ configured: boolean; status?: string; qr?: string; orderingEnabled?: boolean } | null>(null);
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
   const load = useCallback(async () => {
@@ -14,10 +14,10 @@ export function WhatsAppConnection({ establishmentId }: { establishmentId: strin
     } catch { setError("Não foi possível consultar a conexão. Tentaremos novamente."); }
   }, []);
   useEffect(() => { queueMicrotask(() => { void load(); }); const timer = setInterval(() => void load(), 5000); return () => clearInterval(timer); }, [establishmentId, load]);
-  async function act(action: string) {
+  async function act(action: string, enabled?: boolean) {
     setSaving(true); setError("");
     try {
-      const response = await fetch("/api/admin/whatsapp", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action }) });
+      const response = await fetch("/api/admin/whatsapp", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ action, enabled }) });
       const result = await response.json(); if (!response.ok) throw Error(result.error); await load();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha na conexão."); }
     finally { setSaving(false); }
@@ -34,7 +34,8 @@ export function WhatsAppConnection({ establishmentId }: { establishmentId: strin
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <div className="whatsapp-qr"><img src={data.qr} alt="QR Code para conectar o WhatsApp desta unidade" width={256} height={256} /><p>No WhatsApp: <b>Aparelhos conectados → Conectar um aparelho</b>. Não compartilhe este QR.</p></div>
       </>}
-      <div className="whatsapp-connection-actions">
+<label className="whatsapp-ordering-toggle"><input type="checkbox" checked={data.orderingEnabled ?? false} disabled={saving || !connected} onChange={event => void act("set-ordering", event.target.checked)} /><span><b>Atendimento automático de pedidos</b><small>Responde por cardápio, categorias e pedido pelo WhatsApp. Produtos com opções obrigatórias levam ao pedido online.</small></span></label>
+            <div className="whatsapp-connection-actions">
         <button className="primary" disabled={saving || data.status === "READY"} onClick={() => void act("connect")}>Conectar WhatsApp</button>
         <button className="secondary" disabled={saving || data.status === "DISCONNECTED"} onClick={() => { if (confirm("Desconectar o WhatsApp? Novos códigos ficarão indisponíveis até reconectar.")) void act("disconnect"); }}>Desconectar</button>
       </div>
