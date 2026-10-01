@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import type L from "leaflet";
 import { fetchRoute, type RoutePoint } from "@/lib/osrm";
 
@@ -38,8 +38,11 @@ export function DeliveryMap({ destinations, couriers, routes = [], height = 320 
   const containerRef = useRef<HTMLDivElement>(null);
   const mapRef = useRef<L.Map | null>(null);
   const layerRef = useRef<L.LayerGroup | null>(null);
+  const [mapReady, setMapReady] = useState(false);
+  const hasPoints = destinations.length > 0 || couriers.length > 0;
 
   useEffect(() => {
+    if (!hasPoints) return;
     let cancelled = false;
     void loadLeaflet().then(leaflet => {
       if (cancelled || !containerRef.current || mapRef.current) return;
@@ -47,13 +50,14 @@ export function DeliveryMap({ destinations, couriers, routes = [], height = 320 
       leaflet.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
       layerRef.current = leaflet.layerGroup().addTo(map);
       mapRef.current = map;
+      setMapReady(true);
     });
-    return () => { cancelled = true; mapRef.current?.remove(); mapRef.current = null; layerRef.current = null; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    return () => { cancelled = true; mapRef.current?.remove(); mapRef.current = null; layerRef.current = null; setMapReady(false); };
+  }, [hasPoints]);
 
   useEffect(() => {
     let cancelled = false;
+    if (!mapReady) return;
     void loadLeaflet().then(async leaflet => {
       const map = mapRef.current; const layer = layerRef.current;
       if (!map || !layer) return;
@@ -77,8 +81,8 @@ export function DeliveryMap({ destinations, couriers, routes = [], height = 320 
       }
     });
     return () => { cancelled = true; };
-  }, [destinations, couriers, routes]);
+  }, [destinations, couriers, routes, mapReady]);
 
-  if (destinations.length === 0 && couriers.length === 0) return null;
+  if (!hasPoints) return null;
   return <div ref={containerRef} style={{ height, borderRadius: 14, overflow: "hidden", border: "1px solid var(--line)", marginBottom: 20 }} />;
 }
