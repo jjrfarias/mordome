@@ -10,7 +10,7 @@ const photo = (file: string) => `/vitrine-demo/${file}.jpg`;
 export const demoStorefront: StorefrontData = {
   mode: "demo",
   storeKey: "demonstracao",
-  branding: { primary: "#e21b23", accent: "#f5b34c" },
+  branding: { logoUrl: null, primary: "#e21b23", accent: "#f5b34c" },
   establishment: { name: "Mordomê Demonstração", logoUrl: null, phone: null, address: "Rua das Flores, 123 · Centro, São Paulo - SP" },
   slides: [
     { id: "burgers", kicker: "Sabor em cada momento", title: "Burgers artesanais", highlight: "com até 25% OFF", description: "Ingredientes selecionados. Sabor que entrega.", imageUrl: photo("hamburguer-artesanal"), imageAlt: "Cheeseburger artesanal com cheddar derretido", ctaLabel: "Pedir agora", target: { kind: "category", categoryId: "hamburgueres" } },

@@ -257,7 +257,7 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
   return <div className={cx(styles.root, units > 0 && styles.rootWithBar)} style={themeStyle}>
     <a href="#cardapio" className={styles.skipLink}>Pular para o cardápio</a>
     {isDemo && <p className={styles.demoStrip}>Demonstração com dados fictícios — nenhum pedido é enviado ou cobrado.</p>}
-    <Header logoUrl={data.establishment.logoUrl} name={data.establishment.name} nav={nav} activeSection={activeSection} query={filters.query}
+    <Header logoUrl={data.establishment.logoUrl ?? data.branding.logoUrl} name={data.establishment.name} nav={nav} activeSection={activeSection} query={filters.query}
       onQueryChange={query => patchFilters({ query })} onSearchSubmit={() => scrollToId("cardapio")} cartUnits={units}
       onCartClick={() => { if (window.matchMedia("(min-width: 1180px)").matches) document.getElementById("meu-pedido")?.focus(); else setDialog("cart"); }} />
 

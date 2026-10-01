@@ -73,14 +73,18 @@
 /* ---------- Cabeçalho ---------- */
 /* Neutraliza a regra global `header{}` do painel operacional (altura, padding, blur). */
 .header { position: sticky; top: 0; z-index: 40; display: block; height: auto; padding: 0; background: var(--surface); border-bottom: 1px solid var(--border); backdrop-filter: none; }
-.headerInner { max-width: 1560px; margin: 0 auto; height: 72px; padding: 0 24px; display: flex; align-items: center; gap: 28px; }
+.headerInner { max-width: 1560px; margin: 0 auto; min-height: 82px; padding: 8px 24px; display: flex; align-items: center; gap: 28px; }
+.clientIdentity { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .brandLink { color: inherit; text-decoration: none; border-radius: 8px; flex-shrink: 0; }
 .brand { display: inline-flex; align-items: center; gap: 8px; }
-.brandHat { width: 40px; height: 40px; color: var(--red); }
-.brandLogo { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 1px solid var(--border); }
+.brandFallback { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; color: #fff; background: var(--red); box-shadow: 0 6px 16px color-mix(in srgb, var(--red) 24%, transparent); }
+.brandFallback svg { width: 32px; height: 32px; }
+.brandLogo { width: 64px; height: 64px; border-radius: 16px; object-fit: contain; padding: 3px; background: #fff; border: 2px solid color-mix(in srgb, var(--red) 28%, var(--border)); box-shadow: 0 5px 16px rgba(24, 24, 24, .08); }
 .brandText { display: flex; flex-direction: column; line-height: 1; }
-.brandText strong { font-size: 25px; font-weight: 800; letter-spacing: -.03em; }
-.brandText small { margin-top: 4px; font-size: 8.5px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; color: var(--red); }
+.brandText strong { max-width: 220px; overflow: hidden; text-overflow: ellipsis; font-size: 24px; font-weight: 800; letter-spacing: -.03em; white-space: nowrap; }
+.brandText small { margin-top: 5px; font-size: 9px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; color: var(--red); }
+.mordomeSignature { padding-left: 12px; border-left: 1px solid var(--border); color: var(--muted); font-size: 10px; line-height: 1.2; white-space: nowrap; }
+.mordomeSignature strong { display: block; color: var(--text); font-size: 13px; letter-spacing: -.01em; }
 .nav ul { display: flex; gap: 26px; }
 .navLink { position: relative; display: inline-block; padding: 8px 0; color: var(--text); text-decoration: none; font-size: 14px; font-weight: 500; white-space: nowrap; }
 .navLink:hover { color: var(--red); }
@@ -464,10 +468,11 @@
 }
 @media (max-width: 1099px) {
   .nav { display: none; }
+  .mordomeSignature { display: none; }
 }
 @media (max-width: 899px) {
-  .root { --header-offset: 128px; }
-  .headerInner { height: 62px; padding: 0 16px; }
+  .root { --header-offset: 136px; }
+  .headerInner { min-height: 70px; padding: 7px 16px; }
   .headerSearch { display: none; }
   .cartButton { margin-left: auto; }
   .mobileSearchRow { display: block; }
@@ -477,8 +482,8 @@
   .promos { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 640px) {
-  .brandHat { width: 34px; height: 34px; }
-  .brandText strong { font-size: 22px; }
+  .brandLogo, .brandFallback { width: 52px; height: 52px; border-radius: 14px; }
+  .brandText strong { max-width: 170px; font-size: 20px; }
   .heroSlide { height: 210px; align-items: flex-end; }
   .heroImage { width: 100%; }
   .heroShade { background: linear-gradient(90deg, rgba(15, 11, 8, .92) 0%, rgba(15, 11, 8, .7) 55%, rgba(15, 11, 8, .2) 100%); }

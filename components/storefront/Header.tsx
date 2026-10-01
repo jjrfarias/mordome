@@ -28,7 +28,10 @@ export function Header({ logoUrl, name, nav, activeSection, query, onQueryChange
 }) {
   return <header className={styles.header}>
     <div className={styles.headerInner}>
-      <a href="#inicio" className={styles.brandLink} aria-label={logoUrl ? `${name} — início` : "Mordomê — início"}><BrandMark logoUrl={logoUrl} name={name} /></a>
+      <div className={styles.clientIdentity}>
+        <a href="#inicio" className={styles.brandLink} aria-label={`${name} — início`}><BrandMark logoUrl={logoUrl} name={name} /></a>
+        <span className={styles.mordomeSignature}>Tecnologia <strong>Mordomê</strong></span>
+      </div>
       <nav className={styles.nav} aria-label="Seções da página">
         <ul>{nav.map(item => <li key={item.id}><a href={`#${item.id}`} className={cx(styles.navLink, activeSection === item.id && styles.navLinkActive)} aria-current={activeSection === item.id ? "location" : undefined}>{item.label}</a></li>)}</ul>
       </nav>

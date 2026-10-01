@@ -4,7 +4,7 @@ import { categoryIconKey } from "./catalog.ts";
 
 // Contrato de GET /api/public/orders/[establishmentId]. Valores em reais (Decimal serializado).
 export type PublicOrderMenuResponse = {
-  branding?: { primary: string; accent: string };
+  branding?: { logoUrl?: string | null; primary: string; accent: string };
   establishment: {
     name: string;
     logoUrl: string | null;
@@ -75,7 +75,7 @@ export function mapLiveStorefront(establishmentId: string, response: PublicOrder
   return {
     mode: "live",
     storeKey: establishmentId,
-    branding: response.branding ?? { primary: "#173f35", accent: "#e97c4b" },
+    branding: { logoUrl: response.branding?.logoUrl ?? null, primary: response.branding?.primary ?? "#173f35", accent: response.branding?.accent ?? "#e97c4b" },
     establishment: { name: establishment.name, logoUrl: establishment.logoUrl, phone: establishment.phone ?? null, address: establishment.address ?? null },
     slides,
     categories,
