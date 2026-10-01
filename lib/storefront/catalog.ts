@@ -82,7 +82,7 @@ export function hasActiveRefinements(filters: CatalogFilters) {
   return filters.categoryId !== null || filters.query.trim() !== "" || filters.promotionsOnly || filters.vegetarianOnly || filters.favoritesOnly || filters.maxPriceCents !== null;
 }
 
-export type CategoryIconKey = "pizza" | "burger" | "pasta" | "drink" | "dessert" | "combo" | "healthy" | "snack" | "other";
+export type CategoryIconKey = "pizza" | "burger" | "pasta" | "drink" | "dessert" | "combo" | "healthy" | "pastry" | "snack" | "other";
 
 const categoryIconRules: [CategoryIconKey, RegExp][] = [
   ["pizza", /pizz/],
@@ -92,7 +92,8 @@ const categoryIconRules: [CategoryIconKey, RegExp][] = [
   ["dessert", /sobremes|doce|sorvet|bolo|acai/],
   ["combo", /combo|kit|promo/],
   ["healthy", /saudav|salad|fit|vegan|vegetar|bowl|light/],
-  ["snack", /porc|petisc|entrada|batata|salgad/],
+  ["pastry", /pastel|pasteis|salgad|coxinh|esfi(h|r)|empad|empanad|quiche/],
+  ["snack", /porc|petisc|entrada|batata/],
 ];
 
 export function categoryIconKey(name: string): CategoryIconKey {

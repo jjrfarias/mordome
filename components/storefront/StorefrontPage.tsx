@@ -274,10 +274,14 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
       onQueryChange={query => patchFilters({ query })} onSearchSubmit={() => scrollToId("cardapio")} cartUnits={units}
       onCartClick={() => { if (window.matchMedia("(min-width: 1180px)").matches) document.getElementById("meu-pedido")?.focus(); else setDialog("cart"); }} />
 
-    <div className={styles.layout}>
+    <h1 className={styles.visuallyHidden}>Pedido online — {data.establishment.name}</h1>
+    {/* Banner em largura total, acima do cardápio e do carrinho: a arte da loja (logo + foto) pede
+        largura, e o carrinho só ganha relevância depois do primeiro item. */}
+    {data.slides.length > 0 && <div id="inicio" className={cx(styles.heroRow, styles.anchor)}><HeroBanner slides={data.slides} /></div>}
+
+    <div className={cx(styles.layout, data.slides.length > 0 && styles.layoutAfterHero)}>
       <main className={styles.main}>
-        <h1 className={styles.visuallyHidden}>Pedido online — {data.establishment.name}</h1>
-        <div id="inicio" className={styles.anchor}><HeroBanner slides={data.slides} /></div>
+        {data.slides.length === 0 && <div id="inicio" className={styles.anchor} />}
 
         <section id="cardapio" className={styles.menu} aria-labelledby="titulo-cardapio">
           <CategoryNavigation categories={data.categories} selected={filters.categoryId} onSelect={categoryId => patchFilters({ categoryId })} />

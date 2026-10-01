@@ -212,4 +212,10 @@ test("Vitrine: ícone de categoria é inferido pelo nome real da categoria", () 
   assert.equal(categoryIconKey("Bebidas geladas"), "drink");
   assert.equal(categoryIconKey("Saudáveis"), "healthy");
   assert.equal(categoryIconKey("Categoria nova"), "other");
+  assert.equal(categoryIconKey("Pastel"), "pastry");
+  assert.equal(categoryIconKey("Pastéis especiais"), "pastry");
+  assert.equal(categoryIconKey("Salgados"), "pastry");
+  assert.equal(categoryIconKey("Esfihas"), "pastry");
+  assert.equal(categoryIconKey("Porções"), "snack");
+  assert.equal(categoryIconKey("Massas"), "pasta", "massa não é confundida com pastel");
 });
