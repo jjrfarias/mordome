@@ -15,9 +15,10 @@ export function SearchBar({ value, onChange, onSubmit, className, id }: { value:
   </form>;
 }
 
-export function Header({ logoUrl, name, nav, activeSection, query, onQueryChange, onSearchSubmit, cartUnits, onCartClick }: {
+export function Header({ logoUrl, name, unitName, nav, activeSection, query, onQueryChange, onSearchSubmit, cartUnits, onCartClick }: {
   logoUrl: string | null;
   name: string;
+  unitName: string;
   nav: NavItem[];
   activeSection: string;
   query: string;
@@ -29,7 +30,7 @@ export function Header({ logoUrl, name, nav, activeSection, query, onQueryChange
   return <header className={styles.header}>
     <div className={styles.headerInner}>
       <div className={styles.clientIdentity}>
-        <a href="#inicio" className={styles.brandLink} aria-label={`${name} — início`}><BrandMark logoUrl={logoUrl} name={name} /></a>
+        <a href="#inicio" className={styles.brandLink} aria-label={`${name} — início`}><BrandMark logoUrl={logoUrl} name={name} unitName={unitName} /></a>
         <span className={styles.mordomeSignature}>Tecnologia <strong>Mordomê</strong></span>
       </div>
       <nav className={styles.nav} aria-label="Seções da página">

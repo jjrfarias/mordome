@@ -257,14 +257,14 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
   return <div className={cx(styles.root, units > 0 && styles.rootWithBar)} style={themeStyle}>
     <a href="#cardapio" className={styles.skipLink}>Pular para o cardápio</a>
     {isDemo && <p className={styles.demoStrip}>Demonstração com dados fictícios — nenhum pedido é enviado ou cobrado.</p>}
-    <Header logoUrl={data.establishment.logoUrl ?? data.branding.logoUrl} name={data.establishment.name} nav={nav} activeSection={activeSection} query={filters.query}
+    <Header logoUrl={data.establishment.logoUrl ?? data.branding.logoUrl} name={data.branding.name} unitName={data.establishment.name} nav={nav} activeSection={activeSection} query={filters.query}
       onQueryChange={query => patchFilters({ query })} onSearchSubmit={() => scrollToId("cardapio")} cartUnits={units}
       onCartClick={() => { if (window.matchMedia("(min-width: 1180px)").matches) document.getElementById("meu-pedido")?.focus(); else setDialog("cart"); }} />
 
     <div className={styles.layout}>
       <main className={styles.main}>
         <h1 className={styles.visuallyHidden}>Pedido online — {data.establishment.name}</h1>
-        <div id="inicio" className={styles.anchor}><HeroBanner slides={data.slides} onAction={slide => goToTarget(slide.target)} /></div>
+        <div id="inicio" className={styles.anchor}><HeroBanner slides={data.slides} /></div>
 
         <section id="cardapio" className={styles.menu} aria-labelledby="titulo-cardapio">
           <CategoryNavigation categories={data.categories} selected={filters.categoryId} onSelect={categoryId => patchFilters({ categoryId })} />

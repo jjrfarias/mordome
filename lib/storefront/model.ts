@@ -47,7 +47,7 @@ export type StorefrontData = {
   // Chave de isolamento do carrinho e dos favoritos no navegador: um estabelecimento nunca lê o
   // carrinho de outro.
   storeKey: string;
-  branding: { logoUrl: string | null; primary: string; accent: string };
+  branding: { name: string; logoUrl: string | null; primary: string; accent: string };
   establishment: { name: string; logoUrl: string | null; phone: string | null; address: string | null };
   slides: HeroSlide[];
   categories: StorefrontCategory[];

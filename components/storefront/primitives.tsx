@@ -52,10 +52,10 @@ export function SafeImage({ src, alt, className, eager = false, sizes }: { src: 
   return <img src={src} alt={alt} className={className} loading={eager ? "eager" : "lazy"} fetchPriority={eager ? "high" : undefined} decoding="async" sizes={sizes} onError={() => setFailedSrc(src)} />;
 }
 
-export function BrandMark({ logoUrl, name }: { logoUrl: string | null; name: string }) {
+export function BrandMark({ logoUrl, name, unitName }: { logoUrl: string | null; name: string; unitName: string }) {
   return <span className={styles.brand}>
     {logoUrl ? <SafeImage src={logoUrl} alt="" className={styles.brandLogo} eager /> : <span className={styles.brandFallback}><ChefHat aria-hidden strokeWidth={2.3} /></span>}
-    <span className={styles.brandText}><strong>{name}</strong><small>Pedido online</small></span>
+    <span className={styles.brandText}><strong>{name}</strong><small>{unitName !== name ? `Unidade ${unitName} · ` : ""}Pedido online</small></span>
   </span>;
 }
 

@@ -58,10 +58,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     const since = popularitySince().toISOString();
     const offeredIds = new Set(products.map(product => product.id));
     const popularProductIds = rankPopularProducts(listLocalDeliveryOrders(establishmentId).filter(order => order.status !== "CANCELLED" && order.createdAt >= since).flatMap(order => order.items)).filter(productId => offeredIds.has(productId));
-    return Response.json({ popularProductIds, branding: { logoUrl: null, primary: "#173f35", accent: "#e97c4b" }, establishment: { name: establishment.name, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightHeadline: establishment.highlightHeadline, phone: formatBrazilPhone(establishment.phone), address: formatEstablishmentAddress(establishment), highlightProduct: highlightProduct ? { id: highlightProduct.id, name: highlightProduct.name, price: highlightProduct.price, imageUrl: highlightProduct.imageUrl } : null }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: product.description, price: product.price, compareAtPrice: product.compareAtPrice !== null && product.compareAtPrice > product.price ? product.compareAtPrice : null, vegetarian: product.vegetarian, imageUrl: product.imageUrl, ingredientGroups: product.ingredientGroups })), deliveryAreas: deliveryAreas.map(area => ({ id: area.id, name: area.name, deliveryFee: area.deliveryFee, neighborhoods: area.neighborhoods })) });
+    return Response.json({ popularProductIds, branding: { name: establishment.name, logoUrl: null, primary: "#173f35", accent: "#e97c4b" }, establishment: { name: establishment.name, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightHeadline: establishment.highlightHeadline, phone: formatBrazilPhone(establishment.phone), address: formatEstablishmentAddress(establishment), highlightProduct: highlightProduct ? { id: highlightProduct.id, name: highlightProduct.name, price: highlightProduct.price, imageUrl: highlightProduct.imageUrl } : null }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: product.description, price: product.price, compareAtPrice: product.compareAtPrice !== null && product.compareAtPrice > product.price ? product.compareAtPrice : null, vegetarian: product.vegetarian, imageUrl: product.imageUrl, ingredientGroups: product.ingredientGroups })), deliveryAreas: deliveryAreas.map(area => ({ id: area.id, name: area.name, deliveryFee: area.deliveryFee, neighborhoods: area.neighborhoods })) });
   }
 
-  const establishment = await db.establishment.findFirst({ where: { id: establishmentId, active: true, organization: { active: true } }, include: { highlightProduct: true, organization: { select: { brandLogoUrl: true, brandPrimary: true, brandAccent: true } } } });
+  const establishment = await db.establishment.findFirst({ where: { id: establishmentId, active: true, organization: { active: true } }, include: { highlightProduct: true, organization: { select: { name: true, brandLogoUrl: true, brandPrimary: true, brandAccent: true } } } });
   if (!establishment) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
   const [offerings, deliveryAreas, popularity] = await Promise.all([
     db.productOffering.findMany({
@@ -83,7 +83,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
   const highlightOffering = establishment.highlightProduct ? offerings.find(offering => offering.variant.product.id === establishment.highlightProduct!.id) : undefined;
   return Response.json({
     popularProductIds,
-    branding: { logoUrl: establishment.organization.brandLogoUrl, primary: establishment.organization.brandPrimary, accent: establishment.organization.brandAccent },
+    branding: { name: establishment.organization.name, logoUrl: establishment.organization.brandLogoUrl, primary: establishment.organization.brandPrimary, accent: establishment.organization.brandAccent },
     establishment: {
       name: establishment.name,
       phone: formatBrazilPhone(establishment.phone),

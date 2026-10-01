@@ -79,7 +79,7 @@
 .brand { display: inline-flex; align-items: center; gap: 8px; }
 .brandFallback { width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; color: #fff; background: var(--red); box-shadow: 0 6px 16px color-mix(in srgb, var(--red) 24%, transparent); }
 .brandFallback svg { width: 32px; height: 32px; }
-.brandLogo { width: 64px; height: 64px; border-radius: 16px; object-fit: contain; padding: 3px; background: #fff; border: 2px solid color-mix(in srgb, var(--red) 28%, var(--border)); box-shadow: 0 5px 16px rgba(24, 24, 24, .08); }
+.brandLogo { width: 72px; height: 64px; border-radius: 12px; object-fit: contain; background: transparent; }
 .brandText { display: flex; flex-direction: column; line-height: 1; }
 .brandText strong { max-width: 220px; overflow: hidden; text-overflow: ellipsis; font-size: 24px; font-weight: 800; letter-spacing: -.03em; white-space: nowrap; }
 .brandText small { margin-top: 5px; font-size: 9px; font-weight: 800; letter-spacing: .11em; text-transform: uppercase; color: var(--red); }
@@ -116,16 +116,9 @@
 .anchor, .menu, .loyalty, .infoBlock { scroll-margin-top: var(--header-offset); }
 
 /* ---------- Banner principal ---------- */
-.hero { position: relative; border-radius: 20px; overflow: hidden; background: #0f0b08; color: #fff; }
-.heroSlide { position: relative; height: clamp(240px, 22vw, 290px); display: flex; align-items: center; }
-.heroImage { position: absolute; top: 0; right: 0; width: 64%; height: 100%; object-fit: cover; object-position: center 40%; }
-.heroShade { position: absolute; inset: 0; background: linear-gradient(90deg, #0f0b08 34%, rgba(15, 11, 8, .82) 48%, rgba(15, 11, 8, 0) 72%); }
-.heroCopy { position: relative; padding: 0 52px; max-width: 620px; }
-.heroKicker { font-size: 11px; font-weight: 600; letter-spacing: .38em; text-transform: uppercase; opacity: .92; margin-bottom: 12px; }
-.heroTitle { font-size: clamp(30px, 3vw, 44px); font-weight: 800; line-height: 1.04; letter-spacing: -.02em; }
-.heroTitle span { display: block; color: var(--warm); }
-.heroText { margin-top: 10px; font-size: 16px; opacity: .9; }
-.heroButton { margin-top: 20px; min-height: 48px; padding: 0 26px; font-size: 16px; border-radius: 10px; }
+.hero { position: relative; border-radius: 20px; overflow: hidden; background: var(--surface); }
+.heroSlide { position: relative; height: clamp(240px, 24vw, 340px); }
+.heroImage { width: 100%; height: 100%; object-fit: cover; object-position: center; }
 .heroArrow { position: absolute; top: 50%; margin-top: -20px; width: 40px; height: 40px; border-radius: 50%; border: 0; display: grid; place-items: center; background: rgba(255, 255, 255, .16); color: #fff; opacity: 0; transition: opacity .15s ease, background-color .15s ease; }
 .heroArrow:hover { background: rgba(255, 255, 255, .28); }
 .hero:hover .heroArrow, .heroArrow:focus-visible { opacity: 1; }
@@ -484,14 +477,8 @@
 @media (max-width: 640px) {
   .brandLogo, .brandFallback { width: 52px; height: 52px; border-radius: 14px; }
   .brandText strong { max-width: 170px; font-size: 20px; }
-  .heroSlide { height: 210px; align-items: flex-end; }
+  .heroSlide { height: 210px; }
   .heroImage { width: 100%; }
-  .heroShade { background: linear-gradient(90deg, rgba(15, 11, 8, .92) 0%, rgba(15, 11, 8, .7) 55%, rgba(15, 11, 8, .2) 100%); }
-  .heroCopy { padding: 0 20px 34px; }
-  .heroKicker { font-size: 10px; letter-spacing: .24em; margin-bottom: 6px; }
-  .heroTitle { font-size: 27px; }
-  .heroText { font-size: 14px; margin-top: 6px; }
-  .heroButton { margin-top: 12px; min-height: 42px; font-size: 15px; padding: 0 18px; }
   .heroArrow { display: none; }
   .categoryList li { flex: 0 0 88px; }
   .categoryButton { min-height: 84px; font-size: 12.5px; }
