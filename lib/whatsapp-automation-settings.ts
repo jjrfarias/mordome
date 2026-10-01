@@ -14,16 +14,20 @@ export const automationSchema = z.object({
 export type WhatsAppAutomation = z.infer<typeof automationSchema>;
 
 export const defaultWhatsAppAutomation: WhatsAppAutomation = {
-  ORDER_RECEIVED: { enabled: false, text: "Olá, {{nome}}! Recebemos seu pedido {{pedido}} em {{estabelecimento}}.\n\nItens do pedido:\n{{itens}}" },
+  ORDER_RECEIVED: { enabled: false, text: "Olá, {{nome}}! 😊\n\n✅ Recebemos seu pedido {{pedido}} em *{{estabelecimento}}*.\n\n📋 *Itens do pedido:*\n{{itens}}" },
   PREPARING: { enabled: false, text: "Olá, {{nome}}! Seu pedido {{pedido}} entrou em preparo." },
   OUT_FOR_DELIVERY: { enabled: false, text: "Olá, {{nome}}! Seu pedido {{pedido}} saiu para entrega." },
   DELIVERED: { enabled: false, text: "Olá, {{nome}}! Seu pedido {{pedido}} foi concluído. Obrigado pela preferência!" },
   INVITE_ACCOUNT: { enabled: true, text: "Olá, {{nome}}! Crie sua conta em {{estabelecimento}} para acompanhar pedidos e participar dos futuros programas da loja." },
 };
+const legacyOrderReceivedText = "Olá, {{nome}}! Recebemos seu pedido {{pedido}} em {{estabelecimento}}.";
 
 export function parseWhatsAppAutomation(value: unknown): WhatsAppAutomation {
   const parsed = automationSchema.safeParse(value);
-  return parsed.success ? parsed.data : structuredClone(defaultWhatsAppAutomation);
+  if (!parsed.success) return structuredClone(defaultWhatsAppAutomation);
+  return parsed.data.ORDER_RECEIVED.text === legacyOrderReceivedText
+    ? { ...parsed.data, ORDER_RECEIVED: structuredClone(defaultWhatsAppAutomation.ORDER_RECEIVED) }
+    : parsed.data;
 }
 
 export function renderWhatsAppAutomation(templateText: string, values: Record<string, string>) {

@@ -10,6 +10,12 @@ test("WhatsApp automations keep the invite enabled and delivery notifications di
   assert.equal(defaultWhatsAppAutomation.DELIVERED.enabled, false);
 });
 
+test("Existing received-order template gains the structured item list", () => {
+  const legacy = structuredClone(defaultWhatsAppAutomation);
+  legacy.ORDER_RECEIVED.text = "Olá, {{nome}}! Recebemos seu pedido {{pedido}} em {{estabelecimento}}.";
+  assert.equal(parseWhatsAppAutomation(legacy).ORDER_RECEIVED.text, defaultWhatsAppAutomation.ORDER_RECEIVED.text);
+});
+
 test("WhatsApp automation rejects incomplete configuration and renders only known variables", () => {
   const automation = parseWhatsAppAutomation({ INVITE_ACCOUNT: { enabled: true, text: "x" } });
   assert.deepEqual(automation, defaultWhatsAppAutomation);
