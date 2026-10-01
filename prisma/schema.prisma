@@ -286,6 +286,11 @@ model Organization {
 }
 
 model Establishment {
+  customerAccounts CustomerAccount[]
+  customerSessions CustomerSession[]
+  customerChallenges CustomerChallenge[]
+  customerAccountEvents CustomerAccountEvent[]
+  whatsappConnection WhatsAppConnection?
   id               String                       @id @default(cuid())
   organizationId   String
   name             String
@@ -613,6 +618,8 @@ model DiningTable {
 }
 
 model DeliveryOrder {
+  customerAccountId String?
+  customerAccount CustomerAccount? @relation(fields: [customerAccountId, establishmentId], references: [id, establishmentId])
   id              String         @id @default(cuid())
   establishmentId String
   customerName    String
@@ -640,6 +647,8 @@ model DeliveryOrder {
   deliveryArea    DeliveryArea?  @relation(fields: [deliveryAreaId], references: [id], onDelete: SetNull)
   customer        Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items           DeliveryOrderItem[]
+
+  @@index([establishmentId, customerAccountId, createdAt])
 
   @@index([establishmentId, status])
   @@index([establishmentId, deliveryAreaId])
@@ -1557,4 +1566,72 @@ model FiscalDocument {
   sale            Sale                 @relation(fields: [saleId], references: [id], onDelete: Cascade)
 
   @@index([establishmentId, status])
+}
+
+// Customer login is separate from employee access and never claims old orders by phone.
+model CustomerAccount {
+  id String @id @default(cuid())
+  establishmentId String
+  phone String
+  name String
+  active Boolean @default(true)
+  verifiedAt DateTime @default(now())
+  savedAddress Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  sessions CustomerSession[]
+  events CustomerAccountEvent[]
+  orders DeliveryOrder[]
+  @@unique([establishmentId, phone])
+  @@unique([id, establishmentId])
+}
+
+model CustomerSession {
+  id String @id @default(cuid())
+  establishmentId String
+  accountId String
+  tokenHash String @unique
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  account CustomerAccount @relation(fields: [accountId, establishmentId], references: [id, establishmentId])
+  @@index([establishmentId, accountId])
+  @@index([expiresAt])
+}
+
+model CustomerChallenge {
+  id String @id
+  establishmentId String
+  phone String
+  codeHash String
+  ipHash String
+  attempts Int @default(0)
+  sent Boolean @default(false)
+  consumed Boolean @default(false)
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  @@index([establishmentId, phone, createdAt])
+  @@index([ipHash, createdAt])
+  @@index([expiresAt])
+}
+
+model WhatsAppConnection {
+  establishmentId String @id
+  enabled Boolean @default(false)
+  credentialsCiphertext String?
+  updatedAt DateTime @updatedAt
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+}
+
+model CustomerAccountEvent {
+  id String @id @default(cuid())
+  establishmentId String
+  accountId String
+  action String
+  createdAt DateTime @default(now())
+  establishment Establishment @relation(fields: [establishmentId], references: [id])
+  account CustomerAccount @relation(fields: [accountId, establishmentId], references: [id, establishmentId])
+  @@index([establishmentId, accountId, createdAt])
 }

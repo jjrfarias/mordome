@@ -1,3 +1,4 @@
+import { currentCustomer } from "@/lib/customer-session";
 import { getCounterTable } from "@/lib/counter-table";
 import { confirmedDeliveryCoordinates } from "@/lib/delivery-location";
 import { z } from "zod";
@@ -32,6 +33,7 @@ function formatEstablishmentAddress(establishment: { street: string | null; numb
 
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const orderSchema = z.object({
+  withAccount: z.boolean().optional(),
   clientRequestId: z.string().uuid(),
   customerName: z.string().trim().min(2).max(100),
   customerPhone: z.string().trim().min(8).max(20).transform(value => value.replace(/\D/g, "")).pipe(z.string().min(8).max(15)),
@@ -194,6 +196,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
     deliveryFee = Number(area.deliveryFee);
   }
 
+  const customerSession = await currentCustomer(establishmentId);
+  if (data.withAccount && !customerSession) return Response.json({ error: "Sua sessão expirou. Entre novamente ou continue sem cadastro." }, { status: 401 });
   try {
     const order = await db.$transaction(async tx => {
       const normalizedPhone = data.customerPhone.replace(/\D/g, "");
@@ -202,7 +206,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
         update: {},
         create: { organizationId: establishment.organizationId, name: data.customerName, phone: normalizedPhone },
       });
-      const created = await tx.deliveryOrder.create({ data: { establishmentId, clientRequestId: data.clientRequestId, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: resolvedAreaId, deliveryFee, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
+      const created = await tx.deliveryOrder.create({ data: { establishmentId, customerAccountId: customerSession?.accountId ?? null, clientRequestId: data.clientRequestId, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: resolvedAreaId, deliveryFee, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
 
       // Delivery envia para a cozinha (ADR 0050): pedido online não tem operador logado por trás,
       // então usa a primeira pessoa com acesso ativo à unidade como autora do tíquete de cozinha

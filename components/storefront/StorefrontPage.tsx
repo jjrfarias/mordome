@@ -1,5 +1,6 @@
 "use client";
 
+import { CustomerAccountDialog, type CustomerAccountData } from "./CustomerAccount";
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { RotateCcw, SearchX, UtensilsCrossed } from "lucide-react";
@@ -51,6 +52,8 @@ const scrollToId = (id: string) => document.getElementById(id)?.scrollIntoView({
 
 export function StorefrontPage({ source }: { source: StorefrontSource }) {
   const [state, setState] = useState<{ status: "loading" } | { status: "error"; message: string; notFound: boolean } | { status: "ready"; data: StorefrontData }>({ status: "loading" });
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [accountData, setAccountData] = useState<CustomerAccountData>({ enabled: false, account: null });
   const [lines, setLines] = useState<CartLine[]>([]);
   const [favorites, setFavorites] = useState<Set<string>>(() => new Set());
   const [address, setAddress] = useState<DeliveryAddress | null>(null);
@@ -66,6 +69,12 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
   const linesRef = useRef<CartLine[]>([]);
   const requestId = useRef<string | null>(null);
   const sourceKey = source.kind === "demo" ? "demo" : source.establishmentId;
+  const loadAccount = useCallback(async () => {
+    if (sourceKey === "demo") return;
+    const response = await fetch(`/api/public/customers/${encodeURIComponent(sourceKey)}`, { cache: "no-store" });
+    if (response.ok) setAccountData(await response.json());
+  }, [sourceKey]);
+  useEffect(() => { queueMicrotask(() => { void loadAccount().catch(() => {}); }); }, [loadAccount]);
 
   useEffect(() => { linesRef.current = lines; requestId.current = null; }, [lines]);
 
@@ -213,6 +222,7 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
         clientRequestId: requestId.current,
         customerName: form.name,
         customerPhone: form.phone,
+        withAccount: Boolean(accountData.account),
         address: formatAddressForOrder(address),
         postalCode: address.postalCode,
         neighborhood: address.neighborhood,
@@ -226,6 +236,7 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
     });
     const json = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if (response.status === 401) await loadAccount();
       // 409: produto ou preço mudou — recarrega o cardápio e revalida o carrinho antes de tentar de novo.
       if (response.status === 409) load();
       throw new Error(typeof json.error === "string" ? json.error : "Não foi possível enviar o pedido. Tente novamente.");
@@ -258,7 +269,7 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
   return <div className={cx(styles.root, units > 0 && styles.rootWithBar)} style={themeStyle}>
     <a href="#cardapio" className={styles.skipLink}>Pular para o cardápio</a>
     {isDemo && <p className={styles.demoStrip}>Demonstração com dados fictícios — nenhum pedido é enviado ou cobrado.</p>}
-    <Header logoUrl={data.establishment.logoUrl ?? data.branding.logoUrl} name={data.branding.name} unitName={data.establishment.name} nav={nav} activeSection={activeSection} query={filters.query}
+    <Header onAccountClick={accountData.enabled ? () => { setAccountOpen(true); void loadAccount().catch(() => push({ message: "Não foi possível atualizar sua conta. Tente novamente.", tone: "warning" })); } : undefined} signedIn={Boolean(accountData.account)} logoUrl={data.establishment.logoUrl ?? data.branding.logoUrl} name={data.branding.name} unitName={data.establishment.name} nav={nav} activeSection={activeSection} query={filters.query}
       onQueryChange={query => patchFilters({ query })} onSearchSubmit={() => scrollToId("cardapio")} cartUnits={units}
       onCartClick={() => { if (window.matchMedia("(min-width: 1180px)").matches) document.getElementById("meu-pedido")?.focus(); else setDialog("cart"); }} />
 
@@ -319,7 +330,8 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
       onConfirm={(priced, quantity) => { if (detailsProduct) addPriced(detailsProduct, priced, quantity); setDetailsId(null); }} />
     <FilterDialog open={dialog === "filters"} onClose={() => setDialog(null)} filters={filters} quick={quick} onChange={patchFilters} onReset={resetFilters} resultCount={visibleProducts.length} hasFavorites={favorites.size > 0} />
     <LoyaltyDialog open={dialog === "loyalty"} loyalty={data.loyalty} isDemo={isDemo} onClose={() => setDialog(null)} />
-    <Checkout open={dialog === "checkout"} isDemo={isDemo} lines={lines} totals={totals} pickupTotals={pickupTotals} quote={quote} address={address} pickupSupported={data.pickupSupported} paymentMethods={data.paymentMethods} establishmentName={data.establishment.name}
+    <CustomerAccountDialog open={accountOpen} onClose={() => setAccountOpen(false)} unit={sourceKey} data={accountData} onChanged={loadAccount} />
+    <Checkout customer={accountData.account} open={dialog === "checkout"} isDemo={isDemo} lines={lines} totals={totals} pickupTotals={pickupTotals} quote={quote} address={address} pickupSupported={data.pickupSupported} paymentMethods={data.paymentMethods} establishmentName={data.establishment.name}
       onClose={() => setDialog(null)} onEditAddress={() => setAddressOpen(true)} onSubmit={submitOrder} onFinished={() => setCouponCode(null)} />
     <DeliveryAddressDialog open={addressOpen} initial={address} areas={data.deliveryAreas} onClose={() => setAddressOpen(false)} onSave={next => { setAddress(next); setAddressOpen(false); push({ message: "Endereço de entrega atualizado." }, 2500); }} />
   </div>;
