@@ -14,7 +14,7 @@ export const automationSchema = z.object({
 export type WhatsAppAutomation = z.infer<typeof automationSchema>;
 
 export const defaultWhatsAppAutomation: WhatsAppAutomation = {
-  ORDER_RECEIVED: { enabled: false, text: "Olá, {{nome}}! Recebemos seu pedido {{pedido}} em {{estabelecimento}}." },
+  ORDER_RECEIVED: { enabled: false, text: "Olá, {{nome}}! Recebemos seu pedido {{pedido}} em {{estabelecimento}}.\n\nItens do pedido:\n{{itens}}" },
   PREPARING: { enabled: false, text: "Olá, {{nome}}! Seu pedido {{pedido}} entrou em preparo." },
   OUT_FOR_DELIVERY: { enabled: false, text: "Olá, {{nome}}! Seu pedido {{pedido}} saiu para entrega." },
   DELIVERED: { enabled: false, text: "Olá, {{nome}}! Seu pedido {{pedido}} foi concluído. Obrigado pela preferência!" },
@@ -27,5 +27,14 @@ export function parseWhatsAppAutomation(value: unknown): WhatsAppAutomation {
 }
 
 export function renderWhatsAppAutomation(templateText: string, values: Record<string, string>) {
-  return templateText.replace(/{{(nome|pedido|estabelecimento)}}/g, (_, key: string) => values[key] ?? "");
+  return templateText.replace(/{{(nome|pedido|estabelecimento|itens)}}/g, (_, key: string) => values[key] ?? "");
+}
+
+export function formatWhatsAppOrderItems(items: { quantity: number; productName: string; selectedOptionsSnapshot?: unknown }[]) {
+  return items.map(item => {
+    const selected = Array.isArray(item.selectedOptionsSnapshot) ? item.selectedOptionsSnapshot
+      .map(value => typeof value === "object" && value !== null && "optionName" in value && typeof value.optionName === "string" ? value.optionName : null)
+      .filter((value): value is string => Boolean(value)) : [];
+    return `${item.quantity}x ${item.productName}${selected.length ? ` (${selected.join(", ")})` : ""}`;
+  }).join("\n");
 }
