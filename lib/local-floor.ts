@@ -1,5 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { getLocalProductStation, listLocalStations } from "./local-stations.ts";
+import { listLocalDeliveryOrders } from "./local-delivery.ts";
+import { kitchenReportLabel } from "./kitchen-label.ts";
 import type { SelectedOptionSnapshot } from "./ingredient-options.ts";
 
 export type LocalOrderStatus = "RECEIVED" | "PREPARING" | "READY" | "DELIVERED" | "CANCELLED";
@@ -75,8 +77,11 @@ export function getLocalFloor(establishmentId: string, viewer?: { userId: string
     const tab = openTab(table);
     return { ...table, tab: tab ? { ...tab, items: tab.items.filter(item => item.active), orders: tab.orders.map(order => ({ ...order, items: order.items.map(item => { const tabItem = tab.items.find(candidate => candidate.id === item.tabItemId); const stationId = tabItem ? getLocalProductStation(establishmentId, tabItem.productId) : null; return { ...item, stationId, cancelledQuantity: item.cancellations.reduce((sum, cancellation) => sum + cancellation.quantity, 0) }; }) })) } : null };
   });
-  const tableOrders = tables.flatMap(table => table.tab?.orders.filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: table.tab!.id, isCounter: false })) ?? []);
-  const counterOrders = counterOrdersFor(establishmentId).filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, items: order.items.map(item => ({ ...item, stationId: getLocalProductStation(establishmentId, item.productId), cancelledQuantity: 0, cancellations: [] as { id: string; quantity: number; reason: string; actorId: string; createdAt: string }[] })), tableId: null, tableNumber: 0, tabId: null, isCounter: true }));
+  const tableOrders = tables.flatMap(table => table.tab?.orders.filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: table.tab!.id, isCounter: false, delivery: null })) ?? []);
+  // Delivery também chega pela mesa virtual "Balcão" (ADR 0050); o vínculo kitchenOrderId o identifica.
+  const deliveries = listLocalDeliveryOrders(establishmentId).filter(delivery => delivery.kitchenOrderId);
+  const deliveryFor = (orderId: string) => { const delivery = deliveries.find(candidate => candidate.kitchenOrderId === orderId); return delivery ? { deliveryOrderId: delivery.id, origin: delivery.origin, customerName: delivery.customerName.trim().split(/\s+/)[0] ?? "" } : null; };
+  const counterOrders = counterOrdersFor(establishmentId).filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, items: order.items.map(item => ({ ...item, stationId: getLocalProductStation(establishmentId, item.productId), cancelledQuantity: 0, cancellations: [] as { id: string; quantity: number; reason: string; actorId: string; createdAt: string }[] })), tableId: null, tableNumber: 0, tabId: null, isCounter: true, delivery: deliveryFor(order.id) }));
   const orders = [...tableOrders, ...counterOrders];
   const stations = listLocalStations(establishmentId).filter(station => station.active).map(station => ({ id: station.id, name: station.name, printerDriver: station.printerDriver, printerConfig: station.printerConfig }));
   return { tables, orders, stations };
@@ -196,10 +201,12 @@ export function listLocalOrderTimings(establishmentId: string, from: Date, to: D
       }
     }
   }
+  const deliveries = listLocalDeliveryOrders(establishmentId);
   for (const order of counterOrdersFor(establishmentId)) {
     const sentAt = new Date(order.sentAt);
     if (sentAt < from || sentAt > to) continue;
-    result.push({ orderId: order.id, tableLabel: "Balcão", history: order.statusHistory.map(entry => ({ status: entry.status, at: new Date(entry.createdAt) })) });
+    const delivery = deliveries.find(candidate => candidate.kitchenOrderId === order.id);
+    result.push({ orderId: order.id, tableLabel: kitchenReportLabel({ isCounter: true, tableNumber: 0, delivery: delivery ? { deliveryOrderId: delivery.id, origin: delivery.origin } : null }), history: order.statusHistory.map(entry => ({ status: entry.status, at: new Date(entry.createdAt) })) });
   }
   return result;
 }

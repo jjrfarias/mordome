@@ -55,14 +55,19 @@ async function loadCounterOrders(establishmentId: string) {
     where: { establishmentId, table: { isCounter: true }, orders: { some: { status: { notIn: ["DELIVERED", "CANCELLED"] } } } },
     include: { orders: { where: { status: { notIn: ["DELIVERED", "CANCELLED"] } }, orderBy: { sentAt: "asc" }, include: { sentBy: { select: { id: true, name: true, username: true } }, items: { include: { cancellations: true, tabItem: { select: { productId: true, selectedOptionsSnapshot: true } } } }, statusHistory: { include: { actor: { select: { id: true, name: true, username: true } } }, orderBy: { createdAt: "asc" } } } } },
   });
-  return { tabs };
+  // Delivery também usa a mesa virtual "Balcão" (ADR 0050); o vínculo kitchenOrderId identifica quais
+  // pedidos da fila vieram do delivery, para a cozinha não confundi-los com vendas do PDV.
+  const orderIds = tabs.flatMap(tab => tab.orders.map(order => order.id));
+  const deliveries = orderIds.length ? await db.deliveryOrder.findMany({ where: { establishmentId, kitchenOrderId: { in: orderIds } }, select: { id: true, kitchenOrderId: true, origin: true, customerName: true } }) : [];
+  const deliveryByOrder = new Map(deliveries.map(delivery => [delivery.kitchenOrderId!, { deliveryOrderId: delivery.id, origin: delivery.origin, customerName: delivery.customerName.trim().split(/\s+/)[0] ?? "" }]));
+  return { tabs, deliveryByOrder };
 }
 
-function serializeCounterOrders(tabs: Awaited<ReturnType<typeof loadCounterOrders>>["tabs"], byProduct: Map<string, string>) {
+function serializeCounterOrders({ tabs, deliveryByOrder }: Awaited<ReturnType<typeof loadCounterOrders>>, byProduct: Map<string, string>) {
   return tabs.flatMap(tab => tab.orders.map(order => ({
     ...order,
     items: order.items.map(item => ({ ...item, quantity: Number(item.quantity), stationId: byProduct.get(item.tabItem.productId ?? "") ?? null, selectedOptionsSnapshot: item.tabItem.selectedOptionsSnapshot, cancelledQuantity: item.cancellations.reduce((sum, cancellation) => sum + Number(cancellation.quantity), 0), cancellations: item.cancellations.map(cancellation => ({ ...cancellation, quantity: Number(cancellation.quantity) })) })),
-    tableId: null, tableNumber: 0, tabId: tab.id, isCounter: true,
+    tableId: null, tableNumber: 0, tabId: tab.id, isCounter: true, delivery: deliveryByOrder.get(order.id) ?? null,
   })));
 }
 
@@ -72,8 +77,8 @@ export async function GET(request: Request) {
   const session = await actor(); if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 }); if (!session.canOperateFloor) return Response.json({ error: "Acesso negado ao salão." }, { status: 403 });
   const { byProduct, stations } = await stationLookup(session.establishment.id);
   const tables = serializeTables(await loadTables(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), byProduct);
-  const tableOrders = tables.flatMap(table => table.tab?.orders.filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: table.tab!.id, isCounter: false })) ?? []);
-  const counterOrders = serializeCounterOrders((await loadCounterOrders(session.establishment.id)).tabs, byProduct);
+  const tableOrders = tables.flatMap(table => table.tab?.orders.filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: table.tab!.id, isCounter: false, delivery: null })) ?? []);
+  const counterOrders = serializeCounterOrders(await loadCounterOrders(session.establishment.id), byProduct);
   return Response.json({ tables, orders: [...tableOrders, ...counterOrders], stations });
 }
 
@@ -110,8 +115,8 @@ export async function POST(request: Request) {
     else if (data.action === "SEND_ORDER") await sendOrder(session, data, request);
     else await changeOrderStatus(session, data, request);
     const { byProduct, stations } = await stationLookup(session.establishment.id);
-    const tables = serializeTables(await loadTables(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), byProduct); const tableOrders = tables.flatMap(table => table.tab?.orders.filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: table.tab!.id, isCounter: false })) ?? []);
-    const counterOrders = serializeCounterOrders((await loadCounterOrders(session.establishment.id)).tabs, byProduct);
+    const tables = serializeTables(await loadTables(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), byProduct); const tableOrders = tables.flatMap(table => table.tab?.orders.filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: table.tab!.id, isCounter: false, delivery: null })) ?? []);
+    const counterOrders = serializeCounterOrders(await loadCounterOrders(session.establishment.id), byProduct);
     return Response.json({ tables, orders: [...tableOrders, ...counterOrders], stations });
   } catch (error) {
     if (error instanceof IngredientOptionError) return Response.json({ error: error.message }, { status: 400 });
