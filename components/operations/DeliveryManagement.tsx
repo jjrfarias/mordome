@@ -36,6 +36,8 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
   const [creating, setCreating] = useState(false);
   const [managingAreas, setManagingAreas] = useState(false);
   const [checkoutOrder, setCheckoutOrder] = useState<Order | null>(null);
+  const [locationOrder, setLocationOrder] = useState<Order | null>(null);
+  const [correctedPoint, setCorrectedPoint] = useState<{ lat: number; lng: number } | null>(null);
 
   const load = async () => {
     try {
@@ -87,6 +89,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
           <div className="kds-head"><div><span>{statusLabels[order.status]}{order.origin === "ONLINE" ? " · Pedido online" : ""}</span><b>{order.customerName}</b></div><span><Phone />{order.customerPhone}</span></div>
           <div className="kds-items">
             <div style={{ marginBottom: 10, fontSize: 11, color: "var(--muted)", display: "flex", gap: 6, alignItems: "flex-start" }}><MapPin style={{ width: 14, flex: "0 0 auto", marginTop: 1 }} />{order.address}</div>
+            <button type="button" className="secondary" onClick={() => { setLocationOrder(order); setCorrectedPoint(null); }}>{order.destinationLat !== null ? "Corrigir ponto no mapa" : "Marcar ponto de entrega"}</button>
             {order.items.map(item => <div key={item.id}><span>{item.quantity}x</span><span>{item.productName}{item.selectedOptionsSnapshot?.length ? <small className="kds-item-options">{item.selectedOptionsSnapshot.map(option => option.optionName).join(", ")}</small> : null}</span></div>)}
             {order.deliveryFee > 0 && <div><span /><span>Taxa de entrega <em style={{ fontStyle: "normal", color: "var(--muted)" }}>{money(order.deliveryFee)}</em></span></div>}
             <label className="field" style={{ marginTop: 10 }}><span>Entregador</span><select value={order.courierId ?? ""} disabled={saving} onChange={event => void act({ action: "ASSIGN_COURIER", orderId: order.id, courierId: event.target.value || null })}>
@@ -104,6 +107,14 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
       })}
     </div>}
 
+    {locationOrder && <div className="modal-bg"><div className="modal" style={{ width: "min(650px,100%)" }}>
+      <button className="modal-close" aria-label="Fechar correção do ponto" disabled={saving} onClick={() => setLocationOrder(null)}><X /></button>
+      <h2>Corrigir ponto de entrega</h2><p>{locationOrder.address}</p>
+      <p>O ponto anterior pode ser uma aproximação do CEP. Toque na entrada do endereço correto para confirmar.</p>
+      <MapPicker value={correctedPoint} center={locationOrder.destinationLat !== null && locationOrder.destinationLng !== null ? { lat: locationOrder.destinationLat, lng: locationOrder.destinationLng } : null} onChange={setCorrectedPoint} height={320} />
+      {error && <p role="alert" className="auth-error">{error}</p>}
+      <button type="button" className="primary wide" disabled={!correctedPoint || saving} onClick={async () => { if (correctedPoint && await act({ action: "SET_LOCATION", orderId: locationOrder.id, destinationLat: correctedPoint.lat, destinationLng: correctedPoint.lng }, "Ponto de entrega corrigido")) setLocationOrder(null); }}>{saving ? "Salvando…" : "Salvar ponto de entrega"}</button>
+    </div></div>}
     {creating && <NewOrderModal products={products} deliveryAreas={deliveryAreas} saving={saving} onClose={() => setCreating(false)} onCreate={async payload => { const ok = await act({ action: "CREATE", ...payload }, "Pedido de delivery criado"); if (ok) setCreating(false); return ok; }} />}
     {checkoutOrder && <Checkout order={checkoutOrder} onCancel={() => setCheckoutOrder(null)} onConfirm={async checkout => { const items = checkoutOrder.items.map(item => ({ id: item.productId ?? "", quantity: item.quantity })); const { ok } = await onFinishSale(items, checkout, checkoutOrder.id); if (ok) { onToast(`Pedido de ${checkoutOrder.customerName} entregue e pago`); setCheckoutOrder(null); await load(); } return ok; }} />}
     {managingAreas && <DeliveryAreaSettings onClose={() => setManagingAreas(false)} onChanged={() => void load()} />}
@@ -167,7 +178,7 @@ function NewOrderModal({ products, deliveryAreas, saving, onClose, onCreate }: {
     <label className="field"><span>Cliente</span><input value={customerName} onChange={event => setCustomerName(event.target.value)} placeholder="Nome do cliente" /></label>
     <label className="field"><span>Telefone</span><input value={customerPhone} onChange={event => setCustomerPhone(event.target.value)} placeholder="(00) 00000-0000" /></label>
     {knownCustomer && <p className="section-note">Cliente conhecido: {knownCustomer.ordersCount} pedido(s) · {money(knownCustomer.totalSpent)} em compras.</p>}
-    <label className="field"><span>Endereço</span><input value={address} onChange={event => setAddress(event.target.value)} placeholder="Rua, número, bairro" /></label>
+    <label className="field"><span>Endereço</span><input value={address} onChange={event => { setAddress(event.target.value); setPoint(null); }} placeholder="Rua, número, bairro" /></label>
     <label className="field"><span>Observações</span><input value={notes} onChange={event => setNotes(event.target.value)} placeholder="Opcional" /></label>
     {deliveryAreas.length > 0 && <label className="field"><span>Área de entrega</span><select value={deliveryAreaId} onChange={event => setDeliveryAreaId(event.target.value)}>
       <option value="">Sem área cadastrada (taxa por fora)</option>

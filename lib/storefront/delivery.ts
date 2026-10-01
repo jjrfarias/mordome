@@ -49,7 +49,7 @@ export function parseStoredAddress(raw: string | null): DeliveryAddress | null {
     const value = JSON.parse(raw) as Record<string, unknown>;
     const text = (key: string) => typeof value[key] === "string" ? (value[key] as string).slice(0, 120) : "";
     const coordinate = (key: string) => typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] as number : null;
-    return { postalCode: text("postalCode"), street: text("street"), number: text("number"), complement: text("complement"), neighborhood: text("neighborhood"), city: text("city"), state: text("state"), latitude: coordinate("latitude"), longitude: coordinate("longitude"), areaId: typeof value.areaId === "string" ? value.areaId : null };
+    return { postalCode: text("postalCode"), street: text("street"), number: text("number"), complement: text("complement"), neighborhood: text("neighborhood"), city: text("city"), state: text("state"), latitude: value.locationConfirmed === true ? coordinate("latitude") : null, longitude: value.locationConfirmed === true ? coordinate("longitude") : null, locationConfirmed: value.locationConfirmed === true, areaId: typeof value.areaId === "string" ? value.areaId : null };
   } catch {
     return null;
   }

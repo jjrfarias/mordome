@@ -99,3 +99,14 @@ export function listLocalDeliveredOrders(establishmentId: string, from: string, 
     .filter(order => order.status === "DELIVERED" && order.courierId && order.updatedAt >= from && order.updatedAt <= to)
     .map(order => ({ courierId: order.courierId as string, deliveredAt: order.updatedAt }));
 }
+
+export function setLocalDeliveryLocation(establishmentId: string, orderId: string, lat: number, lng: number) {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return "INVALID_LOCATION" as const;
+  const order = ordersFor(establishmentId).find(candidate => candidate.id === orderId);
+  if (!order) return "NOT_FOUND" as const;
+  if (order.status === "DELIVERED" || order.status === "CANCELLED") return "CLOSED" as const;
+  order.destinationLat = lat;
+  order.destinationLng = lng;
+  order.updatedAt = new Date().toISOString();
+  return { ...order };
+}

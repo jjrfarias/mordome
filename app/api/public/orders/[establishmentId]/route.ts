@@ -1,3 +1,4 @@
+import { confirmedDeliveryCoordinates } from "@/lib/delivery-location";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
@@ -38,6 +39,7 @@ const orderSchema = z.object({
   // A interface nova sempre envia ambos e faz a validação estrita antes de habilitar o botão.
   postalCode: z.string().transform(value => value.replace(/\D/g, "")).pipe(z.string().length(8)).optional(),
   neighborhood: z.string().trim().min(2).max(100).optional(),
+  locationConfirmed: z.boolean().optional(),
   destinationLat: z.number().finite().min(-90).max(90).optional(),
   destinationLng: z.number().finite().min(-180).max(180).optional(),
   notes: z.string().trim().max(300).optional(),
@@ -118,7 +120,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
 
   const parsed = orderSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) { console.error("Invalid public order payload", parsed.error.flatten()); return Response.json({ error: "Confira os dados do cliente, endereço e itens do pedido." }, { status: 400 }); }
-  const data = parsed.data;
+  const data = { ...parsed.data, ...confirmedDeliveryCoordinates(parsed.data) };
 
   if (isLocalAuthEnabled()) {
     const establishment = listLocalEstablishments().find(item => item.id === establishmentId && item.active);
