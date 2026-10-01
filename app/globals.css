@@ -463,3 +463,4 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 .delivery-courier-status{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px;font-size:12px}
 .delivery-courier-status span{padding:8px 12px;border:1px solid var(--line);border-radius:10px}
 @media(max-width:600px){.delivery-route-heading>button{width:100%}.delivery-stop-selector select{width:100%;max-width:100%}.delivery-route-heading{align-items:stretch}.delivery-route-summary{font-size:12px}}
+.kds-head>div small.kds-head-detail{display:block;margin-top:2px;font-size:11px;font-weight:600;color:var(--ink)}

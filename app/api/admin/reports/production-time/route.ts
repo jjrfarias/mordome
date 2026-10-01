@@ -6,6 +6,7 @@ import { listLocalOrderTimings } from "@/lib/local-floor";
 import { REPORTS_PRODUCTION_TIME_VIEW } from "@/lib/permissions";
 import { buildProductionTimeRows, summarizeProductionTime } from "@/lib/reports/production-time";
 import type { OrderTimingRecord } from "@/lib/reports/order-timing";
+import { kitchenReportLabel } from "@/lib/kitchen-label";
 import { defaultMonthRange } from "@/lib/cashflow";
 
 const querySchema = z.object({ from: z.string().min(1).optional(), to: z.string().min(1).optional() });
@@ -53,9 +54,14 @@ export async function GET(request: Request) {
     orderBy: { sentAt: "asc" },
   });
 
+  // Delivery usa a mesa virtual "Balcão" (ADR 0050); o vínculo kitchenOrderId identifica a origem.
+  const counterOrderIds = orders.filter(order => order.tab.table.isCounter).map(order => order.id);
+  const deliveries = counterOrderIds.length ? await db.deliveryOrder.findMany({ where: { establishmentId: session.establishment.id, kitchenOrderId: { in: counterOrderIds } }, select: { id: true, kitchenOrderId: true, origin: true } }) : [];
+  const deliveryByOrder = new Map(deliveries.map(delivery => [delivery.kitchenOrderId!, { deliveryOrderId: delivery.id, origin: delivery.origin }]));
+
   const records: OrderTimingRecord[] = orders.map(order => ({
     orderId: order.id,
-    tableLabel: order.tab.table.isCounter ? "Balcão" : `Mesa ${order.tab.table.number}`,
+    tableLabel: kitchenReportLabel({ isCounter: order.tab.table.isCounter, tableNumber: order.tab.table.number, delivery: deliveryByOrder.get(order.id) ?? null }),
     history: order.statusHistory.map(entry => ({ status: entry.status, at: entry.createdAt })),
   }));
 

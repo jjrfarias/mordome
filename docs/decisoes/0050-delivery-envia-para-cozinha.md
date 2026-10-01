@@ -70,3 +70,7 @@ ser preparado — descobria só quando o entregador ou o balcão avisava.
 - Sem sincronização entre o status da cozinha e o status do delivery: um pedido pode aparecer
   "Pronto" na Cozinha e ainda estar "Recebido" no quadro do Delivery até o atendente avançar
   manualmente — comportamento aceito, mesmo critério de independência entre telas do ADR 0044.
+
+## Adendo (2026-10-01): identificação do delivery na fila da cozinha
+
+Como o delivery reaproveita a mesa virtual "Balcão" do PDV, a fila da cozinha exibia esses pedidos como "PDV · Balcão". Agora a consulta da fila (modos Prisma e local) busca, filtrando pela unidade da sessão, os `DeliveryOrder` cujo `kitchenOrderId` aponta para os pedidos em aberto. O cartão e o tíquete impresso passam a mostrar "Delivery" ("Delivery · Online" para pedidos da vitrine), o número curto do pedido (o mesmo que o cliente vê na confirmação) e só o primeiro nome do cliente; o nome completo não é enviado à tela da cozinha. A regra de rótulo fica em `lib/kitchen-label.ts`. O relatório de tempo de produção identifica esses pedidos como "Delivery #NÚMERO" ou "Delivery online #NÚMERO" (`kitchenReportLabel`), sem nome do cliente, porque relatórios são exportados em planilha e PDF. O relatório de tempo por status agrega por etapa e não lista pedidos.
