@@ -15,6 +15,7 @@ export function CourierApp() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [sharing, setSharing] = useState(false);
+  const [nextOrderId, setNextOrderId] = useState("");
   const [myPosition, setMyPosition] = useState<{ lat: number; lng: number } | null>(null);
   const watchIdRef = useRef<number | null>(null);
   const lastPingRef = useRef(0);
@@ -41,30 +42,46 @@ export function CourierApp() {
     }
     watchIdRef.current = navigator.geolocation.watchPosition(position => {
       const point = { lat: position.coords.latitude, lng: position.coords.longitude };
-      setMyPosition(point); setError("");
       const now = Date.now();
       if (now - lastPingRef.current > 10000) {
+        setMyPosition(point); setError("");
         lastPingRef.current = now;
-        void fetch("/api/operations/courier", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "PING", ...point }) });
+        void fetch("/api/operations/courier", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "PING", ...point }) })
+          .then(response => { if (!response.ok) setError("A equipe não recebeu sua localização. Tentaremos novamente na próxima atualização."); })
+          .catch(() => setError("Sem conexão para enviar sua localização à equipe."));
       }
-    }, () => setError("Não foi possível obter sua localização. Verifique a permissão do navegador."), { enableHighAccuracy: true, maximumAge: 5000 });
+    }, () => {
+      setError("Não foi possível obter sua localização. Verifique a permissão do navegador e ative novamente.");
+      setMyPosition(null);
+      setSharing(false);
+    }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 });
     return () => { if (watchIdRef.current !== null) navigator.geolocation.clearWatch(watchIdRef.current); };
   }, [sharing]);
 
   const activeOrders = orders.filter(order => order.status === "OUT_FOR_DELIVERY");
   const upcomingOrders = orders.filter(order => order.status !== "OUT_FOR_DELIVERY");
-  const destinations = activeOrders.filter(order => order.destinationLat !== null && order.destinationLng !== null).map(order => ({ orderId: order.id, lat: order.destinationLat!, lng: order.destinationLng!, label: order.customerName }));
+  const locatedOrders = activeOrders.filter(order => order.destinationLat !== null && order.destinationLng !== null);
+  const selected = locatedOrders.find(order => order.id === nextOrderId) ?? locatedOrders[0];
+  const orderedStops = selected ? [selected, ...locatedOrders.filter(order => order.id !== selected.id)] : [];
+  const destinations = orderedStops.slice(0, 24).map(order => ({ orderId: order.id, lat: order.destinationLat!, lng: order.destinationLng!, label: order.customerName }));
   const couriers = myPosition ? [{ courierId: "me", lat: myPosition.lat, lng: myPosition.lng, label: "Você" }] : [];
-  const routes = myPosition && destinations[0] ? [{ courierId: "me", destination: { lat: destinations[0].lat, lng: destinations[0].lng }, label: destinations[0].label }] : [];
+  const routes = sharing && myPosition && destinations.length ? [{ courierId: "me", destination: destinations[destinations.length - 1], stops: destinations.slice(0, -1), label: `Próxima parada: ${destinations[0].label}` }] : [];
 
   return <div className="page-content">
     <div className="hero-row"><div><span className="section-kicker">Minhas entregas</span><p>Suas rotas atribuídas e compartilhamento de localização.</p></div>
-      <button className={sharing ? "secondary" : "primary"} onClick={() => setSharing(current => !current)}><Navigation /> {sharing ? "Parar de compartilhar" : "Estou em rota"}</button>
+      <button className={sharing ? "secondary" : "primary"} onClick={() => { lastPingRef.current = 0; setMyPosition(null); setSharing(current => !current); }}><Navigation /> {sharing ? "Parar de compartilhar" : "Estou em rota"}</button>
     </div>
     {error && <div className="auth-error">{error}</div>}
-    {sharing && <div className="demo-note"><Navigation /><div><b>Compartilhando localização</b><span>A equipe vê sua posição enquanto esta tela estiver aberta e a opção ativa.</span></div></div>}
+    {sharing && <div className="demo-note"><Navigation /><div><b>{myPosition ? "Compartilhando localização" : "Aguardando localização"}</b><span>A equipe vê sua posição enquanto esta tela estiver aberta e a opção ativa.</span></div></div>}
 
-    <DeliveryMap destinations={destinations} couriers={couriers} routes={routes} height={260} />
+    {locatedOrders.length > 0 && <section className="delivery-stop-selector">
+      <label className="field"><span>Próxima entrega</span><select value={selected?.id ?? ""} onChange={event => setNextOrderId(event.target.value)}>{locatedOrders.map(order => <option key={order.id} value={order.id}>{order.customerName} — {order.address}</option>)}</select></label>
+      <p>A escolhida vem primeiro; as demais seguem a ordem da lista. A sequência vale nesta tela.</p>
+      <ol>{destinations.map(stop => <li key={stop.orderId}><strong>{stop.label}</strong><span>{orderedStops.find(order => order.id === stop.orderId)?.address}</span></li>)}</ol>
+      {locatedOrders.length > 24 && <p>Exibindo as primeiras 24 paradas. Escolha outra próxima entrega para incluí-la no percurso.</p>}
+    </section>}
+    {activeOrders.length > locatedOrders.length && <p className="demo-note">{activeOrders.length - locatedOrders.length} entrega(s) sem ponto no mapa. Consulte o endereço no cartão.</p>}
+    <DeliveryMap destinations={destinations} couriers={couriers} routes={routes} height={360} showInstructions />
 
     {loading ? <div className="empty"><span>Carregando…</span></div> : orders.length === 0 ? <div className="big-empty"><Package /><h2>Nenhuma entrega no momento</h2><p>Quando um pedido for atribuído a você, ele aparece aqui.</p></div> : <div className="kds-grid">
       {[...activeOrders, ...upcomingOrders].map(order => <article key={order.id} className={`kds-card ${order.status === "OUT_FOR_DELIVERY" ? "pronto" : "em-preparo"}`}>
@@ -74,7 +91,7 @@ export function CourierApp() {
           {order.items.map(item => <div key={item.id}><span>{item.quantity}x</span><span>{item.productName}</span></div>)}
         </div>
         <div className="kds-foot"><span>{money(order.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0))}</span>
-          {order.destinationLat !== null && <a className="secondary" style={{ textDecoration: "none", fontSize: 10 }} target="_blank" rel="noreferrer" href={`https://www.openstreetmap.org/directions?to=${order.destinationLat},${order.destinationLng}`}>Abrir rota</a>}
+          {order.status === "OUT_FOR_DELIVERY" && order.destinationLat !== null && order.destinationLng !== null && <button className="secondary" disabled={selected?.id === order.id} onClick={() => setNextOrderId(order.id)}>{selected?.id === order.id ? "Próxima parada" : "Entregar primeiro"}</button>}
         </div>
       </article>)}
     </div>}

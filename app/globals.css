@@ -442,3 +442,24 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 .catalog-create-form .channel-field,.catalog-create-form .catalog-combo-toggle{grid-column:span 2;min-width:0}
 .catalog-create-form .catalog-add{grid-column:1/-1;justify-self:start}
 @media(max-width:760px){.catalog-create-form{grid-template-columns:1fr}.catalog-create-form>*{grid-column:1/-1!important}}
+
+/* Delivery route planning: shared by dispatch and courier. */
+.delivery-route-panel{border:1px solid var(--line);border-radius:14px;overflow:hidden;margin-bottom:20px;background:var(--surface,#fff)}
+.delivery-route-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;flex-wrap:wrap}
+.delivery-route-heading small,.delivery-route-summary>small{display:block;color:var(--muted);margin-top:6px;font-size:12px}
+.delivery-map-canvas{isolation:isolate;width:100%}
+.delivery-stop-pin span{display:grid;place-items:center;width:30px;height:30px;border:2px solid white;border-radius:50%;background:var(--green);color:white;font-size:13px;font-weight:800;box-shadow:0 2px 5px #0004}
+.delivery-route-summary{padding:14px 16px;font-size:13px;line-height:1.6}
+.delivery-route-summary p{margin:4px 0 12px}
+.delivery-route-summary details{margin:8px 0 14px}
+.delivery-route-summary summary{cursor:pointer;min-height:40px;padding:8px 0;font-weight:700}
+.delivery-route-summary ol{max-height:240px;overflow:auto;padding-left:24px}
+.delivery-route-summary li{padding:6px 0}
+.delivery-stop-selector{padding:16px;border:1px solid var(--line);border-radius:14px;margin-bottom:16px}
+.delivery-stop-selector p{color:var(--muted);font-size:12px;line-height:1.5;margin:10px 0}
+.delivery-stop-selector ol{padding-left:24px;max-height:220px;overflow:auto}
+.delivery-stop-selector li{padding:8px 4px;font-size:13px}
+.delivery-stop-selector li span{display:block;color:var(--muted);margin-top:4px}
+.delivery-courier-status{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 14px;font-size:12px}
+.delivery-courier-status span{padding:8px 12px;border:1px solid var(--line);border-radius:10px}
+@media(max-width:600px){.delivery-route-heading>button{width:100%}.delivery-stop-selector select{width:100%;max-width:100%}.delivery-route-heading{align-items:stretch}.delivery-route-summary{font-size:12px}}

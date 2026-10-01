@@ -28,3 +28,7 @@ O pacote passou por 259 testes, TypeScript, build e validação do schema Prisma
 - O banco contém a migração inicial, mas a interface ainda usa o adaptador demonstrativo em `localStorage`; publicar não transforma o protótipo em operação multiusuário.
 - Backups automáticos e recuperação point-in-time ainda não estão habilitados.
 - Credenciais não devem ser adicionadas ao repositório. Para manutenção local, usar túnel privado da Railway CLI.
+
+### Publicação da evolução de mapas
+
+A evolução de mapas é integrada sobre a `main` atual por pull request, preservando a vitrine e a identidade por tenant. O workflow `.github/workflows/validate.yml` valida instalação, Prisma, lint, testes, build e tipos antes da publicação. A revisão local inclui interface desktop/celular, estados vazio/erro e recálculo. Após CI aprovado e integração na `main`, o pacote é enviado ao serviço `web` existente, mantendo pre-deploy de migrations e health check. Esta fatia não adiciona migrations nem altera autenticação, infraestrutura ou fornecedores.
