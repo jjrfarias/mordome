@@ -16,6 +16,10 @@ O Railpack executa `npm run build`. Antes de iniciar uma nova versão, a Railway
 
 A configuração está em `railway.json`. Em 12/09/2026, a migração oficial para `.railway/railway.ts` foi testada, mas o SDK `railway@3.11.0` identificou incorretamente a Railway CLI 5.54.0 no Windows como antiga. O formato atual funciona, porém a Railway anunciou sua descontinuação para 01/12/2026. Migrar para Infrastructure as Code antes dessa data.
 
+## Origem da publicação
+
+A publicação parte sempre da `main` atualizada do GitHub (`jjrfarias/mordome`), que é a única branch do projeto (ADR 0059). Mudanças chegam à `main` por pull request de branch curta. A exceção registrada abaixo, com publicação a partir de `cliente/betao`, é histórica: essa branch foi integrada e removida.
+
 ## Estado e limitações
 
 ### Exceção de publicação autorizada em 30/09/2026
@@ -31,4 +35,4 @@ O pacote passou por 259 testes, TypeScript, build e validação do schema Prisma
 
 ### Publicação da evolução de mapas
 
-A evolução de mapas é integrada sobre a `main` atual por pull request, preservando a vitrine e a identidade por tenant. O workflow `.github/workflows/validate.yml` valida instalação, Prisma, lint, testes, build e tipos antes da publicação. A revisão local inclui interface desktop/celular, estados vazio/erro e recálculo. Após CI aprovado e integração na `main`, o pacote é enviado ao serviço `web` existente, mantendo pre-deploy de migrations e health check. Esta fatia não adiciona migrations nem altera autenticação, infraestrutura ou fornecedores.
+A evolução de mapas é integrada sobre a `main` atual por pull request, preservando a vitrine e a identidade por tenant. Em 01/10/2026 o repositório não tem workflow de CI (`.github/workflows` não existe na `main`); a validação de Prisma, lint, testes, build e tipos é local e registrada no pull request. A revisão local inclui interface desktop/celular, estados vazio/erro e recálculo. Após CI aprovado e integração na `main`, o pacote é enviado ao serviço `web` existente, mantendo pre-deploy de migrations e health check. Esta fatia não adiciona migrations nem altera autenticação, infraestrutura ou fornecedores.

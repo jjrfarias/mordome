@@ -23,3 +23,7 @@ A evolução funcional do Mordomê ocorreu inicialmente na branch `cliente/betao
 ## Regras relevantes
 
 A decisão preserva consistência de produto sem misturar dados ou identidade entre clientes, conforme `AI_RULES/01_COMPANY_CONTEXT.md`, seções de consistência e isolamento, e mantém configurações de estabelecimento subordinadas ao tenant autorizado.
+
+## Atualização (2026-10-01)
+
+A sincronização entre `main` e `cliente/betao` deixou de existir: o ADR 0059 tornou `main` a única branch, e `cliente/betao` foi removida depois de integrada. Os itens 2 e 3 continuam valendo: a identidade padrão segue `docs/IDENTIDADE-VISUAL.md`, e logo, cores e vitrine de cada cliente são configuração do tenant (ADRs 0053 e 0057), não código.

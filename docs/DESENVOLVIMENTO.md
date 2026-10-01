@@ -54,4 +54,6 @@ Trabalhar em fatias verticais pequenas e executáveis. Cada fatia atravessa inte
 
 ## Commits e revisão
 
+Fluxo Git (ADR 0059): `main` é a única branch permanente, no GitHub e no clone local único. Antes de começar, `git pull --ff-only`. Mudança que precisa de revisão usa uma branch curta e um pull request para a `main`, e a branch é apagada depois do merge. Não manter trabalho só na máquina local nem worktrees permanentes. Como ainda não há CI, o PR registra o resultado local de lint, typecheck, testes e build.
+
 Preferir commits pequenos por intenção. Pull requests devem explicar problema, solução, impactos de tenant/permissão, migração, evidências de teste e alterações visuais.

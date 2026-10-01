@@ -23,7 +23,7 @@ Os vídeos apresentam a visão completa do produto, inclusive funcionalidades pl
 
 ### Vídeo Família Betão
 
-- Usar a personalização criada na branch `cliente/betao`.
+- Usar a personalização do cliente configurada na identidade visual do tenant Betão (ADR 0057).
 - Paleta predominante: vermelho, creme e dourado.
 - Usar a assinatura **“Mordomê para Família Betão”**.
 - Usar provisoriamente `public/clientes/betao/logo-recriada-v1.png` e `public/clientes/betao/simbolo-compacto-v1.png` até a marca fornecer os arquivos oficiais.

@@ -25,3 +25,7 @@ Antes de uso público real, o endpoint de configuração inicial deverá ser sub
 - Links de ativação não armazenam tokens em texto puro e expiram após uso ou prazo definido.
 - Cada ativação deve gerar auditoria e impedir reutilização.
 - Customizações exclusivas permanecem em branches de cliente até decisão de produto.
+
+## Atualização (2026-10-01)
+
+A regra de manter customizações exclusivas em branches de cliente foi substituída pelo ADR 0059: `main` é a única branch e a personalização do cliente é configuração do tenant (ADR 0057). A branch `cliente/betao` foi removida depois que todo o seu conteúdo foi integrado à `main`.
