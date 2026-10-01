@@ -414,3 +414,11 @@ Obrigatória para alteração de permissões, cancelamento, desconto, mudança d
 ### Integração com a main
 
 As correções de datas nos testes já existentes na `main` foram preservadas. O novo mapa usa a cor da identidade ativa do produto, sem fixar a identidade do Betão para todos os tenants. A publicação exige a suíte padrão aprovada sobre essa base, não o relógio diagnóstico da revisão inicial.
+
+## Precisão do ponto de entrega
+
+A consulta de CEP não identifica o número do imóvel. Sua coordenada passa a ser apenas `mapReference` (centro aproximado para procurar no mapa); os campos legados latitude/longitude da consulta ficam nulos. A vitrine só envia destino quando o cliente marca um ponto. Alterar CEP, rua, número ou bairro remove a confirmação, e endereços antigos restaurados sem confirmação perdem a coordenada aproximada. O pedido pode seguir sem ponto, com endereço escrito, sem fabricar uma rota.
+
+No backend público, coordenadas sem `locationConfirmed: true` são descartadas inclusive em clientes antigos. Isso registra a intenção do cliente, não comprova a exatidão geográfica. A central permite marcar/corrigir o ponto de pedidos ativos, protegida pela permissão existente de operar delivery, filtro de estabelecimento, validação de coordenadas e transação com auditoria. Pedidos encerrados não são alterados. Pedidos antigos não são reposicionados automaticamente: a equipe deve conferir o endereço e usar “Corrigir ponto no mapa”.
+
+Sem novo provedor, geocodificação automática de rua/número, alteração de taxa ou migration. O botão de localização atual apenas aproxima o mapa; exige toque para confirmar, pois o usuário pode estar em outro lugar. Regras corporativas relevantes: minimização de dados e não envio de endereço completo a novo terceiro, isolamento por tenant e auditoria de alterações.

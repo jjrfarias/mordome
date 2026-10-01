@@ -6,6 +6,7 @@ import { formatPostalCode, quoteDelivery, usesAutomaticCoverage } from "@/lib/st
 import { formatCents, type DeliveryAddress, type DeliveryAreaInfo } from "@/lib/storefront/model";
 import { Dialog, cx } from "./primitives";
 import styles from "./storefront.module.css";
+import { MapPicker } from "../operations/MapPicker";
 
 const blank: DeliveryAddress = { postalCode: "", street: "", number: "", complement: "", neighborhood: "", city: "", state: "", latitude: null, longitude: null, areaId: null };
 
@@ -19,6 +20,7 @@ function AddressForm({ initial, areas, onCancel, onSave }: { initial: DeliveryAd
   const [address, setAddress] = useState<DeliveryAddress>(initial);
   const [lookup, setLookup] = useState<{ state: "idle" | "loading" | "error"; message?: string }>({ state: "idle" });
   const [submitted, setSubmitted] = useState(false);
+  const [mapReference, setMapReference] = useState<{ lat: number; lng: number } | null>(null);
   const lookupId = useRef(0);
   const automatic = usesAutomaticCoverage(areas);
   const quote = quoteDelivery(areas, address);
@@ -28,7 +30,8 @@ function AddressForm({ initial, areas, onCancel, onSave }: { initial: DeliveryAd
     const postalCode = formatPostalCode(raw);
     const digits = postalCode.replace(/\D/g, "");
     const requestId = ++lookupId.current;
-    set({ postalCode, latitude: null, longitude: null });
+    set({ postalCode, latitude: null, longitude: null, locationConfirmed: false });
+    setMapReference(null);
     setLookup({ state: "idle" });
     if (digits.length !== 8) return;
     setLookup({ state: "loading" });
@@ -37,7 +40,8 @@ function AddressForm({ initial, areas, onCancel, onSave }: { initial: DeliveryAd
       const result = await response.json().catch(() => ({}));
       if (requestId !== lookupId.current) return;
       if (!response.ok) throw new Error(typeof result.error === "string" ? result.error : "Não foi possível consultar o CEP.");
-      set({ street: result.street ?? "", neighborhood: result.neighborhood ?? "", city: result.city ?? "", state: result.state ?? "", latitude: typeof result.latitude === "number" ? result.latitude : null, longitude: typeof result.longitude === "number" ? result.longitude : null });
+      set({ street: result.street ?? "", neighborhood: result.neighborhood ?? "", city: result.city ?? "", state: result.state ?? "", latitude: null, longitude: null, locationConfirmed: false });
+      if (result.mapReference && Number.isFinite(result.mapReference.lat) && Number.isFinite(result.mapReference.lng)) setMapReference(result.mapReference);
       setLookup({ state: "idle" });
     } catch (cause) {
       if (requestId === lookupId.current) setLookup({ state: "error", message: `${cause instanceof Error ? cause.message : "Não foi possível consultar o CEP."} Preencha o endereço manualmente.` });
@@ -63,11 +67,11 @@ function AddressForm({ initial, areas, onCancel, onSave }: { initial: DeliveryAd
       </label>
       <label className={cx(styles.field, styles.fieldWide)}>
         <span>Rua</span>
-        <input value={address.street} onChange={event => set({ street: event.target.value })} autoComplete="address-line1" maxLength={120} aria-invalid={invalid("street")} required />
+        <input value={address.street} onChange={event => set({ street: event.target.value, latitude: null, longitude: null, locationConfirmed: false })} autoComplete="address-line1" maxLength={120} aria-invalid={invalid("street")} required />
       </label>
       <label className={cx(styles.field, styles.fieldShort)}>
         <span>Número</span>
-        <input value={address.number} onChange={event => set({ number: event.target.value })} inputMode="numeric" maxLength={12} aria-invalid={invalid("number")} required />
+        <input value={address.number} onChange={event => set({ number: event.target.value, latitude: null, longitude: null, locationConfirmed: false })} inputMode="numeric" maxLength={12} aria-invalid={invalid("number")} required />
       </label>
       <label className={cx(styles.field, styles.fieldWide)}>
         <span>Complemento <small>(opcional)</small></span>
@@ -75,13 +79,18 @@ function AddressForm({ initial, areas, onCancel, onSave }: { initial: DeliveryAd
       </label>
       <label className={styles.field}>
         <span>Bairro</span>
-        <input value={address.neighborhood} onChange={event => set({ neighborhood: event.target.value })} maxLength={100} aria-invalid={invalid("neighborhood")} required />
+        <input value={address.neighborhood} onChange={event => set({ neighborhood: event.target.value, latitude: null, longitude: null, locationConfirmed: false })} maxLength={100} aria-invalid={invalid("neighborhood")} required />
       </label>
       <label className={styles.field}>
         <span>Cidade/UF</span>
         <input value={address.city ? `${address.city}${address.state ? `/${address.state}` : ""}` : ""} readOnly placeholder="Preenchido pelo CEP" tabIndex={-1} />
       </label>
     </div>
+    <section aria-label="Ponto de entrega">
+      <p className={styles.formNote}>O CEP localiza uma região, não o número do imóvel. Toque no mapa na entrada do endereço de entrega. Sem marcar, a equipe receberá apenas o endereço escrito.</p>
+      <MapPicker center={mapReference} value={address.locationConfirmed && address.latitude !== null && address.longitude !== null ? { lat: address.latitude, lng: address.longitude } : null} onChange={point => set({ latitude: point.lat, longitude: point.lng, locationConfirmed: true })} />
+      {address.locationConfirmed && <p className={styles.formSuccess}>Ponto de entrega marcado por você.</p>}
+    </section>
     {lookup.state === "error" && <p className={styles.fieldError} role="alert">{lookup.message}</p>}
     {areas.length > 0 && !automatic && <label className={styles.field}>
       <span>Região de entrega</span>

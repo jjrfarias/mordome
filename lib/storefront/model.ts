@@ -76,6 +76,7 @@ export type DeliveryAddress = {
   neighborhood: string;
   city: string;
   state: string;
+  locationConfirmed?: boolean;
   latitude: number | null;
   longitude: number | null;
   // Região escolhida manualmente quando as áreas da unidade não têm bairros cadastrados.

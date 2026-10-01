@@ -18,7 +18,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ post
     const data = await response.json() as { street?: string; neighborhood?: string; city?: string; state?: string; location?: { coordinates?: { latitude?: string; longitude?: string } } };
     const latitude = postalCoordinate(data.location?.coordinates?.latitude, 90);
     const longitude = postalCoordinate(data.location?.coordinates?.longitude, 180);
-    return Response.json({ postalCode: cep, street: data.street ?? "", neighborhood: data.neighborhood ?? "", city: data.city ?? "", state: data.state ?? "", latitude, longitude });
+    return Response.json({ postalCode: cep, street: data.street ?? "", neighborhood: data.neighborhood ?? "", city: data.city ?? "", state: data.state ?? "", latitude: null, longitude: null, mapReference: latitude !== null && longitude !== null ? { lat: latitude, lng: longitude } : null });
   } catch {
     console.error({ event: "postal_code_lookup_failed" });
     return Response.json({ error: "Não foi possível consultar o CEP agora." }, { status: 502 });

@@ -1,9 +1,10 @@
+import { deliveryLocationSchema } from "@/lib/delivery-location";
 import { MembershipStatus, DeliveryStatus, Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { requestAuditMetadata } from "@/lib/audit";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { assignLocalCourier, attachLocalDeliveryKitchenOrder, changeLocalDeliveryStatus, createLocalDeliveryOrder, getLocalCourierLocations, listLocalDeliveryOrders } from "@/lib/local-delivery";
+import { setLocalDeliveryLocation, assignLocalCourier, attachLocalDeliveryKitchenOrder, changeLocalDeliveryStatus, createLocalDeliveryOrder, getLocalCourierLocations, listLocalDeliveryOrders } from "@/lib/local-delivery";
 import { cancelLocalCounterOrder, createLocalCounterOrder } from "@/lib/local-floor";
 import { findOrCreateLocalCustomerByPhone } from "@/lib/local-customers";
 import { getLocalDeliveryArea, listLocalDeliveryAreas } from "@/lib/local-delivery-areas";
@@ -28,7 +29,7 @@ const createSchema = z.object({
 });
 const statusSchema = z.object({ action: z.literal("CHANGE_STATUS"), orderId: z.string().min(1), status: z.enum(DeliveryStatus) });
 const courierSchema = z.object({ action: z.literal("ASSIGN_COURIER"), orderId: z.string().min(1), courierId: z.string().min(1).nullable() });
-const actionSchema = z.discriminatedUnion("action", [createSchema, statusSchema, courierSchema]);
+const actionSchema = z.discriminatedUnion("action", [createSchema, statusSchema, courierSchema, deliveryLocationSchema]);
 
 const nextStatus: Partial<Record<DeliveryStatus, DeliveryStatus>> = { RECEIVED: "PREPARING", PREPARING: "OUT_FOR_DELIVERY", OUT_FOR_DELIVERY: "DELIVERED" };
 
@@ -119,6 +120,12 @@ export async function POST(request: Request) {
       recordLocalAudit({ ...base, action: "ORDER_SENT", entityType: "Order", entityId: kitchen.order.id, reason: `Pedido enviado para a cozinha — Delivery (${order.customerName})`, after: { deliveryOrderId: order.id, items: order.items.map(item => ({ productName: item.productName, quantity: item.quantity })) } });
       return Response.json({ order: { ...order, kitchenOrderId: kitchen.order.id } }, { status: 201 });
     }
+    if (data.action === "SET_LOCATION") {
+      const result = setLocalDeliveryLocation(session.establishment.id, data.orderId, data.destinationLat, data.destinationLng);
+      if (typeof result === "string") return Response.json({ error: "Pedido indisponível para correção do ponto." }, { status: result === "NOT_FOUND" ? 404 : 409 });
+      recordLocalAudit({ ...base, action: "UPDATE", entityType: "DeliveryOrder", entityId: result.id, reason: "Ponto de entrega corrigido no mapa", after: { locationConfirmed: true } });
+      return Response.json({ ok: true });
+    }
     if (data.action === "CHANGE_STATUS") {
       const result = changeLocalDeliveryStatus(session.establishment.id, data.orderId, data.status, kitchenOrderId => cancelLocalCounterOrder(session.establishment.id, kitchenOrderId, session.user.id));
       if (result === "NOT_FOUND") return Response.json({ error: "Pedido não encontrado." }, { status: 404 });
@@ -191,6 +198,16 @@ export async function POST(request: Request) {
       console.error({ event: "delivery_creation_failed", establishmentId: actor.establishment.id });
       return Response.json({ error: "Não foi possível criar o pedido de delivery." }, { status: 500 });
     }
+  }
+
+  if (data.action === "SET_LOCATION") {
+    const changed = await db.$transaction(async tx => {
+      const result = await tx.deliveryOrder.updateMany({ where: { id: data.orderId, establishmentId: actor.establishment.id, status: { in: ["RECEIVED", "PREPARING", "OUT_FOR_DELIVERY"] } }, data: { destinationLat: data.destinationLat, destinationLng: data.destinationLng } });
+      if (!result.count) return false;
+      await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: data.orderId, reason: "Ponto de entrega corrigido no mapa", after: { locationConfirmed: true } } });
+      return true;
+    });
+    return changed ? Response.json({ ok: true }) : Response.json({ error: "Pedido não encontrado ou já encerrado." }, { status: 404 });
   }
 
   if (data.action === "CHANGE_STATUS") {
