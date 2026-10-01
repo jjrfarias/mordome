@@ -1,6 +1,7 @@
+import { deliveryFinished } from "./delivery-workflow.ts";
 import { randomUUID } from "node:crypto";
 import { getLocalProductStation, listLocalStations } from "./local-stations.ts";
-import { listLocalDeliveryOrders } from "./local-delivery.ts";
+import { syncLocalDeliveryPreparation, listLocalDeliveryOrders } from "./local-delivery.ts";
 import { kitchenReportLabel } from "./kitchen-label.ts";
 import type { SelectedOptionSnapshot } from "./ingredient-options.ts";
 
@@ -80,7 +81,7 @@ export function getLocalFloor(establishmentId: string, viewer?: { userId: string
   const tableOrders = tables.flatMap(table => table.tab?.orders.filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: table.tab!.id, isCounter: false, delivery: null })) ?? []);
   // Delivery também chega pela mesa virtual "Balcão" (ADR 0050); o vínculo kitchenOrderId o identifica.
   const deliveries = listLocalDeliveryOrders(establishmentId).filter(delivery => delivery.kitchenOrderId);
-  const deliveryFor = (orderId: string) => { const delivery = deliveries.find(candidate => candidate.kitchenOrderId === orderId); return delivery ? { deliveryOrderId: delivery.id, origin: delivery.origin, customerName: delivery.customerName.trim().split(/\s+/)[0] ?? "" } : null; };
+  const deliveryFor = (orderId: string) => { const delivery = deliveries.find(candidate => candidate.kitchenOrderId === orderId); return delivery ? { deliveryOrderId: delivery.id, status: delivery.status, origin: delivery.origin, customerName: delivery.customerName.trim().split(/\s+/)[0] ?? "" } : null; };
   const counterOrders = counterOrdersFor(establishmentId).filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, items: order.items.map(item => ({ ...item, stationId: getLocalProductStation(establishmentId, item.productId), cancelledQuantity: 0, cancellations: [] as { id: string; quantity: number; reason: string; actorId: string; createdAt: string }[] })), tableId: null, tableNumber: 0, tabId: null, isCounter: true, delivery: deliveryFor(order.id) }));
   const orders = [...tableOrders, ...counterOrders];
   const stations = listLocalStations(establishmentId).filter(station => station.active).map(station => ({ id: station.id, name: station.name, printerDriver: station.printerDriver, printerConfig: station.printerConfig }));
@@ -166,7 +167,12 @@ export function changeLocalOrderStatus(input: { establishmentId: string; orderId
   }
   const counterOrder = counterOrdersFor(input.establishmentId).find(candidate => candidate.id === input.orderId);
   if (!counterOrder) return "ORDER_NOT_FOUND" as const;
-  if (next[counterOrder.status] !== input.status) return "INVALID_ORDER_TRANSITION" as const;
+  const delivery = listLocalDeliveryOrders(input.establishmentId).find(order => order.kitchenOrderId === input.orderId);
+  const reconcile = delivery && deliveryFinished(delivery.status) && !["DELIVERED", "CANCELLED"].includes(counterOrder.status) && input.status === "DELIVERED";
+  if (!reconcile && next[counterOrder.status] !== input.status) return "INVALID_ORDER_TRANSITION" as const;
+  if (delivery && !deliveryFinished(delivery.status) && delivery.status !== "OUT_FOR_DELIVERY" && input.status === "DELIVERED") return "DELIVERY_HANDOFF_REQUIRED" as const;
+  if (reconcile) input = { ...input, status: delivery.status === "CANCELLED" ? "CANCELLED" : "DELIVERED" };
+  if (input.status === "PREPARING" || input.status === "READY") syncLocalDeliveryPreparation(input.establishmentId, input.orderId);
   const before = counterOrder.status; counterOrder.status = input.status;
   counterOrder.statusHistory.push({ status: input.status, actorId: input.actorId, createdAt: new Date().toISOString() });
   return { table: null, tab: null, order: counterOrder, before };
@@ -215,4 +221,15 @@ export function closeLocalTab(input: { establishmentId: string; tabId: string; s
   const table = tablesFor(input.establishmentId).find(candidate => openTab(candidate)?.id === input.tabId); const tab = table && openTab(table);
   if (!table || !tab) return "TAB_NOT_FOUND" as const;
   tab.status = "PAID"; tab.closedAt = new Date().toISOString(); tab.saleId = input.saleId; return { table, tab };
+}
+
+export function getLocalCounterOrder(establishmentId: string, orderId: string | null) {
+  return counterOrdersFor(establishmentId).find(order => order.id === orderId) ?? null;
+}
+
+export function syncLocalCounterOrder(establishmentId: string, orderId: string | null, status: LocalOrderStatus, actorId: string) {
+  const order = getLocalCounterOrder(establishmentId, orderId);
+  if (!order || order.status === status) return;
+  order.status = status;
+  order.statusHistory.push({ status, actorId, createdAt: new Date().toISOString() });
 }

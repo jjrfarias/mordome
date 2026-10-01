@@ -1,3 +1,6 @@
+import { getLocalCounterOrder } from "@/lib/local-floor";
+import { linkedKitchen, setKitchenStage } from "@/lib/delivery-kitchen";
+import { kitchenReady, workflowMessages } from "@/lib/delivery-workflow";
 import { getCounterTable } from "@/lib/counter-table";
 import { MembershipStatus, PaymentMethod, Prisma, SaleChannel } from "@/generated/prisma/client";
 import { z } from "zod";
@@ -152,6 +155,8 @@ export async function POST(request: Request) {
     if (localTab?.tab.items.some(item => item.active && item.quantity > item.sentQuantity)) return Response.json({ error: "Envie os itens pendentes para a cozinha antes de fechar." }, { status: 409 });
     const localDelivery = data.deliveryOrderId ? getLocalDeliveryOrder(session.establishment.id, data.deliveryOrderId) : null;
     if (data.deliveryOrderId && (!localDelivery || data.channel !== "DELIVERY" || localDelivery.saleId)) return Response.json({ error: "Pedido de delivery não encontrado ou já pago." }, { status: 409 });
+    if (localDelivery && localDelivery.status !== "OUT_FOR_DELIVERY") return Response.json({ error: workflowMessages.DELIVERY_NOT_IN_ROUTE }, { status: 409 });
+    if (localDelivery?.kitchenOrderId && !kitchenReady(getLocalCounterOrder(session.establishment.id, localDelivery.kitchenOrderId)?.status)) return Response.json({ error: workflowMessages.KITCHEN_NOT_READY }, { status: 409 });
     const localItems = localTab ? localTab.tab.items.filter(item => item.active && item.quantity > 0).map(item => ({ productId: item.productId, quantity: item.quantity })) : localDelivery ? localDelivery.items.map(item => ({ productId: item.productId, quantity: item.quantity })) : data.items;
     if (!localItems.length) return Response.json({ error: localDelivery ? "O pedido de delivery está vazio." : "A comanda está vazia." }, { status: 409 });
     // Grupos de ingrediente são resolvidos no momento da venda direta do PDV (ver ADR 0022).
@@ -217,7 +222,7 @@ export async function POST(request: Request) {
           if (closed !== "TAB_NOT_FOUND") recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "TAB_CLOSE", entityType: "Tab", entityId: closed.tab.id, reason: `Comanda da mesa ${closed.table.number} fechada`, before: { status: "OPEN" }, after: { status: "PAID", saleId: result.sale.id }, ...requestAuditMetadata(request) });
         }
         if (data.deliveryOrderId && localDelivery) {
-          attachLocalDeliverySale(session.establishment.id, data.deliveryOrderId, result.sale.id);
+          attachLocalDeliverySale(session.establishment.id, data.deliveryOrderId, result.sale.id, session.user.id);
           recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "UPDATE", entityType: "DeliveryOrder", entityId: localDelivery.id, reason: `Pedido de delivery pago e concluído`, before: { status: localDelivery.status }, after: { status: "DELIVERED", saleId: result.sale.id }, ...requestAuditMetadata(request) });
         }
         // PDV envia para a cozinha (ADR 0044) — só para venda direta de balcão, nunca para
@@ -269,6 +274,11 @@ export async function POST(request: Request) {
       // Grupos de ingrediente são resolvidos no momento da venda direta do PDV (ver ADR 0022).
       // Salão e Delivery já resolveram a escolha quando o item foi adicionado à comanda/pedido —
       // aqui só propagamos o preço e o retrato (selectedOptionsSnapshot) já travados no TabItem/DeliveryOrderItem.
+      if (deliveryOrder) {
+        if (deliveryOrder.status !== "OUT_FOR_DELIVERY") throw new Error("DELIVERY_NOT_IN_ROUTE");
+        const kitchen = await linkedKitchen(tx, actor.session.establishment.id, deliveryOrder.kitchenOrderId);
+        if (deliveryOrder.kitchenOrderId && !kitchenReady(kitchen?.status)) throw new Error("KITCHEN_NOT_READY");
+      }
       const applyIngredientOptions = !tab && !deliveryOrder;
       const requestedItems: { productId: string; quantity: number; lockedUnitPrice?: number; lockedSelectedOptionsSnapshot?: unknown; selectedOptions?: { groupId: string; optionIds: string[] }[] }[] = tab ? tab.items.map(item => ({ productId: item.productId ?? "", quantity: Number(item.quantity), lockedUnitPrice: Number(item.unitPrice), lockedSelectedOptionsSnapshot: item.selectedOptionsSnapshot })) : deliveryOrder ? deliveryOrder.items.map(item => ({ productId: item.productId ?? "", quantity: item.quantity, lockedUnitPrice: Number(item.unitPrice), lockedSelectedOptionsSnapshot: item.selectedOptionsSnapshot })) : data.items;
       if (!requestedItems.length || requestedItems.some(item => !item.productId)) throw new Error(deliveryOrder ? "DELIVERY_EMPTY" : "TAB_EMPTY");
@@ -368,7 +378,7 @@ export async function POST(request: Request) {
       if (deliveryOrder) {
         await tx.deliveryOrder.update({ where: { id: deliveryOrder.id }, data: { status: "DELIVERED", saleId: created.id } });
         if (deliveryOrder.kitchenOrderId) {
-          const kitchenOrder = await tx.order.findUnique({ where: { id: deliveryOrder.kitchenOrderId }, select: { tabId: true } });
+          const kitchenOrder = await setKitchenStage(tx, { establishmentId: actor.session.establishment.id, organizationId: actor.session.organization.id, actorId: actor.session.user.id }, deliveryOrder.kitchenOrderId, "DELIVERED", "Delivery pago e concluído");
           if (kitchenOrder) await tx.tab.updateMany({ where: { id: kitchenOrder.tabId, status: "OPEN" }, data: { status: "PAID", closedAt: new Date(), saleId: created.id } });
         }
         await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: deliveryOrder.id, reason: "Pedido de delivery pago e concluído", before: { status: deliveryOrder.status }, after: { status: "DELIVERED", saleId: created.id }, ...requestAuditMetadata(request) } });
@@ -401,7 +411,7 @@ export async function POST(request: Request) {
         kitchenTicket = { orderId: counterOrder.id, sentAt: counterOrder.sentAt.toISOString(), tickets: [...grouped.values()] };
       }
       return { sale: created, kitchenTicket, fiscalItems, fiscalPayments: payments.map(payment => ({ method: payment.method, amount: payment.amount }) as FiscalPaymentInput), cnpj: establishment.document };
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     // Emissão de NFC-e (ADR 0049): sempre DEPOIS que a transação da venda já foi confirmada, e
     // nunca capaz de derrubar a resposta da venda — problema fiscal não pode impedir o caixa de
@@ -414,6 +424,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "PRODUCT_NOT_AVAILABLE") return Response.json({ error: "Produto indisponível nesta unidade ou canal." }, { status: 409 });
     if (error instanceof Error && error.message === "INVENTORY_NOT_CONFIGURED") return Response.json({ error: "A ficha usa um item não configurado nesta unidade." }, { status: 409 });
     if (error instanceof Error && error.message === "INSUFFICIENT_STOCK") return Response.json({ error: "Estoque insuficiente para concluir a venda." }, { status: 409 });
+    if (error instanceof Error && workflowMessages[error.message]) return Response.json({ error: workflowMessages[error.message] }, { status: 409 });
     if (error instanceof Error && error.message === "CASH_REQUIRED") return Response.json({ error: "Abra o caixa antes de finalizar uma venda." }, { status: 409 });
     if (error instanceof Error && error.message === "TAB_NOT_FOUND") return Response.json({ error: "Comanda não encontrada ou já fechada." }, { status: 409 });
     if (error instanceof Error && error.message === "TAB_EMPTY") return Response.json({ error: "A comanda está vazia." }, { status: 409 });

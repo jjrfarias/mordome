@@ -2,7 +2,7 @@
 // chegam à cozinha pela mesma mesa virtual "Balcão" (ADRs 0044 e 0050); o vínculo
 // `DeliveryOrder.kitchenOrderId` é o que diferencia um do outro.
 
-export type KitchenDeliverySource = { deliveryOrderId: string; origin: "ONLINE" | "INTERNAL"; customerName: string };
+export type KitchenDeliverySource = { status?: "RECEIVED" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED"; deliveryOrderId: string; origin: "ONLINE" | "INTERNAL"; customerName: string };
 export type KitchenLabelInput = { isCounter?: boolean; tableNumber: number; delivery?: KitchenDeliverySource | null };
 
 // Mesmo número curto mostrado ao cliente na confirmação do pedido online.
