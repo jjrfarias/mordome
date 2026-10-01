@@ -117,7 +117,11 @@
 
 /* ---------- Banner principal ---------- */
 .hero { position: relative; border-radius: 20px; overflow: hidden; background: var(--surface); }
-.heroSlide { position: relative; height: clamp(240px, 24vw, 340px); }
+/* Proporção 16:5 (banner recomendado 1600×500) com teto de altura: em largura total a arte aparece
+   praticamente inteira, sem o corte de uma altura fixa. */
+.heroRow { max-width: 1560px; margin: 0 auto; padding: 18px 24px 0; }
+.layoutAfterHero .categories { margin-top: 0; }
+.heroSlide { position: relative; aspect-ratio: 16 / 5; max-height: 460px; width: 100%; }
 .heroImage { width: 100%; height: 100%; object-fit: cover; object-position: center; }
 .heroArrow { position: absolute; top: 50%; margin-top: -20px; width: 40px; height: 40px; border-radius: 50%; border: 0; display: grid; place-items: center; background: rgba(255, 255, 255, .16); color: #fff; opacity: 0; transition: opacity .15s ease, background-color .15s ease; }
 .heroArrow:hover { background: rgba(255, 255, 255, .28); }
@@ -472,6 +476,7 @@
   .cartButton { margin-left: auto; }
   .mobileSearchRow { display: block; }
   .layout { padding: 12px 16px 40px; }
+  .heroRow { padding: 12px 16px 0; }
   .sectionHead h2 { font-size: 24px; }
   .sectionHead p { font-size: 14px; }
   .promos { grid-template-columns: minmax(0, 1fr); }
@@ -479,7 +484,6 @@
 @media (max-width: 640px) {
   .brandLogo, .brandFallback { width: 52px; height: 52px; border-radius: 14px; }
   .brandText strong { max-width: 170px; font-size: 20px; }
-  .heroSlide { height: 210px; }
   .heroImage { width: 100%; }
   .heroArrow { display: none; }
   .categoryList li { flex: 0 0 88px; }

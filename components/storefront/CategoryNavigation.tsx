@@ -1,6 +1,6 @@
 "use client";
 
-import { CakeSlice, CupSoda, LayoutGrid, Package, Pizza, Popcorn, Salad, Sandwich, Soup, UtensilsCrossed, type LucideIcon } from "lucide-react";
+import { CakeSlice, Croissant, CupSoda, LayoutGrid, Package, Pizza, Popcorn, Salad, Sandwich, Soup, UtensilsCrossed, type LucideIcon } from "lucide-react";
 import { categoryIconKey, type CategoryIconKey } from "@/lib/storefront/catalog";
 import type { StorefrontCategory } from "@/lib/storefront/model";
 import { cx } from "./primitives";
@@ -14,6 +14,7 @@ const icons: Record<CategoryIconKey, { icon: LucideIcon; tone: string }> = {
   dessert: { icon: CakeSlice, tone: styles.toneBrown },
   combo: { icon: Package, tone: styles.toneOrange },
   healthy: { icon: Salad, tone: styles.toneGreen },
+  pastry: { icon: Croissant, tone: styles.toneAmber },
   snack: { icon: Popcorn, tone: styles.toneAmber },
   other: { icon: UtensilsCrossed, tone: styles.toneBrown },
 };
