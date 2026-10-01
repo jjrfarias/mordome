@@ -10,7 +10,7 @@ As mensagens automáticas do delivery são configuradas por unidade em Configura
 
 Os eventos são disparados no backend depois da mudança de estado confirmada. Assim, o preparo pode começar pela cozinha ou pelo delivery e a conclusão pode ocorrer pelo recebimento da venda sem perder o vínculo. Um registro único por pedido e tipo de evento evita duplicidade em reenvios da requisição. Falha de conexão ou de entrega é registrada sem telefone, mensagem ou credencial nos logs.
 
-As quatro mensagens operacionais começam desligadas. O convite de conta começa ligado, mas só é enviado a pedido online de visitante que marcou, antes de finalizar, o aceite específico para receber no WhatsApp esse convite e futuras informações de programa da loja. O aceite é persistido no pedido; uma conta autenticada nunca recebe o convite. O convite não equivale a inscrição automática em programa de fidelidade.
+As quatro mensagens operacionais começam desligadas. Depois de registrar um pedido online como visitante, a própria tela de confirmação mostra o convite para criar conta e abre o acesso por WhatsApp quando o cliente escolhe criá-la. O convite por mensagem começa ligado, mas só é enviado a visitante que marcou, antes de finalizar, o aceite específico para recebê-lo no WhatsApp e receber futuras informações de programa da loja. O aceite é persistido no pedido; uma conta autenticada nunca recebe o convite. O convite não equivale a inscrição automática em programa de fidelidade.
 
 ## Privacidade e operação
 

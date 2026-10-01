@@ -407,6 +407,8 @@
 .checkoutTotal b { font-size: 20px; font-weight: 800; }
 .success { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 12px; padding: 8px 0; }
 .success svg { width: 52px; height: 52px; color: #2f9a5b; }
+.successAccountPrompt { width: 100%; display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--field); }
+.successAccountPrompt p { margin: 0; color: var(--muted); font-size: 14px; }
 
 /* ---------- Avisos, barra móvel, estados ---------- */
 .toastRegion { position: fixed; left: 50%; bottom: var(--toast-offset); transform: translateX(-50%); z-index: 70; display: flex; flex-direction: column; gap: 8px; width: min(440px, calc(100vw - 32px)); pointer-events: none; }
