@@ -721,6 +721,8 @@ model Tab {
   id              String        @id @default(cuid())
   establishmentId String
   tableId         String
+  // Derived by PostgreSQL from DiningTable; used by the partial open-table index.
+  isCounter       Boolean       @default(false)
   openedById      String
   saleId          String?       @unique
   status          TabStatus     @default(OPEN)

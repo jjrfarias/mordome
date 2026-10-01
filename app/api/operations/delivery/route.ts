@@ -1,3 +1,4 @@
+import { getCounterTable } from "@/lib/counter-table";
 import { deliveryLocationSchema } from "@/lib/delivery-location";
 import { MembershipStatus, DeliveryStatus, Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
@@ -176,16 +177,7 @@ export async function POST(request: Request) {
         // no pagamento), porque a cozinha precisa preparar antes de o pedido sair para entrega e ser
         // pago. Fica OPEN indefinidamente (nunca fechada por aqui); `kitchenOrderId` liga de volta
         // para o pedido de delivery só para referência — nada no fluxo de pagamento depende dele.
-        let counterTable = await tx.diningTable.findFirst({ where: { establishmentId: actor.establishment.id, isCounter: true } });
-        if (!counterTable) {
-          try {
-            counterTable = await tx.diningTable.create({ data: { establishmentId: actor.establishment.id, number: 0, seats: 0, name: "Balcão", isCounter: true } });
-          } catch (creationError) {
-            if (!(creationError instanceof Prisma.PrismaClientKnownRequestError && creationError.code === "P2002")) throw creationError;
-            counterTable = await tx.diningTable.findFirst({ where: { establishmentId: actor.establishment.id, isCounter: true } });
-            if (!counterTable) throw creationError;
-          }
-        }
+        const counterTable = await getCounterTable(tx, actor.establishment.id);
         const counterTab = await tx.tab.create({ data: { establishmentId: actor.establishment.id, tableId: counterTable.id, openedById: actor.user.id } });
         const tabItems = await Promise.all(created.items.map(item => tx.tabItem.create({ data: { tabId: counterTab.id, productId: item.productId, productName: item.productName, quantity: item.quantity, sentQuantity: item.quantity, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? undefined, addedById: actor.user.id } })));
         const counterOrder = await tx.order.create({ data: { tabId: counterTab.id, sentById: actor.user.id, items: { create: tabItems.map((tabItem, index) => ({ tabItemId: tabItem.id, productName: created.items[index].productName, quantity: created.items[index].quantity })) }, statusHistory: { create: { status: "RECEIVED", actorId: actor.user.id } } } });
