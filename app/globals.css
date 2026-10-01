@@ -448,7 +448,7 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 .delivery-route-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:16px;flex-wrap:wrap}
 .delivery-route-heading small,.delivery-route-summary>small{display:block;color:var(--muted);margin-top:6px;font-size:12px}
 .delivery-map-canvas{isolation:isolate;width:100%}
-.delivery-stop-pin span{display:grid;place-items:center;width:30px;height:30px;border:2px solid white;border-radius:50%;background:#a8000c;color:white;font-size:13px;font-weight:800;box-shadow:0 2px 5px #0004}
+.delivery-stop-pin span{display:grid;place-items:center;width:30px;height:30px;border:2px solid white;border-radius:50%;background:var(--green);color:white;font-size:13px;font-weight:800;box-shadow:0 2px 5px #0004}
 .delivery-route-summary{padding:14px 16px;font-size:13px;line-height:1.6}
 .delivery-route-summary p{margin:4px 0 12px}
 .delivery-route-summary details{margin:8px 0 14px}

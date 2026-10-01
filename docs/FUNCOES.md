@@ -410,3 +410,7 @@ Obrigatória para alteração de permissões, cancelamento, desconto, mudança d
 - Lint sem erros (23 avisos na base). Quatro testes novos de roteamento aprovados.
 - Navegador desktop e 390 px: login local, localização simulada, seleção de próxima parada, instruções, falha/recálculo, interrupção do compartilhamento e mapa vazio. Sem erros de JavaScript ou overflow horizontal. Pedidos e respostas de rota simulados; tiles reais. Consulta separada ao OSRM real com pontos públicos retornou 161 coordenadas e 15 instruções.
 - Suíte padrão: 249/263 aprovados; 14 falhas em testes existentes com períodos fixos de setembro de 2026. Diagnóstico com relógio do processo deslocado para setembro (sem modificar testes ou código): 263/263 aprovados. A dependência da data atual nesses testes continua pendente.
+
+### Integração com a main
+
+As correções de datas nos testes já existentes na `main` foram preservadas. O novo mapa usa a cor da identidade ativa do produto, sem fixar a identidade do Betão para todos os tenants. A publicação exige a suíte padrão aprovada sobre essa base, não o relógio diagnóstico da revisão inicial.

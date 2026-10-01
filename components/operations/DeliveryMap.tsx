@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { useEffect, useRef, useState } from "react";
 import type L from "leaflet";
@@ -68,7 +68,7 @@ export function DeliveryMap({ destinations, couriers, routes = [], height = 360,
           cacheRef.current.set(key, { route, time: Date.now() });
           const coordinates: [number, number][] = route.coordinates.map(point => [point.lat, point.lng]);
           points.push(...coordinates);
-          leaflet.polyline(coordinates, { color: "#a8000c", weight: 5, opacity: 0.8 }).bindTooltip(textNode(`${label} · ${formatDistance(route.distanceMeters)} · ${formatEta(route.durationSeconds)}`)).addTo(layer!);
+          leaflet.polyline(coordinates, { color: getComputedStyle(containerRef.current).getPropertyValue("--green").trim() || "#163c32", weight: 5, opacity: 0.8 }).bindTooltip(textNode(`${label} · ${formatDistance(route.distanceMeters)} · ${formatEta(route.durationSeconds)}`)).addTo(layer!);
         }
         boundsRef.current = points.length ? points : null;
         setState({ key: `${snapshot}:${retry}`, results });
