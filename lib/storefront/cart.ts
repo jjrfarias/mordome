@@ -34,7 +34,7 @@ function lineSignature(productId: string, selections: OptionSelection[]) {
 }
 
 export function productRequiresChoice(product: StorefrontProduct) {
-  return product.optionGroups.some(group => group.minSelections > 0 && group.options.length > 0);
+  return product.optionGroups.some(group => group.options.length > 0);
 }
 
 export type PricedSelection = { ok: true; unitPriceCents: number; labels: string[]; selections: OptionSelection[] } | { ok: false; error: string };

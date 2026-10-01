@@ -13,6 +13,24 @@ const nextId = () => `line-${++sequence}`;
 const product = (id: string) => demoStorefront.products.find(candidate => candidate.id === id)!;
 const plain = (item: StorefrontProduct) => { const priced = priceSelection(item, []); assert.ok(priced.ok); return priced; };
 
+test("Vitrine: adicionais opcionais da API abrem escolhas e preservam limites e preços", () => {
+  const menu = mapLiveStorefront("unit", {
+    establishment: { name: "Unit", logoUrl: null, bannerUrl: null, highlightHeadline: null, highlightProduct: null },
+    deliveryAreas: [],
+    products: [{ id: "pastel", name: "Pastel", category: "Pastéis", description: null, imageUrl: null, price: 18,
+      ingredientGroups: [{ id: "extras", name: "Adicional", minSelections: 0, maxSelections: 1, active: true,
+        options: [{ id: "bacon", name: "Bacon", priceDelta: 2, active: true }, { id: "ovo", name: "Ovo", priceDelta: 2, active: true }, { id: "hidden", name: "Inativo", priceDelta: 1, active: false }] }] }],
+  });
+  const item = menu.products[0];
+  assert.equal(productRequiresChoice(item), true);
+  assert.equal(item.optionGroups[0].options.length, 2);
+  assert.deepEqual(priceSelection(item, []), { ok: true, unitPriceCents: 1800, labels: [], selections: [] });
+  const chosen = priceSelection(item, [{ groupId: "extras", optionIds: ["bacon"] }]);
+  assert.ok(chosen.ok && chosen.unitPriceCents === 2000 && chosen.labels.includes("Bacon"));
+  assert.equal(priceSelection(item, [{ groupId: "extras", optionIds: ["bacon", "ovo"] }]).ok, false);
+  assert.equal(productRequiresChoice({ ...item, optionGroups: [] }), false);
+});
+
 test("Vitrine: pedido de exemplo reproduz subtotal R$ 52,70, entrega R$ 6,90 e total R$ 59,60 em centavos", () => {
   const lines = demoSampleCart(nextId);
   const quote = quoteDelivery(demoStorefront.deliveryAreas, demoSampleAddress);
@@ -88,7 +106,7 @@ test("Vitrine: adicionar mescla itens iguais e separa escolhas diferentes", () =
 test("Vitrine: opções obrigatórias precisam ser escolhidas antes de entrar no carrinho", () => {
   const combo = product("demo-combo-classico");
   assert.equal(productRequiresChoice(combo), true);
-  assert.equal(productRequiresChoice(product("demo-cheeseburger")), false);
+  assert.equal(productRequiresChoice(product("demo-cheeseburger")), true);
   const missing = priceSelection(combo, []);
   assert.equal(missing.ok, false);
   const tooMany = priceSelection(combo, [{ groupId: "demo-combo-bebida", optionIds: ["demo-combo-coca", "demo-combo-agua"] }]);
