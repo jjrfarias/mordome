@@ -333,7 +333,7 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
     <LoyaltyDialog open={dialog === "loyalty"} loyalty={data.loyalty} isDemo={isDemo} onClose={() => setDialog(null)} />
     <CustomerAccountDialog open={accountOpen} onClose={() => setAccountOpen(false)} unit={sourceKey} data={accountData} onChanged={loadAccount} />
     <Checkout customer={accountData.account} open={dialog === "checkout"} isDemo={isDemo} lines={lines} totals={totals} pickupTotals={pickupTotals} quote={quote} address={address} pickupSupported={data.pickupSupported} paymentMethods={data.paymentMethods} establishmentName={data.establishment.name}
-      onClose={() => setDialog(null)} onEditAddress={() => setAddressOpen(true)} onSubmit={submitOrder} onFinished={() => setCouponCode(null)} />
+      onClose={() => setDialog(null)} onEditAddress={() => setAddressOpen(true)} onSubmit={submitOrder} onFinished={() => setCouponCode(null)} onCreateAccount={() => { setDialog(null); setAccountOpen(true); }} />
     <DeliveryAddressDialog open={addressOpen} initial={address} areas={data.deliveryAreas} onClose={() => setAddressOpen(false)} onSave={next => { setAddress(next); setAddressOpen(false); push({ message: "Endereço de entrega atualizado." }, 2500); }} />
   </div>;
 }

@@ -23,7 +23,7 @@ function formatPhone(value: string) {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 }
 
-export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, quote, address, pickupSupported, paymentMethods, establishmentName, onClose, onEditAddress, onSubmit, onFinished }: {
+export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, quote, address, pickupSupported, paymentMethods, establishmentName, onClose, onEditAddress, onSubmit, onFinished, onCreateAccount }: {
   customer?: { name: string; phone: string } | null;
   open: boolean;
   isDemo: boolean;
@@ -39,6 +39,7 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
   onEditAddress: () => void;
   onSubmit: (form: CheckoutForm) => Promise<CheckoutResult>;
   onFinished: () => void;
+  onCreateAccount: () => void;
 }) {
   const [form, setForm] = useState<CheckoutForm>({ name: "", phone: "", fulfillment: "delivery", notes: "", paymentMethod: null, accountInviteOptIn: false });
   useEffect(() => { if (customer) queueMicrotask(() => setForm(current => ({ ...current, name: customer.name, phone: formatPhone(customer.phone.replace(/^55/, "")) }))); }, [customer]);
@@ -88,6 +89,11 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
       {result.kind === "demo"
         ? <p>Este foi um pedido de demonstração. <b>Nenhum pedido foi enviado ao estabelecimento e nada foi cobrado.</b></p>
         : <p>{establishmentName} recebeu seu pedido <b>nº {result.orderId.slice(-6).toUpperCase()}</b>. A equipe vai confirmar o pedido{result.feeToConfirm ? " e a taxa de entrega" : ""} pelo telefone informado.</p>}
+      {!isDemo && !customer && <section className={styles.successAccountPrompt}>
+        <b>Acompanhe seus próximos pedidos por uma conta</b>
+        <p>Crie sua conta agora para entrar mais rápido e participar dos futuros programas desta loja.</p>
+        <button type="button" className={styles.secondaryButton} onClick={onCreateAccount}>Criar minha conta</button>
+      </section>}
     </div>
   </Dialog>;
 
