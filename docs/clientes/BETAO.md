@@ -1,6 +1,6 @@
 # Briefing inicial — Betão Hot Dog
 
-- Branch: `cliente/betao`
+- Personalização: configuração do tenant (logo, cores e vitrine, ADRs 0053, 0057 e 0058). Não há branch própria do cliente (ADR 0059).
 - Coleta inicial: 12/09/2026
 - Fonte principal: <https://linktr.ee/betaohotdog.oficial>
 
@@ -25,7 +25,7 @@
 
 - O cliente deve nascer como uma organização com múltiplos estabelecimentos, não como uma instalação de unidade única.
 - O seletor de estabelecimento deve ser visível e rápido para usuários com acesso a mais de uma loja.
-- **Implementado na branch:** seletor persistente em card no menu lateral, validação de acesso no servidor e estado local separado por unidade.
+- **Implementado:** seletor persistente em card no menu lateral, validação de acesso no servidor e estado local separado por unidade.
 - PDV simples, retirada e delivery são fluxos centrais; salão pode variar por unidade.
 - A visão consolidada da organização precisa conviver com a operação individual de cada loja.
 - A nomenclatura da interface pode adotar “Família Betão” em pontos institucionais sem substituir a marca do produto Mordomê.
@@ -36,13 +36,13 @@
 - O segmento e a comunicação têm caráter popular, direto, familiar e energético.
 - Não foi possível obter do Linktree um arquivo confiável do logotipo em resolução adequada.
 - Uma recriação raster provisória baseada na referência fornecida foi salva em `public/clientes/betao/logo-recriada-v1.png`. Ela precisa de aprovação do cliente e não substitui o arquivo oficial da marca.
-- O símbolo compacto sem texto está em `public/clientes/betao/simbolo-compacto-v1.png` e foi aplicado provisoriamente ao cabeçalho de marca, favicon e tema da branch.
+- O símbolo compacto sem texto está em `public/clientes/betao/simbolo-compacto-v1.png` e foi aplicado provisoriamente ao cabeçalho de marca, favicon e tema da antiga branch `cliente/betao` (removida em 01/10/2026). Para uso atual, cadastrar logo e cores na identidade visual do tenant.
 
 Não criar uma identidade definitiva apenas a partir das fotografias públicas. Solicitar logo oficial, paleta ou materiais de cardápio antes de alterar marca, ícones e cores estruturais do sistema.
 
 ## Vídeo personalizado
 
-O roteiro institucional específico está em `docs/ROTEIROS-VIDEOS.md`. O vídeo **Mordomê para Família Betão** deve usar somente a personalização vermelha, creme e dourada desta branch. O vídeo genérico do SaaS deve permanecer na identidade visual padrão verde, areia e terracota do Mordomê, sem elementos da marca Betão.
+O roteiro institucional específico está em `docs/ROTEIROS-VIDEOS.md`. O vídeo **Mordomê para Família Betão** deve usar somente a personalização vermelha, creme e dourada do cliente, configurada na identidade visual do tenant Betão. O vídeo genérico do SaaS deve permanecer na identidade visual padrão verde, areia e terracota do Mordomê, sem elementos da marca Betão.
 
 A apresentação personalizada inclui PDV, salão, cozinha, unidades, canais de venda e a mensagem de continuidade **“A internet caiu. Sua operação, não.”**. Funcionalidades ainda planejadas são apresentadas como visão completa por meio de mockups consistentes com o produto.
 

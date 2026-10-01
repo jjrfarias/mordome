@@ -6,16 +6,16 @@ Leia este arquivo inteiro antes de alterar código. Depois leia `AGENTS.md` e os
 
 Mordomê é um SaaS de gestão para bares, lanchonetes e restaurantes. Deve atender PDV simples, salão, comandas, cozinha, caixa, estoque, relatórios e usuários com permissões personalizadas. Um cliente é uma `Organization` e pode possuir vários `Establishment`.
 
-O primeiro cliente é o **Betão Hot Dog**. Toda personalização exclusiva dele deve permanecer na branch `cliente/betao` até o usuário decidir o que será incorporado à linha principal.
+O primeiro cliente é o **Betão Hot Dog**. A personalização dele (logo, cores, vitrine) é configuração do tenant (ADRs 0053, 0057 e 0058), não código nem branch própria (ADR 0059).
 
-## Estado do Git
+## Estado do Git (atualizado em 01/10/2026 — ADR 0059)
 
-- Branch principal: `main` no commit `00ab8c0`.
-- Branch ativa correta: `cliente/betao`.
-- Último commit funcional antes deste handoff: `53a1c60`.
-- O repositório remoto não está configurado de forma utilizável; não presumir que `git push` funcionará.
+- Repositório: <https://github.com/jjrfarias/mordome>. `main` é a única branch e também o branch padrão.
+- Clone de trabalho único: `C:\Projetos\Mordomê\mordome`. Não criar worktrees permanentes.
+- Ao iniciar: `git switch main`, `git pull --ff-only` e `git status --short --branch`.
+- Mudança que precisa de revisão: branch curta, pull request para a `main` e exclusão da branch após o merge. Nada fica só na máquina local.
+- Não há CI no repositório: rodar `npm run lint`, `npm run typecheck`, `npm test` e o build localmente e registrar o resultado no PR.
 - Não reescrever histórico, não usar `git reset --hard` e não apagar alterações do usuário.
-- Ao iniciar: executar `git status --short --branch` e confirmar que está em `cliente/betao`.
 
 ## O que já funciona
 
@@ -28,7 +28,7 @@ O primeiro cliente é o **Betão Hot Dog**. Toda personalização exclusiva dele
 
 ### Identidade Betão
 
-- Tema vermelho, dourado e creme isolado na branch do cliente.
+- O tema vermelho, dourado e creme foi aplicado historicamente na antiga branch `cliente/betao`, removida em 01/10/2026. Hoje as cores e a logo do cliente são configuradas por tenant (ADR 0057).
 - Entrada redesenhada com logo em destaque e sem lista fixa de unidades.
 - Logo completa: `public/clientes/betao/logo-recriada-v1.png`.
 - Símbolo compacto: `public/clientes/betao/simbolo-compacto-v1.png`.
@@ -82,7 +82,7 @@ O primeiro cliente é o **Betão Hot Dog**. Toda personalização exclusiva dele
 - Serviço web: `web`, ID `5f487596-bcd0-473c-a9d5-c1a71b70d366`.
 - PostgreSQL: serviço `Postgres`, ID `12ad7a56-da41-4621-b856-5d27b716ab22`.
 - URL pública atual: <https://web-production-69fa8.up.railway.app>.
-- A branch Betão **não está publicada**. Não sobrescrever a produção principal sem autorização explícita do usuário.
+- Publicação somente a partir da `main` atualizada (ADR 0059). Não sobrescrever a produção sem autorização explícita do usuário.
 - O banco não tem acesso TCP público. Para manutenção, usar `railway connect Postgres --tunnel-only` e fechar o túnel ao terminar.
 - `DATABASE_URL` do serviço web referencia `${{Postgres.DATABASE_URL}}`; nunca copiar senha para o repositório.
 - Backups automáticos/PITR ainda não estão habilitados.
@@ -190,7 +190,7 @@ O build precisa de `DATABASE_URL` mesmo sem conectar ao banco, pois o Prisma car
 - Preservar a marca Mordomê como produto e Betão como cliente: “Mordomê para Betão”.
 - Não colocar lista ou quantidade fixa de lojas em comunicação institucional.
 - O cadastro de produtos está autorizado e deve preservar as decisões do ADR 0006.
-- Não publicar a branch Betão nem aplicar suas migrações pendentes em produção sem autorização.
+- Não publicar nem aplicar migrações pendentes em produção sem autorização; a origem da publicação é sempre a `main`.
 - Não confundir protótipo local com persistência operacional real.
 - Não usar e-mail como login.
 - Não remover tenancy, filtros de organização/unidade ou validação de acesso para simplificar código.
@@ -202,7 +202,7 @@ Foram concluídos desconto autorizado, pagamento dividido com troco em dinheiro,
 
 ## Prompt curto para retomar
 
-> Continue o Mordomê na branch `cliente/betao`. Leia `AGENTS.md`, `docs/HANDOFF-GPT-5.3.md` e os ADRs por inteiro. Preserve as decisões e implemente usuários e perfis personalizados com acesso por unidade e auditoria, sem publicar na Railway.
+> Continue o Mordomê na `main` (única branch, ADR 0059). Leia `AGENTS.md`, `docs/HANDOFF-GPT-5.3.md` e os ADRs por inteiro. Preserve as decisões e implemente usuários e perfis personalizados com acesso por unidade e auditoria, sem publicar na Railway.
 
 ## Atualização — impressão operacional (12/09/2026)
 
