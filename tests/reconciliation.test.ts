@@ -11,7 +11,7 @@ import {
 
 const period = () => {
   const from = "2026-09-01T00:00:00.000Z";
-  const to = "2026-09-30T23:59:59.999Z";
+  const to = "2026-12-31T23:59:59.999Z";
   return { from, to };
 };
 

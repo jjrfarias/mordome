@@ -57,7 +57,7 @@ test("computeLocalDre cruza venda com desconto/reembolso, CMV com custo conhecid
   const storeId = `store-${crypto.randomUUID()}`;
   const userId = `user-${crypto.randomUUID()}`;
   const from = "2026-09-01T00:00:00.000Z";
-  const to = "2026-09-30T23:59:59.999Z";
+  const to = "2026-12-31T23:59:59.999Z";
 
   // Insumo com custo médio conhecido: 100 unidades a R$0,50 cada.
   const flour = createLocalInventoryItem(storeId, { name: `Farinha ${crypto.randomUUID()}`, baseUnit: "GRAM", trackingMode: "AUTOMATIC", minimumStock: 0, allowNegative: true });
@@ -113,7 +113,7 @@ test("computeLocalDre isola por estabelecimento", () => {
   const storeB = `store-b-${crypto.randomUUID()}`;
   const userId = `user-${crypto.randomUUID()}`;
   const from = "2026-09-01T00:00:00.000Z";
-  const to = "2026-09-30T23:59:59.999Z";
+  const to = "2026-12-31T23:59:59.999Z";
 
   recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: userId, actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-a", after: { channel: "POS", subtotal: 50, discount: 0, total: 50, items: [] } });
   recordLocalAudit({ organizationId: orgId, establishmentId: storeB, actorId: userId, actorName: "Bia", actorUsername: "bia", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-b", after: { channel: "POS", subtotal: 999, discount: 0, total: 999, items: [] } });

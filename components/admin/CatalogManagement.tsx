@@ -1,9 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
-import { Check, ChevronDown, ImagePlus, MapPin, PackagePlus, Plus, Save, Trash2, UtensilsCrossed, X } from "lucide-react";
+import { ArrowDown, ArrowUp, Check, ChevronDown, ImagePlus, ListOrdered, MapPin, PackagePlus, Plus, Save, Trash2, UtensilsCrossed, X } from "lucide-react";
+import { moveItem } from "@/lib/category-order";
+import { compareAtPriceError } from "@/lib/catalog-validation";
 import { compressImageFile } from "@/lib/image-compression";
 
 type Channel = "POS" | "FLOOR" | "ONLINE" | "DELIVERY";
-type CatalogProduct = { id: string; name: string; category: string; description: string | null; price: number; channels: Channel[]; active: boolean; imageUrl: string | null; isCombo: boolean };
+type CatalogProduct = { id: string; name: string; category: string; description: string | null; price: number; compareAtPrice: number | null; vegetarian: boolean; channels: Channel[]; active: boolean; imageUrl: string | null; isCombo: boolean };
+type CategoryItem = { id: string; name: string; productCount: number };
+
+const parseMoney = (value: string) => Number(value.replace(/\./g, "").replace(",", "."));
+const formatMoney = (value: number) => new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(value);
 type IngredientOption = { id: string; name: string; priceDelta: number; active: boolean };
 type IngredientGroup = { id: string; productId: string; name: string; minSelections: number; maxSelections: number; active: boolean; options: IngredientOption[] };
 type ComboOption = { id: string; productId: string; productName: string; priceDelta: number; active: boolean };
@@ -28,6 +34,8 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
   const [selectedChannels, setSelectedChannels] = useState<Channel[]>(["POS", "FLOOR"]);
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [isCombo, setIsCombo] = useState(false);
+  const [vegetarian, setVegetarian] = useState(false);
+  const [compareAt, setCompareAt] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true); setError("");
@@ -48,18 +56,20 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
   }, [establishmentId, load]);
 
   const toggleChannel = (channel: Channel) => setSelectedChannels(current => current.includes(channel) ? current.filter(item => item !== channel) : [...current, channel]);
-  const numericPrice = Number(price.replace(",", "."));
-  const canCreate = name.trim().length >= 2 && category.trim().length >= 2 && Number.isFinite(numericPrice) && numericPrice >= 0 && selectedChannels.length > 0;
+  const numericPrice = parseMoney(price);
+  const numericCompareAt = compareAt.trim() ? parseMoney(compareAt) : null;
+  const compareError = Number.isFinite(numericPrice) ? compareAtPriceError(numericPrice, numericCompareAt) : null;
+  const canCreate = !compareError && name.trim().length >= 2 && category.trim().length >= 2 && Number.isFinite(numericPrice) && numericPrice >= 0 && selectedChannels.length > 0;
 
   const create = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canCreate || saving) return;
     setSaving(true); setError("");
     try {
-      const response = await fetch("/api/admin/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), category: category.trim(), description: description.trim() || undefined, price: numericPrice, channels: selectedChannels, imageUrl: imageUrl ?? undefined, isCombo }) });
+      const response = await fetch("/api/admin/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), category: category.trim(), description: description.trim() || undefined, price: numericPrice, channels: selectedChannels, imageUrl: imageUrl ?? undefined, isCombo, vegetarian, compareAtPrice: numericCompareAt }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível cadastrar o produto.");
-      setName(""); setCategory(""); setDescription(""); setPrice(""); setSelectedChannels(["POS", "FLOOR"]); setImageUrl(null); setIsCombo(false);
+      setName(""); setCategory(""); setDescription(""); setPrice(""); setSelectedChannels(["POS", "FLOOR"]); setImageUrl(null); setIsCombo(false); setVegetarian(false); setCompareAt("");
       await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível cadastrar o produto.");
@@ -77,14 +87,17 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
         <label className="field"><span>Categoria</span><input value={category} onChange={event => setCategory(event.target.value)} placeholder="Ex.: Cachorros-quentes" /></label>
         <label className="field catalog-description-field"><span>Descrição <small>(opcional)</small></span><textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={500} placeholder="Ex.: Pão brioche, carnes, cheddar e bacon." rows={2} /></label>
         <label className="field"><span>Preço</span><div className="money-input"><span>R$</span><input inputMode="decimal" value={price} onChange={event => setPrice(event.target.value)} placeholder="0,00" /></div></label>
+        <label className="field"><span>Preço anterior <small>(opcional, “de”)</small></span><div className="money-input"><span>R$</span><input inputMode="decimal" value={compareAt} onChange={event => setCompareAt(event.target.value)} placeholder="0,00" aria-invalid={Boolean(compareError)} /></div>{compareError && <small className="field-error">{compareError}</small>}</label>
         <fieldset className="channel-field"><legend>Canais de venda</legend><div className="channel-options">{channels.map(channel => <button type="button" key={channel.id} className={selectedChannels.includes(channel.id) ? "active" : ""} onClick={() => toggleChannel(channel.id)}>{selectedChannels.includes(channel.id) && <Check />}{channel.label}</button>)}</div></fieldset>
         <label className="check-line catalog-combo-toggle"><input type="checkbox" checked={isCombo} onChange={event => setIsCombo(event.target.checked)} /><span><strong>Produto combo</strong><small>Permite escolher itens do cardápio na montagem.</small></span></label>
+        <label className="check-line catalog-combo-toggle"><input type="checkbox" checked={vegetarian} onChange={event => setVegetarian(event.target.checked)} /><span><strong>Vegetariano</strong><small>Aparece no filtro “Vegetariano” do pedido online.</small></span></label>
         <ProductImageField imageUrl={imageUrl} onChange={setImageUrl} />
         <button className="primary catalog-add" disabled={!canCreate || saving}><PackagePlus />{saving ? "Incluindo…" : "Incluir produto"}</button>
       </form>
     </section>
 
     {error && <div className="auth-error" role="alert">{error}</div>}
+    {!loading && products.length > 0 ? <CategoryOrderPanel key={[...new Set(products.map(product => product.category))].sort().join("|")} /> : null}
     {loading ? <div className="empty"><span>Carregando cardápio…</span></div> : null}
     {!loading && products.length === 0 ? <div className="big-empty"><PackagePlus /><h2>Cardápio vazio</h2><p>Cadastre o primeiro produto vendido nesta operação.</p></div> : null}
     {!loading && products.length > 0 ? <section className="catalog-list">{products.map(product => <CatalogRow key={product.id} product={product} onSaved={load} />)}</section> : null}
@@ -99,31 +112,94 @@ function CatalogRow({ product, onSaved }: { product: CatalogProduct; onSaved: ()
   const [description, setDescription] = useState(product.description ?? "");
   const [selectedChannels, setSelectedChannels] = useState<Channel[]>(product.channels);
   const [imageUrl, setImageUrl] = useState<string | null>(product.imageUrl);
+  const [compareAt, setCompareAt] = useState(product.compareAtPrice !== null ? product.compareAtPrice.toFixed(2).replace(".", ",") : "");
+  const [vegetarian, setVegetarian] = useState(product.vegetarian);
+  const [rowError, setRowError] = useState("");
   const toggle = (channel: Channel) => setSelectedChannels(current => current.includes(channel) ? current.filter(item => item !== channel) : [...current, channel]);
   const save = async () => {
-    const numericPrice = Number(price.replace(",", "."));
-    if (!Number.isFinite(numericPrice) || numericPrice < 0 || selectedChannels.length === 0) return;
-    setSaving(true);
-    const response = await fetch("/api/admin/catalog", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId: product.id, price: numericPrice, description: description.trim(), channels: selectedChannels, imageUrl: imageUrl ?? undefined }) });
-    setSaving(false);
-    if (response.ok) { setEditing(false); await onSaved(); }
+    const numericPrice = parseMoney(price);
+    const numericCompareAt = compareAt.trim() ? parseMoney(compareAt) : null;
+    if (!Number.isFinite(numericPrice) || numericPrice < 0) { setRowError("Informe um preço válido."); return; }
+    if (selectedChannels.length === 0) { setRowError("Escolha ao menos um canal de venda."); return; }
+    const compareError = compareAtPriceError(numericPrice, numericCompareAt);
+    if (compareError) { setRowError(compareError); return; }
+    setSaving(true); setRowError("");
+    try {
+      const response = await fetch("/api/admin/catalog", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId: product.id, price: numericPrice, compareAtPrice: numericCompareAt, vegetarian, description: description.trim(), channels: selectedChannels, imageUrl: imageUrl ?? undefined }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { setRowError(data.error ?? "Não foi possível salvar o produto."); return; }
+      setEditing(false); await onSaved();
+    } catch { setRowError("Falha ao conectar no servidor."); } finally { setSaving(false); }
   };
   return <article className="catalog-admin-row-wrap">
     <div className="catalog-admin-row">
       <div className="catalog-product-identity">
         <span className="catalog-product-photo">{product.imageUrl ? <img src={product.imageUrl} alt="" /> : <UtensilsCrossed />}</span>
-        <div><small>{product.category}{product.isCombo ? " · Combo" : ""}</small><strong>{product.name}</strong></div>
+        <div><small>{product.category}{product.isCombo ? " · Combo" : ""}{product.vegetarian ? " · Vegetariano" : ""}</small><strong>{product.name}</strong></div>
       </div>
       <div className="catalog-channel-list">{channels.map(channel => <button type="button" disabled={!editing} key={channel.id} className={selectedChannels.includes(channel.id) ? "active" : ""} onClick={() => toggle(channel.id)}>{channel.label}</button>)}</div>
-      <div className="catalog-row-price">{editing ? <div className="money-input compact"><span>R$</span><input inputMode="decimal" value={price} onChange={event => setPrice(event.target.value)} /></div> : <strong>{new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(product.price)}</strong>}</div>
+      <div className="catalog-row-price">{editing ? <div className="money-input compact"><span>R$</span><input inputMode="decimal" value={price} onChange={event => { setPrice(event.target.value); setRowError(""); }} /></div> : <>{product.compareAtPrice !== null && <s className="catalog-compare-price">{formatMoney(product.compareAtPrice)}</s>}<strong>{formatMoney(product.price)}</strong></>}</div>
       <div className="catalog-row-actions">
-        {editing ? <><button type="button" className="secondary" onClick={() => { setEditing(false); setPrice(product.price.toFixed(2).replace(".", ",")); setDescription(product.description ?? ""); setSelectedChannels(product.channels); setImageUrl(product.imageUrl); }}>Cancelar</button><button type="button" className="primary" disabled={saving || selectedChannels.length === 0} onClick={() => void save()}><Save />Salvar</button></> : <button type="button" className="secondary" onClick={() => setEditing(true)}>Editar oferta</button>}
+        {editing ? <><button type="button" className="secondary" onClick={() => { setEditing(false); setPrice(product.price.toFixed(2).replace(".", ",")); setDescription(product.description ?? ""); setSelectedChannels(product.channels); setImageUrl(product.imageUrl); setCompareAt(product.compareAtPrice !== null ? product.compareAtPrice.toFixed(2).replace(".", ",") : ""); setVegetarian(product.vegetarian); setRowError(""); }}>Cancelar</button><button type="button" className="primary" disabled={saving || selectedChannels.length === 0} onClick={() => void save()}><Save />Salvar</button></> : <button type="button" className="secondary" onClick={() => setEditing(true)}>Editar oferta</button>}
         <button type="button" className="secondary catalog-groups-toggle" onClick={() => setGroupsOpen(current => !current)}><ChevronDown style={{ transform: groupsOpen ? "rotate(180deg)" : undefined }} />{product.isCombo ? "Produtos do combo" : "Grupos de ingrediente"}</button>
       </div>
     </div>
-    {editing && <div className="catalog-row-image-edit"><label className="field catalog-edit-description"><span>Descrição <small>(opcional)</small></span><textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={500} placeholder="Ingredientes e diferenciais do produto." rows={3} /></label><ProductImageField imageUrl={imageUrl} onChange={setImageUrl} /></div>}
+    {rowError && <div className="auth-error" role="alert">{rowError}</div>}
+    {editing && <div className="catalog-row-image-edit"><label className="field"><span>Preço anterior <small>(opcional, “de”)</small></span><div className="money-input compact"><span>R$</span><input inputMode="decimal" value={compareAt} onChange={event => { setCompareAt(event.target.value); setRowError(""); }} placeholder="Sem promoção" /></div><small className="field-hint">Aparece riscado no pedido online. Deixe vazio para remover.</small></label><label className="check-line catalog-combo-toggle"><input type="checkbox" checked={vegetarian} onChange={event => setVegetarian(event.target.checked)} /><span><strong>Vegetariano</strong><small>Vale para todas as unidades.</small></span></label><label className="field catalog-edit-description"><span>Descrição <small>(opcional)</small></span><textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={500} placeholder="Ingredientes e diferenciais do produto." rows={3} /></label><ProductImageField imageUrl={imageUrl} onChange={setImageUrl} /></div>}
     {groupsOpen && (product.isCombo ? <ComboGroupsPanel productId={product.id} /> : <IngredientGroupsPanel productId={product.id} />)}
   </article>;
+}
+
+// Ordem das categorias no cardápio e no pedido online (ADR 0058). Vale para a organização inteira.
+function CategoryOrderPanel() {
+  const [open, setOpen] = useState(false);
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [saved, setSaved] = useState<string[]>([]);
+  const [status, setStatus] = useState<{ state: "idle" | "loading" | "saving" | "saved"; error?: string }>({ state: "idle" });
+
+  const load = useCallback(async () => {
+    setStatus({ state: "loading" });
+    try {
+      const response = await fetch("/api/admin/categories", { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar as categorias.");
+      setCategories(data.categories); setSaved(data.categories.map((category: CategoryItem) => category.id)); setStatus({ state: "idle" });
+    } catch (cause) { setStatus({ state: "idle", error: cause instanceof Error ? cause.message : "Não foi possível carregar as categorias." }); }
+  }, []);
+
+  const toggleOpen = () => { const next = !open; setOpen(next); if (next) void load(); };
+  const dirty = categories.map(category => category.id).join("|") !== saved.join("|");
+  const move = (index: number, delta: -1 | 1) => { setCategories(current => moveItem(current, index, delta)); setStatus({ state: "idle" }); };
+
+  const save = async () => {
+    setStatus({ state: "saving" });
+    try {
+      const response = await fetch("/api/admin/categories", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ order: categories.map(category => category.id) }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível salvar a ordem.");
+      setCategories(data.categories); setSaved(data.categories.map((category: CategoryItem) => category.id)); setStatus({ state: "saved" });
+    } catch (cause) { setStatus({ state: "idle", error: cause instanceof Error ? cause.message : "Não foi possível salvar a ordem." }); }
+  };
+
+  return <section className="panel category-order-panel">
+    <button type="button" className="secondary category-order-toggle" onClick={toggleOpen} aria-expanded={open}><ListOrdered />Ordem das categorias no cardápio<ChevronDown style={{ transform: open ? "rotate(180deg)" : undefined }} /></button>
+    {open && <div className="category-order-body">
+      <p className="category-order-hint">Define a sequência das categorias no pedido online e no cardápio público, para todas as unidades.</p>
+      {status.error && <div className="auth-error" role="alert">{status.error}</div>}
+      {status.state === "loading" ? <div className="empty small"><span>Carregando categorias…</span></div> : <ol className="category-order-list">
+        {categories.map((category, index) => <li key={category.id}>
+          <span className="category-order-position">{index + 1}</span>
+          <span className="category-order-name"><strong>{category.name}</strong><small>{category.productCount} {category.productCount === 1 ? "produto" : "produtos"}</small></span>
+          <button type="button" className="icon-button" aria-label={`Subir ${category.name}`} disabled={index === 0} onClick={() => move(index, -1)}><ArrowUp /></button>
+          <button type="button" className="icon-button" aria-label={`Descer ${category.name}`} disabled={index === categories.length - 1} onClick={() => move(index, 1)}><ArrowDown /></button>
+        </li>)}
+      </ol>}
+      <div className="settings-actions">
+        <button type="button" className="primary" disabled={!dirty || status.state === "saving"} onClick={() => void save()}><Save />{status.state === "saving" ? "Salvando…" : "Salvar ordem"}</button>
+        {status.state === "saved" && !dirty && <span className="category-order-saved" role="status"><Check />Ordem salva</span>}
+      </div>
+    </div>}
+  </section>;
 }
 
 function ProductImageField({ imageUrl, onChange }: { imageUrl: string | null; onChange: (value: string | null) => void }) {

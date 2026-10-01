@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { isLocalAuthEnabled, listLocalEstablishments } from "@/lib/local-auth";
-import { listLocalCatalog } from "@/lib/local-catalog";
+import { listLocalCatalog, listLocalCategories } from "@/lib/local-catalog";
+import { sortByCategoryOrder } from "@/lib/category-order";
 
 export async function GET(_request: Request, { params }: { params: Promise<{ establishmentId: string }> }) {
   const { establishmentId } = await params;
@@ -9,7 +10,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     const establishment = listLocalEstablishments().find(item => item.id === establishmentId && item.active);
     if (!establishment) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
     const catalog = listLocalCatalog(establishmentId);
-    const products = catalog.filter(product => product.active && product.channels.includes("ONLINE"));
+    const products = sortByCategoryOrder(catalog.filter(product => product.active && product.channels.includes("ONLINE")), product => product.category, listLocalCategories().map(category => category.name));
     const highlightProduct = establishment.highlightProductId ? catalog.find(product => product.id === establishment.highlightProductId) : undefined;
     return Response.json({
       establishment: { name: establishment.name, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightHeadline: establishment.highlightHeadline, highlightProduct: highlightProduct ? { id: highlightProduct.id, name: highlightProduct.name, price: highlightProduct.price, imageUrl: highlightProduct.imageUrl } : null },
@@ -23,7 +24,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
   const offerings = await db.productOffering.findMany({
     where: { establishmentId, channel: "ONLINE", active: true, variant: { active: true, product: { organizationId: establishment.organizationId, active: true } } },
     include: { variant: { include: { product: { include: { category: true } } } } },
-    orderBy: [{ variant: { product: { category: { sortOrder: "asc" } } } }, { variant: { product: { name: "asc" } } }],
+    orderBy: [{ variant: { product: { category: { sortOrder: "asc" } } } }, { variant: { product: { category: { name: "asc" } } } }, { variant: { product: { name: "asc" } } }],
   });
   const highlightOffering = establishment.highlightProduct ? offerings.find(offering => offering.variant.product.id === establishment.highlightProduct!.id) : undefined;
 

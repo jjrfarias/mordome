@@ -28,10 +28,12 @@ export type LocalCatalogProduct = {
   imageUrl: string | null;
   ingredientGroups: LocalIngredientGroup[];
   isCombo: boolean;
+  vegetarian: boolean;
+  compareAtPrice: number | null;
 } & LocalProductFiscalInfo;
 
-type LocalCatalogRecord = Omit<LocalCatalogProduct, "price" | "channels" | "ingredientGroups"> & {
-  offerings: Map<string, { price: number; channels: LocalCatalogChannel[] }>;
+type LocalCatalogRecord = Omit<LocalCatalogProduct, "price" | "channels" | "ingredientGroups" | "compareAtPrice"> & {
+  offerings: Map<string, { price: number; channels: LocalCatalogChannel[]; compareAtPrice?: number | null }>;
   ingredientGroups: LocalIngredientGroup[];
   comboGroups: LocalComboGroup[];
 };
@@ -40,9 +42,9 @@ const emptyFiscalInfo: LocalProductFiscalInfo = { ncm: null, cfop: null, icmsCst
 
 const defaultEstablishments = ["parque-aeroporto", "anexo", "cavaleiros", "lagomar"];
 const catalogProducts: LocalCatalogRecord[] = [
-  { id: "p1", name: "X-Burger da Casa", category: "Lanches", description: null, active: true, imageUrl: null, isCombo: false, ...emptyFiscalInfo, offerings: new Map(defaultEstablishments.map(id => [id, { price: 28.9, channels: ["POS", "FLOOR"] }])), ingredientGroups: [], comboGroups: [] },
-  { id: "p2", name: "Batata rústica", category: "Porções", description: null, active: true, imageUrl: null, isCombo: false, ...emptyFiscalInfo, offerings: new Map(defaultEstablishments.map(id => [id, { price: 19.5, channels: ["POS", "FLOOR", "DELIVERY"] }])), ingredientGroups: [], comboGroups: [] },
-  { id: "p3", name: "Coca-Cola", category: "Bebidas", description: null, active: true, imageUrl: null, isCombo: false, ...emptyFiscalInfo, offerings: new Map(defaultEstablishments.map(id => [id, { price: 7, channels: ["POS", "FLOOR", "ONLINE", "DELIVERY"] }])), ingredientGroups: [], comboGroups: [] },
+  { id: "p1", name: "X-Burger da Casa", category: "Lanches", description: null, active: true, imageUrl: null, isCombo: false, vegetarian: false, ...emptyFiscalInfo, offerings: new Map(defaultEstablishments.map(id => [id, { price: 28.9, channels: ["POS", "FLOOR"] }])), ingredientGroups: [], comboGroups: [] },
+  { id: "p2", name: "Batata rústica", category: "Porções", description: null, active: true, imageUrl: null, isCombo: false, vegetarian: false, ...emptyFiscalInfo, offerings: new Map(defaultEstablishments.map(id => [id, { price: 19.5, channels: ["POS", "FLOOR", "DELIVERY"] }])), ingredientGroups: [], comboGroups: [] },
+  { id: "p3", name: "Coca-Cola", category: "Bebidas", description: null, active: true, imageUrl: null, isCombo: false, vegetarian: false, ...emptyFiscalInfo, offerings: new Map(defaultEstablishments.map(id => [id, { price: 7, channels: ["POS", "FLOOR", "ONLINE", "DELIVERY"] }])), ingredientGroups: [], comboGroups: [] },
 ];
 
 // Combos (ADR 0054): grupos de combo viram "grupos de ingrediente" na hora de servir o catálogo
@@ -64,8 +66,23 @@ function deriveIngredientGroups(product: LocalCatalogRecord): LocalIngredientGro
 export function listLocalCatalog(establishmentId: string) {
   return catalogProducts.map(product => {
     const offering = product.offerings.get(establishmentId);
-    return { id: product.id, name: product.name, category: product.category, description: product.description, active: product.active, imageUrl: product.imageUrl, isCombo: product.isCombo, ncm: product.ncm, cfop: product.cfop, icmsCst: product.icmsCst, icmsOrigin: product.icmsOrigin, unitOfMeasure: product.unitOfMeasure, price: offering?.price ?? 0, channels: [...(offering?.channels ?? [])], ingredientGroups: deriveIngredientGroups(product) };
+    return { id: product.id, name: product.name, category: product.category, description: product.description, active: product.active, imageUrl: product.imageUrl, isCombo: product.isCombo, vegetarian: product.vegetarian, ncm: product.ncm, cfop: product.cfop, icmsCst: product.icmsCst, icmsOrigin: product.icmsOrigin, unitOfMeasure: product.unitOfMeasure, price: offering?.price ?? 0, compareAtPrice: offering?.compareAtPrice ?? null, channels: [...(offering?.channels ?? [])], ingredientGroups: deriveIngredientGroups(product) };
   });
+}
+
+// Ordem das categorias (ADR 0058) — no modo local a categoria é o próprio nome no produto; a ordem
+// vale para a organização inteira, como `Category.sortOrder` no modo Prisma.
+let categoryOrder: string[] = [];
+
+export function listLocalCategories() {
+  const names = [...new Set(catalogProducts.map(product => product.category))];
+  const ordered = [...categoryOrder.filter(name => names.includes(name)), ...names.filter(name => !categoryOrder.includes(name)).sort((a, b) => a.localeCompare(b, "pt-BR"))];
+  return ordered.map(name => ({ id: name, name, productCount: catalogProducts.filter(product => product.category === name).length }));
+}
+
+export function setLocalCategoryOrder(order: string[]) {
+  categoryOrder = [...order];
+  return listLocalCategories();
 }
 
 export function updateLocalCatalogProductFiscalInfo(productId: string, data: Partial<LocalProductFiscalInfo>) {
@@ -75,20 +92,23 @@ export function updateLocalCatalogProductFiscalInfo(productId: string, data: Par
   return { id: product.id, ncm: product.ncm, cfop: product.cfop, icmsCst: product.icmsCst, icmsOrigin: product.icmsOrigin, unitOfMeasure: product.unitOfMeasure };
 }
 
-export function createLocalCatalogProduct(establishmentId: string, input: { name: string; category: string; description?: string; price: number; channels: LocalCatalogChannel[]; imageUrl?: string; isCombo?: boolean }) {
+export function createLocalCatalogProduct(establishmentId: string, input: { name: string; category: string; description?: string; price: number; channels: LocalCatalogChannel[]; imageUrl?: string; isCombo?: boolean; vegetarian?: boolean; compareAtPrice?: number | null }) {
   if (catalogProducts.some(product => product.name.toLocaleLowerCase("pt-BR") === input.name.toLocaleLowerCase("pt-BR"))) return null;
-  const product: LocalCatalogRecord = { id: `local-product-${randomUUID()}`, name: input.name, category: input.category, description: input.description?.trim() || null, active: true, imageUrl: input.imageUrl ?? null, isCombo: input.isCombo ?? false, ...emptyFiscalInfo, offerings: new Map([[establishmentId, { price: input.price, channels: [...input.channels] }]]), ingredientGroups: [], comboGroups: [] };
+  const product: LocalCatalogRecord = { id: `local-product-${randomUUID()}`, name: input.name, category: input.category, description: input.description?.trim() || null, active: true, imageUrl: input.imageUrl ?? null, isCombo: input.isCombo ?? false, vegetarian: input.vegetarian ?? false, ...emptyFiscalInfo, offerings: new Map([[establishmentId, { price: input.price, channels: [...input.channels], compareAtPrice: input.compareAtPrice ?? null }]]), ingredientGroups: [], comboGroups: [] };
   catalogProducts.push(product);
-  return { id: product.id, name: product.name, category: product.category, description: product.description, active: true, imageUrl: product.imageUrl, isCombo: product.isCombo, ...emptyFiscalInfo, price: input.price, channels: [...input.channels], ingredientGroups: [] };
+  return { id: product.id, name: product.name, category: product.category, description: product.description, active: true, imageUrl: product.imageUrl, isCombo: product.isCombo, vegetarian: product.vegetarian, ...emptyFiscalInfo, price: input.price, compareAtPrice: input.compareAtPrice ?? null, channels: [...input.channels], ingredientGroups: [] };
 }
 
-export function updateLocalCatalogProduct(establishmentId: string, productId: string, input: { price: number; channels: LocalCatalogChannel[]; description?: string | null; imageUrl?: string | null }) {
+export function updateLocalCatalogProduct(establishmentId: string, productId: string, input: { price: number; channels: LocalCatalogChannel[]; description?: string | null; imageUrl?: string | null; vegetarian?: boolean; compareAtPrice?: number | null }) {
   const product = catalogProducts.find(item => item.id === productId);
   if (!product) return null;
-  product.offerings.set(establishmentId, { price: input.price, channels: [...input.channels] });
+  const previousCompareAt = product.offerings.get(establishmentId)?.compareAtPrice ?? null;
+  const compareAtPrice = input.compareAtPrice !== undefined ? input.compareAtPrice : previousCompareAt !== null && previousCompareAt > input.price ? previousCompareAt : null;
+  product.offerings.set(establishmentId, { price: input.price, channels: [...input.channels], compareAtPrice });
+  if (input.vegetarian !== undefined) product.vegetarian = input.vegetarian;
   if (input.imageUrl !== undefined) product.imageUrl = input.imageUrl;
   if (input.description !== undefined) product.description = input.description?.trim() || null;
-  return { id: product.id, name: product.name, category: product.category, description: product.description, active: product.active, imageUrl: product.imageUrl, isCombo: product.isCombo, ncm: product.ncm, cfop: product.cfop, icmsCst: product.icmsCst, icmsOrigin: product.icmsOrigin, unitOfMeasure: product.unitOfMeasure, price: input.price, channels: [...input.channels], ingredientGroups: deriveIngredientGroups(product) };
+  return { id: product.id, name: product.name, category: product.category, description: product.description, active: product.active, imageUrl: product.imageUrl, isCombo: product.isCombo, vegetarian: product.vegetarian, ncm: product.ncm, cfop: product.cfop, icmsCst: product.icmsCst, icmsOrigin: product.icmsOrigin, unitOfMeasure: product.unitOfMeasure, price: input.price, compareAtPrice, channels: [...input.channels], ingredientGroups: deriveIngredientGroups(product) };
 }
 
 export function listLocalIngredientGroups(productId: string) {

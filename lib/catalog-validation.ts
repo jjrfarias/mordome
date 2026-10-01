@@ -11,3 +11,12 @@ export const productImageUrlSchema = z
   .trim()
   .max(PRODUCT_IMAGE_URL_MAX_LENGTH)
   .refine(value => value.startsWith("data:image/"), { message: "Formato de imagem inválido." });
+
+// Preço "de" da vitrine (ADR 0058): opcional e, quando informado, obrigatoriamente maior que o preço
+// atual — senão a vitrine anunciaria um desconto que não existe (CDC, publicidade enganosa). O banco
+// reforça a mesma regra com CHECK em ProductOffering.
+export function compareAtPriceError(price: number, compareAtPrice: number | null | undefined) {
+  if (compareAtPrice === null || compareAtPrice === undefined) return null;
+  if (!Number.isFinite(compareAtPrice) || compareAtPrice > 999999.99) return "Preço anterior inválido.";
+  return Math.round(compareAtPrice * 100) > Math.round(price * 100) ? null : "O preço anterior precisa ser maior que o preço atual.";
+}

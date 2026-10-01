@@ -44,7 +44,7 @@ test("fluxo de caixa local soma lancamentos pagos + vendas + movimentacoes de ca
   moveLocalCash(storeId, userId, { type: "WITHDRAWAL", amount: 20, reason: "Sangria", idempotencyKey: crypto.randomUUID() });
 
   const from = "2026-09-01T00:00:00.000Z";
-  const to = "2026-09-30T23:59:59.999Z";
+  const to = "2026-12-31T23:59:59.999Z";
   const result = computeLocalCashFlow(orgId, storeId, from, to);
 
   // income = venda (80) + suprimento (30) = 110
@@ -81,7 +81,7 @@ test("fluxo de caixa desconta reembolso do valor liquido da venda", () => {
   const storeId = `store-${crypto.randomUUID()}`;
   const userId = `user-${crypto.randomUUID()}`;
   const from = "2026-09-01T00:00:00.000Z";
-  const to = "2026-09-30T23:59:59.999Z";
+  const to = "2026-12-31T23:59:59.999Z";
 
   // Venda parcialmente reembolsada: 100 - 30 = 70 líquido
   recordLocalAudit({ organizationId: orgId, establishmentId: storeId, actorId: userId, actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-partial", after: { total: 100, channel: "POS" } });
@@ -109,7 +109,7 @@ test("fluxo de caixa nao vaza entre estabelecimentos", () => {
   updateLocalFinancialEntry(storeA, entryA.id, { status: "PAID" });
 
   const from = "2026-09-01T00:00:00.000Z";
-  const to = "2026-09-30T23:59:59.999Z";
+  const to = "2026-12-31T23:59:59.999Z";
   const resultA = computeLocalCashFlow(orgId, storeA, from, to);
   const resultB = computeLocalCashFlow(orgId, storeB, from, to);
 

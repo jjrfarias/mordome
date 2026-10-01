@@ -8,6 +8,7 @@ import { canDeactivateEstablishment } from "@/lib/permissions";
 import { requestAuditMetadata } from "@/lib/audit";
 import { recordLocalAudit } from "@/lib/local-audit";
 import { PRODUCT_IMAGE_URL_MAX_LENGTH } from "@/lib/catalog-validation";
+import { normalizeBrazilPhone } from "@/lib/phone";
 
 const createSchema = z.object({
   name: z.string().trim().min(2).max(100),
@@ -21,6 +22,8 @@ const addressSchema = z.object({
   neighborhood: z.string().trim().max(100).optional(),
   city: z.string().trim().max(100).optional(),
   state: z.string().trim().max(2).optional(),
+  // Telefone de contato exibido na vitrine (ADR 0057). Vazio limpa o valor.
+  phone: z.string().trim().max(20).refine(value => normalizeBrazilPhone(value) !== undefined, { message: "Telefone inválido." }).optional(),
 });
 
 // Vitrine do delivery (ADR 0053): logoUrl/bannerUrl aceitam string vazia para "remover a imagem" —
@@ -42,13 +45,13 @@ const patchSchema = z.object({
   message: "Informe um nome, um novo status, um endereço ou dados da vitrine.",
 });
 
-const addressKeys = ["postalCode", "street", "number", "complement", "neighborhood", "city", "state"] as const;
+const addressKeys = ["postalCode", "street", "number", "complement", "neighborhood", "city", "state", "phone"] as const;
 function addressPatch(data: z.infer<typeof patchSchema>) {
   const patch: Partial<Record<(typeof addressKeys)[number], string | null>> = {};
   for (const key of addressKeys) {
     const value = data[key];
     if (value === undefined) continue;
-    patch[key] = key === "postalCode" ? value.replace(/\D/g, "") || null : value || null;
+    patch[key] = key === "postalCode" ? value.replace(/\D/g, "") || null : key === "phone" ? normalizeBrazilPhone(value) ?? null : value || null;
   }
   return patch;
 }
@@ -76,6 +79,7 @@ type EstablishmentPayload = {
   neighborhood: string | null;
   city: string | null;
   state: string | null;
+  phone: string | null;
   logoUrl: string | null;
   bannerUrl: string | null;
   highlightProductId: string | null;
@@ -127,6 +131,7 @@ export async function GET(request: Request) {
       neighborhood: establishment.neighborhood,
       city: establishment.city,
       state: establishment.state,
+      phone: establishment.phone,
       logoUrl: establishment.logoUrl,
       bannerUrl: establishment.bannerUrl,
       highlightProductId: establishment.highlightProductId,
@@ -284,9 +289,9 @@ export async function PATCH(request: Request) {
               : data.active === true
                 ? "Ativação de estabelecimento"
                 : Object.keys(addressChanges).length > 0
-                  ? "Atualização de endereço do estabelecimento"
+                  ? "Atualização de endereço e contato do estabelecimento"
                   : "Atualização de estabelecimento",
-          before: { id: fresh.id, name: fresh.name, slug: fresh.slug, active: fresh.active, postalCode: fresh.postalCode, street: fresh.street, number: fresh.number, complement: fresh.complement, neighborhood: fresh.neighborhood, city: fresh.city, state: fresh.state } as Prisma.JsonObject,
+          before: { id: fresh.id, name: fresh.name, slug: fresh.slug, active: fresh.active, postalCode: fresh.postalCode, street: fresh.street, number: fresh.number, complement: fresh.complement, neighborhood: fresh.neighborhood, city: fresh.city, state: fresh.state, phone: fresh.phone } as Prisma.JsonObject,
           after: after as Prisma.JsonObject,
           ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim(),
         },
@@ -294,7 +299,7 @@ export async function PATCH(request: Request) {
       return changed;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    return Response.json({ establishment: { id: updated.id, name: updated.name, slug: updated.slug, active: updated.active, postalCode: updated.postalCode, street: updated.street, number: updated.number, complement: updated.complement, neighborhood: updated.neighborhood, city: updated.city, state: updated.state, logoUrl: updated.logoUrl, bannerUrl: updated.bannerUrl, highlightProductId: updated.highlightProductId, highlightHeadline: updated.highlightHeadline } });
+    return Response.json({ establishment: { id: updated.id, name: updated.name, slug: updated.slug, active: updated.active, postalCode: updated.postalCode, street: updated.street, number: updated.number, complement: updated.complement, neighborhood: updated.neighborhood, city: updated.city, state: updated.state, phone: updated.phone, logoUrl: updated.logoUrl, bannerUrl: updated.bannerUrl, highlightProductId: updated.highlightProductId, highlightHeadline: updated.highlightHeadline } });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return Response.json({ error: "Já existe um estabelecimento com esse nome." }, { status: 409 });

@@ -86,7 +86,7 @@ test("relatorios locais isolam vendas por estabelecimento e excluem canceladas/t
   const storeB = `store-${crypto.randomUUID()}`;
   const userId = `user-${crypto.randomUUID()}`;
   const from = "2026-09-01T00:00:00.000Z";
-  const to = "2026-09-30T23:59:59.999Z";
+  const to = "2026-12-31T23:59:59.999Z";
 
   recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: userId, actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-a1", after: { channel: "POS", subtotal: 100, discount: 0, total: 100, payments: [{ method: "CASH" }] } });
   recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: userId, actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-a2", after: { channel: "POS", subtotal: 50, discount: 0, total: 50, payments: [{ method: "CASH" }] } });
@@ -120,7 +120,7 @@ test("histórico de vendas classifica reembolso parcial corretamente", () => {
   const store = `store-${crypto.randomUUID()}`;
   const userId = `user-${crypto.randomUUID()}`;
   const from = "2026-09-01T00:00:00.000Z";
-  const to = "2026-09-30T23:59:59.999Z";
+  const to = "2026-12-31T23:59:59.999Z";
 
   recordLocalAudit({ organizationId: orgId, establishmentId: store, actorId: userId, actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-partial", after: { channel: "POS", subtotal: 100, discount: 0, total: 100, payments: [{ method: "CASH" }] } });
   recordLocalAudit({ organizationId: orgId, establishmentId: store, actorId: userId, actorName: "Ana", actorUsername: "ana", action: "SALE_REFUND", entityType: "Sale", entityId: "sale-partial", after: { amount: 40 } });
@@ -174,7 +174,7 @@ test("relatorios locais propagam o operador da venda (mesmo criterio de Sale.ope
   const storeA = `store-${crypto.randomUUID()}`;
   const storeB = `store-${crypto.randomUUID()}`;
   const from = "2026-09-01T00:00:00.000Z";
-  const to = "2026-09-30T23:59:59.999Z";
+  const to = "2026-12-31T23:59:59.999Z";
 
   recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-op-1", after: { channel: "POS", subtotal: 100, discount: 0, total: 100, payments: [{ method: "CASH" }] } });
   recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-carlos", actorName: "Carlos", actorUsername: "carlos", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-op-2", after: { channel: "FLOOR", subtotal: 80, discount: 0, total: 80, payments: [{ method: "PIX" }] } });
@@ -251,7 +251,7 @@ test("relatorios locais propagam pagamentos individuais (metodo+valor) para vend
   const storeA = `store-${crypto.randomUUID()}`;
   const storeB = `store-${crypto.randomUUID()}`;
   const from = "2026-09-01T00:00:00.000Z";
-  const to = "2026-09-30T23:59:59.999Z";
+  const to = "2026-12-31T23:59:59.999Z";
 
   recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-pm-1", after: { channel: "POS", subtotal: 100, discount: 0, total: 100, payments: [{ method: "CASH", amount: 100 }] } });
   recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-pm-2", after: { channel: "FLOOR", subtotal: 200, discount: 0, total: 200, payments: [{ method: "PIX", amount: 120 }, { method: "DEBIT_CARD", amount: 80 }] } });
@@ -333,7 +333,7 @@ test("relatorios locais propagam area de entrega/taxa para vendas por area de en
   const storeA = `store-${crypto.randomUUID()}`;
   const storeB = `store-${crypto.randomUUID()}`;
   const from = "2026-09-01T00:00:00.000Z";
-  const to = "2026-09-30T23:59:59.999Z";
+  const to = "2026-12-31T23:59:59.999Z";
 
   recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-da-1", after: { channel: "DELIVERY", subtotal: 100, discount: 0, total: 110, deliveryAreaId: "area-1", deliveryAreaName: "Parque Aeroporto", deliveryFee: 10, payments: [{ method: "PIX", amount: 110 }] } });
   recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-da-2", after: { channel: "DELIVERY", subtotal: 40, discount: 0, total: 40, deliveryAreaId: null, deliveryAreaName: null, deliveryFee: 0, payments: [{ method: "CASH", amount: 40 }] } });
@@ -407,7 +407,7 @@ test("relatorios locais propagam itens de venda para itens vendidos, isolado por
   const storeA = `store-${crypto.randomUUID()}`;
   const storeB = `store-${crypto.randomUUID()}`;
   const from = "2026-09-01T00:00:00.000Z";
-  const to = "2026-09-30T23:59:59.999Z";
+  const to = "2026-12-31T23:59:59.999Z";
 
   recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-is-1", after: { channel: "POS", subtotal: 40, discount: 0, total: 40, items: [{ productName: "Hot Dog Simples", quantity: 2, unitPrice: 20 }], payments: [{ method: "CASH", amount: 40 }] } });
   recordLocalAudit({ organizationId: orgId, establishmentId: storeA, actorId: "user-ana", actorName: "Ana", actorUsername: "ana", action: "SALE_COMPLETE", entityType: "Sale", entityId: "sale-is-2", after: { channel: "DELIVERY", subtotal: 100, discount: 0, total: 100, items: [{ productName: "Combo Família", quantity: 1, unitPrice: 100 }], payments: [{ method: "PIX", amount: 100 }] } });
@@ -470,7 +470,7 @@ test("itens consumidos (modo local): so CONSUMPTION conta, LOSS/ADJUSTMENT nao a
   const storeA = `store-${crypto.randomUUID()}`;
   const storeB = `store-${crypto.randomUUID()}`;
   const from = new Date("2026-09-01T00:00:00.000Z");
-  const to = new Date("2026-09-30T23:59:59.999Z");
+  const to = new Date("2026-12-31T23:59:59.999Z");
 
   const flour = createLocalInventoryItem(storeA, { name: `Farinha ${crypto.randomUUID()}`, baseUnit: "GRAM", trackingMode: "AUTOMATIC", minimumStock: 0, allowNegative: true })!;
   configureLocalInventoryItem(storeB, flour.id);

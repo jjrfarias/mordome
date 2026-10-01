@@ -392,4 +392,5 @@ Obrigatória para alteração de permissões, cancelamento, desconto, mudança d
 - O carrinho persiste por estabelecimento no navegador e é revalidado contra o cardápio ao abrir a página. Itens indisponíveis ou com preço alterado geram aviso.
 - O endereço usa consulta de CEP e as áreas de entrega da unidade. A taxa aparece como "A calcular" sem endereço e como "A confirmar" quando a unidade não tem áreas cadastradas.
 - O checkout tem identificação, entrega, pagamento (combinado com o estabelecimento) e revisão. O envio usa o `POST` público existente, com recálculo no servidor e idempotência.
+- Gerenciado no painel (ADR 0058): preço anterior ("de") por unidade e marcação vegetariana em Configurações → Cardápio; ordem das categorias no painel "Ordem das categorias no cardápio"; telefone de contato da unidade em Configurações → Estabelecimentos.
 - Atalhos, selos, cupom, fidelidade, benefícios, prazo e retirada só aparecem quando existem dados ou integração reais. A demonstração completa fica em `/pedido-online/demonstracao`, desligada em produção salvo `STOREFRONT_DEMO_ENABLED=true`.

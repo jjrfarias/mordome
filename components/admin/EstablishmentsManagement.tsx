@@ -1,6 +1,7 @@
 ﻿import { useEffect, useState } from "react";
 import { ImagePlus, UtensilsCrossed } from "lucide-react";
 import { compressImageFile } from "@/lib/image-compression";
+import { formatBrazilPhone, normalizeBrazilPhone } from "@/lib/phone";
 
 type EstablishmentAddress = {
   postalCode: string | null;
@@ -10,6 +11,7 @@ type EstablishmentAddress = {
   neighborhood: string | null;
   city: string | null;
   state: string | null;
+  phone: string | null;
 };
 
 type EstablishmentStorefront = {
@@ -40,7 +42,7 @@ type EstablishmentFormState = {
   saving: boolean;
 };
 
-type AddressFormState = { postalCode: string; street: string; number: string; complement: string; neighborhood: string; city: string; state: string; editing: boolean; saving: boolean; error: string; lookingUp: boolean };
+type AddressFormState = { postalCode: string; street: string; number: string; complement: string; neighborhood: string; city: string; state: string; phone: string; editing: boolean; saving: boolean; error: string; lookingUp: boolean };
 
 type StorefrontFormState = { logoUrl: string | null; bannerUrl: string | null; highlightProductId: string; highlightHeadline: string; editing: boolean; saving: boolean; error: string; busy: boolean };
 
@@ -51,6 +53,8 @@ function formatCep(value: string) {
 
 function addressLine(establishment: EstablishmentItem) {
   const parts = [establishment.street && establishment.number ? `${establishment.street}, ${establishment.number}` : establishment.street, establishment.neighborhood, establishment.city && establishment.state ? `${establishment.city}/${establishment.state}` : establishment.city].filter(Boolean);
+  const phone = formatBrazilPhone(establishment.phone);
+  if (phone) parts.push(`Tel. ${phone}`);
   return parts.length > 0 ? parts.join(" · ") : null;
 }
 
@@ -93,7 +97,7 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
     setAddressEdits(current => Object.fromEntries(parsed.establishments.map(establishment => {
       const previous = current[establishment.id];
       if (previous?.editing) return [establishment.id, previous];
-      return [establishment.id, { postalCode: establishment.postalCode ? formatCep(establishment.postalCode) : "", street: establishment.street ?? "", number: establishment.number ?? "", complement: establishment.complement ?? "", neighborhood: establishment.neighborhood ?? "", city: establishment.city ?? "", state: establishment.state ?? "", editing: false, saving: false, error: "", lookingUp: false }];
+      return [establishment.id, { postalCode: establishment.postalCode ? formatCep(establishment.postalCode) : "", street: establishment.street ?? "", number: establishment.number ?? "", complement: establishment.complement ?? "", neighborhood: establishment.neighborhood ?? "", city: establishment.city ?? "", state: establishment.state ?? "", phone: formatBrazilPhone(establishment.phone) ?? "", editing: false, saving: false, error: "", lookingUp: false }];
     })));
     setStorefrontEdits(current => Object.fromEntries(parsed.establishments.map(establishment => {
       const previous = current[establishment.id];
@@ -245,17 +249,18 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
   };
 
   const startEditAddress = (id: string) => setAddressDraft(id, { editing: true, error: "" });
-  const cancelEditAddress = (id: string, establishment: EstablishmentItem) => setAddressDraft(id, { editing: false, error: "", postalCode: establishment.postalCode ? formatCep(establishment.postalCode) : "", street: establishment.street ?? "", number: establishment.number ?? "", complement: establishment.complement ?? "", neighborhood: establishment.neighborhood ?? "", city: establishment.city ?? "", state: establishment.state ?? "" });
+  const cancelEditAddress = (id: string, establishment: EstablishmentItem) => setAddressDraft(id, { editing: false, error: "", postalCode: establishment.postalCode ? formatCep(establishment.postalCode) : "", street: establishment.street ?? "", number: establishment.number ?? "", complement: establishment.complement ?? "", neighborhood: establishment.neighborhood ?? "", city: establishment.city ?? "", state: establishment.state ?? "", phone: formatBrazilPhone(establishment.phone) ?? "" });
 
   const saveAddress = async (id: string) => {
     const draft = addressState(id);
     if (!draft || saving) return;
+    if (normalizeBrazilPhone(draft.phone) === undefined) { setAddressDraft(id, { error: "Informe o telefone com DDD (10 ou 11 dígitos) ou deixe em branco." }); return; }
     setAddressDraft(id, { saving: true, error: "" });
     try {
       const response = await fetch("/api/admin/establishments", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ establishmentId: id, postalCode: draft.postalCode, street: draft.street, number: draft.number, complement: draft.complement, neighborhood: draft.neighborhood, city: draft.city, state: draft.state }),
+        body: JSON.stringify({ establishmentId: id, postalCode: draft.postalCode, street: draft.street, number: draft.number, complement: draft.complement, neighborhood: draft.neighborhood, city: draft.city, state: draft.state, phone: draft.phone }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) { setAddressDraft(id, { error: data.error ?? "Não foi possível salvar o endereço." }); return; }
@@ -401,8 +406,8 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
                 const addr = addressState(establishment.id);
                 if (!addr) return null;
                 if (!addr.editing) return <div className="settings-address-line">
-                  <span>{addressLine(establishment) ?? "Endereço não cadastrado"}</span>
-                  <button type="button" className="secondary" onClick={() => startEditAddress(establishment.id)}>{addressLine(establishment) ? "Editar endereço" : "Cadastrar endereço"}</button>
+                  <span>{addressLine(establishment) ?? "Endereço e telefone não cadastrados"}</span>
+                  <button type="button" className="secondary" onClick={() => startEditAddress(establishment.id)}>{addressLine(establishment) ? "Editar endereço e telefone" : "Cadastrar endereço e telefone"}</button>
                 </div>;
                 return <div>
                   <div className="settings-address-cep">
@@ -417,9 +422,10 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
                     <label className="field"><span>Bairro</span><input value={addr.neighborhood} onChange={event => setAddressDraft(establishment.id, { neighborhood: event.target.value })} /></label>
                     <label className="field span2"><span>Cidade</span><input value={addr.city} onChange={event => setAddressDraft(establishment.id, { city: event.target.value })} /></label>
                     <label className="field"><span>UF</span><input value={addr.state} maxLength={2} onChange={event => setAddressDraft(establishment.id, { state: event.target.value.toUpperCase() })} /></label>
+                    <label className="field span2"><span>Telefone de contato <small>(aparece na vitrine)</small></span><input type="tel" inputMode="tel" value={addr.phone} maxLength={16} placeholder="(00) 00000-0000" onChange={event => setAddressDraft(establishment.id, { phone: event.target.value })} /></label>
                   </div>
                   <div className="settings-actions" style={{ marginTop: 10 }}>
-                    <button type="button" className="primary" disabled={addr.saving} onClick={() => void saveAddress(establishment.id)}>{addr.saving ? "Salvando…" : "Salvar endereço"}</button>
+                    <button type="button" className="primary" disabled={addr.saving} onClick={() => void saveAddress(establishment.id)}>{addr.saving ? "Salvando…" : "Salvar endereço e telefone"}</button>
                     <button type="button" className="secondary" onClick={() => cancelEditAddress(establishment.id, establishment)}>Cancelar</button>
                   </div>
                 </div>;

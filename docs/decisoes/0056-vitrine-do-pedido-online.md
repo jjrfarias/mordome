@@ -21,7 +21,7 @@ A tela `/pedido-online/[establishmentId]` (ADRs 0045, 0051 e 0053) funcionava, m
 ## Consequências
 
 - `app/pedido-online/[establishmentId]/page.tsx` virou um server component fino, e toda a interface fica em `components/storefront/`. O cardápio só de consulta (`/cardapio/[id]`) não foi alterado.
-- Pendências que dependem do backend: cupom no pedido público (exige validação pública com rate limit e desconto em `DeliveryOrder`), retirada no balcão, prazo estimado por unidade, avaliações, preço anterior/promoção, marcação vegetariana, favoritos por cliente autenticado, programa de fidelidade e login do consumidor.
+- Pendências que dependem do backend: cupom no pedido público (exige validação pública com rate limit e desconto em `DeliveryOrder`), retirada no balcão, prazo estimado por unidade, avaliações, favoritos por cliente autenticado, programa de fidelidade e login do consumidor. Preço anterior, marcação vegetariana, telefone da unidade e ordem das categorias passaram a ser gerenciados no painel pelo ADR 0058.
 - O ranking faz um `groupBy` em `DeliveryOrderItem` a cada GET público. Se o volume crescer, criar um índice em `DeliveryOrderItem.deliveryOrderId` e/ou um cache curto.
 
 ## Regras corporativas aplicadas

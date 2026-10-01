@@ -4,7 +4,8 @@ import { db } from "@/lib/db";
 import { requestAuditMetadata } from "@/lib/audit";
 import { isLocalAuthEnabled, listLocalEstablishments } from "@/lib/local-auth";
 import { listLocalUsers } from "@/lib/local-access-control";
-import { listLocalCatalog } from "@/lib/local-catalog";
+import { listLocalCatalog, listLocalCategories } from "@/lib/local-catalog";
+import { sortByCategoryOrder } from "@/lib/category-order";
 import { attachLocalDeliveryKitchenOrder, createLocalDeliveryOrder, findLocalDeliveryOrderByRequestId } from "@/lib/local-delivery";
 import { listLocalDeliveryAreas, getLocalDeliveryArea } from "@/lib/local-delivery-areas";
 import { createLocalCounterOrder } from "@/lib/local-floor";
@@ -15,6 +16,7 @@ import { comboGroupsInclude, mapComboGroupsToIngredientGroups } from "@/lib/comb
 import { areaNeighborhoods, findDeliveryAreaByNeighborhood } from "@/lib/delivery-area-match";
 import { listLocalDeliveryOrders } from "@/lib/local-delivery";
 import { rankPopularProducts } from "@/lib/storefront/catalog";
+import { formatBrazilPhone } from "@/lib/phone";
 
 // Janela do ranking "Mais pedidos" da vitrine (ADR 0056): só pedidos reais, não cancelados.
 const POPULARITY_WINDOW_DAYS = 60;
@@ -50,13 +52,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     const establishment = listLocalEstablishments().find(item => item.id === establishmentId && item.active);
     if (!establishment) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
     const catalog = listLocalCatalog(establishmentId);
-    const products = catalog.filter(product => product.active && product.channels.includes("DELIVERY"));
+    const products = sortByCategoryOrder(catalog.filter(product => product.active && product.channels.includes("DELIVERY")), product => product.category, listLocalCategories().map(category => category.name));
     const deliveryAreas = listLocalDeliveryAreas(establishmentId).filter(area => area.active);
     const highlightProduct = establishment.highlightProductId ? catalog.find(product => product.id === establishment.highlightProductId) : undefined;
     const since = popularitySince().toISOString();
     const offeredIds = new Set(products.map(product => product.id));
     const popularProductIds = rankPopularProducts(listLocalDeliveryOrders(establishmentId).filter(order => order.status !== "CANCELLED" && order.createdAt >= since).flatMap(order => order.items)).filter(productId => offeredIds.has(productId));
-    return Response.json({ popularProductIds, branding: { primary: "#173f35", accent: "#e97c4b" }, establishment: { name: establishment.name, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightHeadline: establishment.highlightHeadline, phone: null, address: formatEstablishmentAddress(establishment), highlightProduct: highlightProduct ? { id: highlightProduct.id, name: highlightProduct.name, price: highlightProduct.price, imageUrl: highlightProduct.imageUrl } : null }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: product.description, price: product.price, imageUrl: product.imageUrl, ingredientGroups: product.ingredientGroups })), deliveryAreas: deliveryAreas.map(area => ({ id: area.id, name: area.name, deliveryFee: area.deliveryFee, neighborhoods: area.neighborhoods })) });
+    return Response.json({ popularProductIds, branding: { primary: "#173f35", accent: "#e97c4b" }, establishment: { name: establishment.name, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightHeadline: establishment.highlightHeadline, phone: formatBrazilPhone(establishment.phone), address: formatEstablishmentAddress(establishment), highlightProduct: highlightProduct ? { id: highlightProduct.id, name: highlightProduct.name, price: highlightProduct.price, imageUrl: highlightProduct.imageUrl } : null }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: product.description, price: product.price, compareAtPrice: product.compareAtPrice !== null && product.compareAtPrice > product.price ? product.compareAtPrice : null, vegetarian: product.vegetarian, imageUrl: product.imageUrl, ingredientGroups: product.ingredientGroups })), deliveryAreas: deliveryAreas.map(area => ({ id: area.id, name: area.name, deliveryFee: area.deliveryFee, neighborhoods: area.neighborhoods })) });
   }
 
   const establishment = await db.establishment.findFirst({ where: { id: establishmentId, active: true, organization: { active: true } }, include: { highlightProduct: true, organization: { select: { brandPrimary: true, brandAccent: true } } } });
@@ -65,7 +67,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     db.productOffering.findMany({
       where: { establishmentId, channel: "DELIVERY", active: true, variant: { active: true, product: { organizationId: establishment.organizationId, active: true } } },
       include: { variant: { include: { product: { include: { category: true, ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } }, comboGroups: comboGroupsInclude } } } } },
-      orderBy: [{ variant: { product: { category: { sortOrder: "asc" } } } }, { variant: { product: { name: "asc" } } }],
+      orderBy: [{ variant: { product: { category: { sortOrder: "asc" } } } }, { variant: { product: { category: { name: "asc" } } } }, { variant: { product: { name: "asc" } } }],
     }),
     db.deliveryArea.findMany({ where: { establishmentId, active: true }, orderBy: { name: "asc" } }),
     db.deliveryOrderItem.groupBy({
@@ -84,7 +86,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     branding: { primary: establishment.organization.brandPrimary, accent: establishment.organization.brandAccent },
     establishment: {
       name: establishment.name,
-      phone: establishment.phone,
+      phone: formatBrazilPhone(establishment.phone),
       address: formatEstablishmentAddress(establishment),
       logoUrl: establishment.logoUrl,
       bannerUrl: establishment.bannerUrl,
@@ -97,6 +99,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
       category: offering.variant.product.category?.name ?? "Outros",
       description: offering.variant.product.description,
       price: Number(offering.price),
+      compareAtPrice: offering.compareAtPrice !== null && Number(offering.compareAtPrice) > Number(offering.price) ? Number(offering.compareAtPrice) : null,
+      vegetarian: offering.variant.product.vegetarian,
       imageUrl: offering.variant.product.imageUrl,
       ingredientGroups: offering.variant.product.isCombo
         ? mapComboGroupsToIngredientGroups(offering.variant.product.comboGroups)

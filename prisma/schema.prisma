@@ -877,6 +877,8 @@ model Product {
   imageUrl       String?
   active         Boolean          @default(true)
   isCombo        Boolean          @default(false)
+  // Marcação para o filtro "Vegetariano" da vitrine (ADR 0058); declarada pelo estabelecimento.
+  vegetarian     Boolean          @default(false)
   // Dados fiscais (ADR 0049) — todos opcionais: só passam a ser exigidos de fato no momento da
   // emissão da NFC-e, quando a unidade tem o módulo fiscal ativo (`FiscalConfig.active`).
   ncm            String?
@@ -1010,6 +1012,9 @@ model ProductOffering {
   variantId       String
   channel         CatalogChannel
   price           Decimal        @db.Decimal(12, 2)
+  // Preço "de" exibido riscado na vitrine (ADR 0058). Só apresentação: a cobrança usa sempre `price`.
+  // CHECK no banco: nulo ou maior que `price`.
+  compareAtPrice  Decimal?       @db.Decimal(12, 2)
   active          Boolean        @default(true)
   createdAt       DateTime       @default(now())
   updatedAt       DateTime       @updatedAt

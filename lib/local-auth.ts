@@ -8,11 +8,11 @@ import { getLocalPrintTemplate } from "@/lib/local-print-templates";
 const LOCAL_TOKEN = randomBytes(32).toString("base64url");
 const LOCAL_ESTABLISHMENT_COOKIE = "mordome_local_establishment";
 const LOCAL_USER_COOKIE = "mordome_local_user";
-type LocalEstablishmentAddress = { postalCode: string | null; street: string | null; number: string | null; complement: string | null; neighborhood: string | null; city: string | null; state: string | null };
+type LocalEstablishmentAddress = { postalCode: string | null; street: string | null; number: string | null; complement: string | null; neighborhood: string | null; city: string | null; state: string | null; phone: string | null };
 type LocalEstablishmentStorefront = { logoUrl: string | null; bannerUrl: string | null; highlightProductId: string | null; highlightHeadline: string | null };
 type LocalEstablishment = { id: string; name: string; slug: string; active: boolean } & LocalEstablishmentAddress & LocalEstablishmentStorefront;
 
-const blankAddress: LocalEstablishmentAddress = { postalCode: null, street: null, number: null, complement: null, neighborhood: null, city: null, state: null };
+const blankAddress: LocalEstablishmentAddress = { postalCode: null, street: null, number: null, complement: null, neighborhood: null, city: null, state: null, phone: null };
 const blankStorefront: LocalEstablishmentStorefront = { logoUrl: null, bannerUrl: null, highlightProductId: null, highlightHeadline: null };
 
 const localEstablishments: LocalEstablishment[] = [

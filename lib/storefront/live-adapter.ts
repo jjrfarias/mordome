@@ -20,6 +20,8 @@ export type PublicOrderMenuResponse = {
     category: string;
     description: string | null;
     price: number;
+    compareAtPrice?: number | null;
+    vegetarian?: boolean;
     imageUrl: string | null;
     ingredientGroups?: { id: string; name: string; minSelections: number; maxSelections: number; active: boolean; options: { id: string; name: string; priceDelta: number; active: boolean }[] }[];
   }[];
@@ -38,11 +40,11 @@ export function mapLiveStorefront(establishmentId: string, response: PublicOrder
     description: product.description,
     categoryId: product.category,
     priceCents: toCents(product.price),
-    compareAtPriceCents: null,
+    compareAtPriceCents: product.compareAtPrice ? toCents(product.compareAtPrice) : null,
     imageUrl: product.imageUrl,
     rating: null,
     popularityRank: ranking.get(product.id) ?? null,
-    vegetarian: false,
+    vegetarian: product.vegetarian ?? false,
     optionGroups: (product.ingredientGroups ?? [])
       .filter(group => group.active)
       .map(group => ({ id: group.id, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, options: group.options.filter(option => option.active).map(option => ({ id: option.id, name: option.name, priceDeltaCents: toCents(option.priceDelta) })) }))
