@@ -1,6 +1,6 @@
 "use client";
 
-import { Search, ShoppingCart, X } from "lucide-react";
+import { UserRound, Search, ShoppingCart, X } from "lucide-react";
 import { BrandMark, cx } from "./primitives";
 import styles from "./storefront.module.css";
 
@@ -15,7 +15,7 @@ export function SearchBar({ value, onChange, onSubmit, className, id }: { value:
   </form>;
 }
 
-export function Header({ logoUrl, name, unitName, nav, activeSection, query, onQueryChange, onSearchSubmit, cartUnits, onCartClick }: {
+export function Header({ logoUrl, name, unitName, nav, activeSection, query, onQueryChange, onSearchSubmit, cartUnits, onCartClick, onAccountClick, signedIn }: {
   logoUrl: string | null;
   name: string;
   unitName: string;
@@ -24,6 +24,8 @@ export function Header({ logoUrl, name, unitName, nav, activeSection, query, onQ
   query: string;
   onQueryChange: (value: string) => void;
   onSearchSubmit: () => void;
+  onAccountClick?: () => void;
+  signedIn?: boolean;
   cartUnits: number;
   onCartClick: () => void;
 }) {
@@ -37,6 +39,7 @@ export function Header({ logoUrl, name, unitName, nav, activeSection, query, onQ
         <ul>{nav.map(item => <li key={item.id}><a href={`#${item.id}`} className={cx(styles.navLink, activeSection === item.id && styles.navLinkActive)} aria-current={activeSection === item.id ? "location" : undefined}>{item.label}</a></li>)}</ul>
       </nav>
       <SearchBar id="busca-cabecalho" value={query} onChange={onQueryChange} onSubmit={onSearchSubmit} className={styles.headerSearch} />
+      {onAccountClick && <button type="button" className={styles.cartButton} onClick={onAccountClick} aria-label={signedIn ? "Minha conta" : "Entrar com WhatsApp"}><UserRound aria-hidden /></button>}
       <button type="button" className={styles.cartButton} onClick={onCartClick} aria-label={cartUnits === 0 ? "Meu pedido, vazio" : `Meu pedido, ${cartUnits} ${cartUnits === 1 ? "unidade" : "unidades"}`}>
         <ShoppingCart aria-hidden />
         {cartUnits > 0 && <span className={styles.cartBadge} aria-hidden>{cartUnits > 99 ? "99+" : cartUnits}</span>}

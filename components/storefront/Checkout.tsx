@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CircleCheck, LoaderCircle, MapPin, Store, Truck } from "lucide-react";
 import type { CartLine } from "@/lib/storefront/cart";
 import { addressIsComplete, deliveryFeeLabel, type DeliveryQuote } from "@/lib/storefront/delivery";
@@ -23,7 +23,8 @@ function formatPhone(value: string) {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 }
 
-export function Checkout({ open, isDemo, lines, totals, pickupTotals, quote, address, pickupSupported, paymentMethods, establishmentName, onClose, onEditAddress, onSubmit, onFinished }: {
+export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, quote, address, pickupSupported, paymentMethods, establishmentName, onClose, onEditAddress, onSubmit, onFinished }: {
+  customer?: { name: string; phone: string } | null;
   open: boolean;
   isDemo: boolean;
   lines: CartLine[];
@@ -40,6 +41,7 @@ export function Checkout({ open, isDemo, lines, totals, pickupTotals, quote, add
   onFinished: () => void;
 }) {
   const [form, setForm] = useState<CheckoutForm>({ name: "", phone: "", fulfillment: "delivery", notes: "", paymentMethod: null });
+  useEffect(() => { if (customer) queueMicrotask(() => setForm(current => ({ ...current, name: customer.name, phone: formatPhone(customer.phone.replace(/^55/, "")) }))); }, [customer]);
   const [submitted, setSubmitted] = useState(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
