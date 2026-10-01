@@ -9,6 +9,8 @@ import { codeMatches, customerCookie, customerPhone, identityHash, newCustomerCo
 import { customerLoginConfigured, whatsappGateway } from "@/lib/whatsapp-gateway";
 import { rateLimit } from "@/lib/rate-limit";
 
+export const runtime = "nodejs";
+
 type Context = { params: Promise<{ establishmentId: string }> };
 const headers = { "Cache-Control": "no-store, private" };
 const reply = (body: unknown, status = 200) => Response.json(body, { status, headers });
