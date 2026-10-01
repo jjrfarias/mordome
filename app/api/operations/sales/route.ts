@@ -1,3 +1,4 @@
+import { getCounterTable } from "@/lib/counter-table";
 import { MembershipStatus, PaymentMethod, Prisma, SaleChannel } from "@/generated/prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
@@ -378,16 +379,7 @@ export async function POST(request: Request) {
       // status (ver ADR), para que a cozinha continue podendo avançar o pedido depois do pagamento.
       let kitchenTicket: { orderId: string; sentAt: string; tickets: { stationName: string; printerDriver: string; items: { name: string; quantity: number }[] }[] } | null = null;
       if (data.channel === "POS") {
-        let counterTable = await tx.diningTable.findFirst({ where: { establishmentId: actor.session.establishment.id, isCounter: true } });
-        if (!counterTable) {
-          try {
-            counterTable = await tx.diningTable.create({ data: { establishmentId: actor.session.establishment.id, number: 0, seats: 0, name: "Balcão", isCounter: true } });
-          } catch (creationError) {
-            if (!(creationError instanceof Prisma.PrismaClientKnownRequestError && creationError.code === "P2002")) throw creationError;
-            counterTable = await tx.diningTable.findFirst({ where: { establishmentId: actor.session.establishment.id, isCounter: true } });
-            if (!counterTable) throw creationError;
-          }
-        }
+        const counterTable = await getCounterTable(tx, actor.session.establishment.id);
         const counterTab = await tx.tab.create({ data: { establishmentId: actor.session.establishment.id, tableId: counterTable.id, openedById: actor.session.user.id, saleId: created.id } });
         const tabItems = await Promise.all(saleItems.map(item => tx.tabItem.create({ data: { tabId: counterTab.id, productId: item.productId, productName: item.productName, quantity: item.quantity, sentQuantity: item.quantity, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot, addedById: actor.session.user.id } })));
         const counterOrder = await tx.order.create({ data: { tabId: counterTab.id, sentById: actor.session.user.id, items: { create: tabItems.map((tabItem, index) => ({ tabItemId: tabItem.id, productName: saleItems[index].productName, quantity: saleItems[index].quantity })) }, statusHistory: { create: { status: "RECEIVED", actorId: actor.session.user.id } } } });

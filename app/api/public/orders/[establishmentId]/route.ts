@@ -1,3 +1,4 @@
+import { getCounterTable } from "@/lib/counter-table";
 import { confirmedDeliveryCoordinates } from "@/lib/delivery-location";
 import { z } from "zod";
 import { Prisma } from "@/generated/prisma/client";
@@ -208,17 +209,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
       // (Tab.openedById/Order.sentById exigem um User real) — mesmo critério do modo local.
       const access = await tx.establishmentAccess.findFirst({ where: { establishmentId, membership: { organizationId: establishment.organizationId, status: "ACTIVE" } }, orderBy: { membership: { createdAt: "asc" } }, include: { membership: { select: { userId: true } } } });
       if (access) {
-        let counterTable = await tx.diningTable.findFirst({ where: { establishmentId, isCounter: true } });
-        if (!counterTable) {
-          try {
-            counterTable = await tx.diningTable.create({ data: { establishmentId, number: 0, seats: 0, name: "Balcão", isCounter: true } });
-          } catch (creationError) {
-            if (!(creationError instanceof Prisma.PrismaClientKnownRequestError && creationError.code === "P2002")) throw creationError;
-            counterTable = await tx.diningTable.findFirst({ where: { establishmentId, isCounter: true } });
-            if (!counterTable) throw creationError;
-          }
-        }
         const actorId = access.membership.userId;
+        const counterTable = await getCounterTable(tx, establishmentId);
         const counterTab = await tx.tab.create({ data: { establishmentId, tableId: counterTable.id, openedById: actorId } });
         const tabItems = await Promise.all(created.items.map(item => tx.tabItem.create({ data: { tabId: counterTab.id, productId: item.productId, productName: item.productName, quantity: item.quantity, sentQuantity: item.quantity, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? undefined, addedById: actorId } })));
         const counterOrder = await tx.order.create({ data: { tabId: counterTab.id, sentById: actorId, items: { create: tabItems.map((tabItem, index) => ({ tabItemId: tabItem.id, productName: created.items[index].productName, quantity: created.items[index].quantity })) }, statusHistory: { create: { status: "RECEIVED", actorId } } } });
