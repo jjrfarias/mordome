@@ -90,6 +90,10 @@ async function start(unit: string) {
   return connection;
 }
 
+export async function resumeEnabledWhatsAppConnections() {
+  const rows = await db.whatsAppConnection.findMany({ where: { enabled: true }, select: { establishmentId: true } });
+  await Promise.all(rows.map(row => resume(row.establishmentId).catch(() => {})));
+}
 async function resume(unit: string) {
   const row = await db.whatsAppConnection.findUnique({ where: { establishmentId: unit }, select: { enabled: true } });
   if (row?.enabled && !connections.clients.has(unit)) await start(unit);
