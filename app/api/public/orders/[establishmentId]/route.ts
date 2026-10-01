@@ -20,6 +20,7 @@ import { areaNeighborhoods, findDeliveryAreaByNeighborhood } from "@/lib/deliver
 import { listLocalDeliveryOrders } from "@/lib/local-delivery";
 import { rankPopularProducts } from "@/lib/storefront/catalog";
 import { formatBrazilPhone } from "@/lib/phone";
+import { dispatchDeliveryWhatsAppAutomation } from "@/lib/whatsapp-automation";
 
 // Janela do ranking "Mais pedidos" da vitrine (ADR 0056): só pedidos reais, não cancelados.
 const POPULARITY_WINDOW_DAYS = 60;
@@ -34,6 +35,7 @@ function formatEstablishmentAddress(establishment: { street: string | null; numb
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const orderSchema = z.object({
   withAccount: z.boolean().optional(),
+  accountInviteOptIn: z.boolean().optional(),
   clientRequestId: z.string().uuid(),
   customerName: z.string().trim().min(2).max(100),
   customerPhone: z.string().trim().min(8).max(20).transform(value => value.replace(/\D/g, "")).pipe(z.string().min(8).max(15)),
@@ -206,7 +208,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
         update: {},
         create: { organizationId: establishment.organizationId, name: data.customerName, phone: normalizedPhone },
       });
-      const created = await tx.deliveryOrder.create({ data: { establishmentId, customerAccountId: customerSession?.accountId ?? null, clientRequestId: data.clientRequestId, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: resolvedAreaId, deliveryFee, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
+      const created = await tx.deliveryOrder.create({ data: { establishmentId, customerAccountId: customerSession?.accountId ?? null, accountInviteOptIn: !customerSession && data.accountInviteOptIn === true, clientRequestId: data.clientRequestId, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: resolvedAreaId, deliveryFee, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
 
       // Delivery envia para a cozinha (ADR 0050): pedido online não tem operador logado por trás,
       // então usa a primeira pessoa com acesso ativo à unidade como autora do tíquete de cozinha
@@ -223,6 +225,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
       }
       return created;
     });
+    void dispatchDeliveryWhatsAppAutomation(order.id, "ORDER_RECEIVED").catch(() => {});
+    void dispatchDeliveryWhatsAppAutomation(order.id, "INVITE_ACCOUNT").catch(() => {});
     return Response.json({ orderId: order.id }, { status: 201 });
   } catch (cause) {
     if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") {

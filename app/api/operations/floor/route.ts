@@ -10,6 +10,7 @@ import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
 import { listLocalCatalog } from "@/lib/local-catalog";
 import { resolveIngredientSelections } from "@/lib/ingredient-options";
 import { comboGroupsInclude, mapComboGroupsToIngredientGroups } from "@/lib/combo-catalog";
+import { dispatchDeliveryWhatsAppAutomation } from "@/lib/whatsapp-automation";
 
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const actionSchema = z.discriminatedUnion("action", [
@@ -185,7 +186,7 @@ async function sendOrder(session: Session, data: Extract<z.infer<typeof actionSc
 
 async function changeOrderStatus(session: Session, data: Extract<z.infer<typeof actionSchema>, { action: "CHANGE_ORDER_STATUS" }>, request: Request) {
   const next: Partial<Record<OrderStatus, OrderStatus>> = { RECEIVED: "PREPARING", PREPARING: "READY", READY: "DELIVERED" };
-  await db.$transaction(async tx => {
+  const deliveryToNotify = await db.$transaction(async tx => {
     const order = await tx.order.findFirst({ where: { id: data.orderId, tab: { establishmentId: session.establishment.id, OR: [{ status: "OPEN" }, { table: { isCounter: true } }] } }, include: { tab: { include: { table: true } } } });
     if (!order) throw new Error("ORDER_NOT_FOUND");
     const delivery = order.tab.table.isCounter ? await tx.deliveryOrder.findFirst({ where: { establishmentId: session.establishment.id, kitchenOrderId: order.id } }) : null;
@@ -200,5 +201,7 @@ async function changeOrderStatus(session: Session, data: Extract<z.infer<typeof 
       await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: delivery.id, reason: "Preparo atualizado pela cozinha", before: { status: delivery.status }, after: { status: "PREPARING" } } });
     }
     await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "ORDER_STATUS_CHANGE", entityType: "Order", entityId: order.id, reason: reconcile ? "Encerramento de tíquete pendente de delivery já finalizado" : "Etapa da cozinha alterada", before: { status: order.status }, after: { status, tabId: order.tabId, deliveryOrderId: delivery?.id ?? null }, ...requestAuditMetadata(request) } });
+    return delivery?.status === "RECEIVED" && (status === "PREPARING" || status === "READY") ? delivery.id : null;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+  if (deliveryToNotify) void dispatchDeliveryWhatsAppAutomation(deliveryToNotify, "PREPARING").catch(() => {});
 }

@@ -17,6 +17,7 @@ import { recordLocalAudit } from "@/lib/local-audit";
 import { listLocalUsers } from "@/lib/local-access-control";
 import { resolveIngredientSelections, type SelectedOptionSnapshot } from "@/lib/ingredient-options";
 import { comboGroupsInclude, mapComboGroupsToIngredientGroups } from "@/lib/combo-catalog";
+import { dispatchDeliveryWhatsAppAutomation, type WhatsAppAutomationEventName } from "@/lib/whatsapp-automation";
 
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const createSchema = z.object({
@@ -226,6 +227,9 @@ export async function POST(request: Request) {
       await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: current.id, reason: "Etapa do delivery alterada", before: { status: current.status }, after: { status: result.status } } });
       return result;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    const event: Partial<Record<typeof data.status, WhatsAppAutomationEventName>> = { PREPARING: "PREPARING", OUT_FOR_DELIVERY: "OUT_FOR_DELIVERY", DELIVERED: "DELIVERED" };
+    const automationEvent = event[data.status];
+    if (automationEvent) void dispatchDeliveryWhatsAppAutomation(updated.id, automationEvent).catch(() => {});
     return Response.json({ order: { ...updated, items: [] } });
     } catch (error) {
       if (error instanceof Error && workflowMessages[error.message]) return Response.json({ error: workflowMessages[error.message] }, { status: 409 });

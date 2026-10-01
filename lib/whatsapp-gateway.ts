@@ -82,6 +82,22 @@ async function resume(unit: string) {
   if (row?.enabled && !connections.clients.has(unit)) await start(unit);
 }
 
+function whatsappRecipient(value: string) {
+  const digits = value.replace(/\D/g, "");
+  const national = digits.startsWith("55") && digits.length > 11 ? digits.slice(2) : digits;
+  return /^[1-9]{2}9?\d{8}$/.test(national) ? `55${national}` : null;
+}
+
+export async function sendWhatsAppMessage(unit: string, phone: string, text: string) {
+  const connection = connections.clients.get(unit);
+  const recipientPhone = whatsappRecipient(phone);
+  if (connection?.status !== "READY" || !recipientPhone || !text.trim() || text.length > 600) throw Error("WHATSAPP_UNAVAILABLE");
+  const registered = await connection.socket.onWhatsApp(recipientPhone);
+  const recipient = registered?.find(entry => entry.exists)?.jid;
+  if (!recipient) throw Error("WHATSAPP_RECIPIENT_UNAVAILABLE");
+  await connection.socket.sendMessage(recipient, { text: text.trim() });
+}
+
 export async function whatsappGateway(unit: string, action: "status" | "resume" | "connect" | "disconnect" | "send-code", payload: Record<string, string> = {}) {
   if (!customerLoginConfigured()) throw Error("WHATSAPP_UNAVAILABLE");
   if (action === "disconnect") {
@@ -97,9 +113,6 @@ export async function whatsappGateway(unit: string, action: "status" | "resume" 
   const connection = connections.clients.get(unit);
   if (action !== "send-code") return { status: connection?.status ?? "DISCONNECTED", qr: connection?.status === "QR" ? connection.qr : undefined };
   if (connection?.status !== "READY" || !/^55[1-9]{2}9\d{8}$/.test(payload.phone ?? "") || !/^\d{6}$/.test(payload.code ?? "")) throw Error("WHATSAPP_UNAVAILABLE");
-  const registered = await connection.socket.onWhatsApp(payload.phone);
-  const recipient = registered?.find(entry => entry.exists)?.jid;
-  if (!recipient) throw Error("WHATSAPP_RECIPIENT_UNAVAILABLE");
-  await connection.socket.sendMessage(recipient, { text: `Seu código de acesso ao Mordomê é ${payload.code}. Validade: 5 minutos. Não compartilhe. Se não solicitou, ignore.` });
+  await sendWhatsAppMessage(unit, payload.phone, `Seu código de acesso ao Mordomê é ${payload.code}. Validade: 5 minutos. Não compartilhe. Se não solicitou, ignore.`);
   return { status: "READY" as const };
 }

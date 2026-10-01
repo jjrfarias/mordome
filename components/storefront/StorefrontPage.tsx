@@ -223,6 +223,7 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
         customerName: form.name,
         customerPhone: form.phone,
         withAccount: Boolean(accountData.account),
+        accountInviteOptIn: form.accountInviteOptIn,
         address: formatAddressForOrder(address),
         postalCode: address.postalCode,
         neighborhood: address.neighborhood,

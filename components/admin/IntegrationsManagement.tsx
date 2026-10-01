@@ -1,4 +1,5 @@
 import { WhatsAppConnection } from "./WhatsAppConnection";
+import { WhatsAppAutomations } from "./WhatsAppAutomations";
 import { useEffect, useState } from "react";
 import { CircleDollarSign, Printer, Scale } from "lucide-react";
 import { buildReceiptHtml } from "@/lib/integrations/print-client";
@@ -50,6 +51,7 @@ export function IntegrationsManagement({ activeEstablishmentId, onChanged }: { a
 
   return <section className="page-content">
     <WhatsAppConnection key={activeEstablishmentId} establishmentId={activeEstablishmentId} />
+    <WhatsAppAutomations key={`automations-${activeEstablishmentId}`} establishmentId={activeEstablishmentId} />
     {error && <div className="auth-error">{error}</div>}
     {(Object.keys(categoryMeta) as Category[]).map(category => {
       const meta = categoryMeta[category];
