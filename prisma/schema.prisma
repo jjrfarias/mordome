@@ -292,6 +292,8 @@ model Establishment {
   customerAccountEvents CustomerAccountEvent[]
   whatsappAutomationEvents WhatsAppAutomationEvent[]
   whatsappConnection WhatsAppConnection?
+  whatsappOrderingSessions WhatsAppOrderingSession[]
+  whatsappInboundReceipts WhatsAppInboundReceipt[]
   id               String                       @id @default(cuid())
   organizationId   String
   name             String
@@ -1626,10 +1628,36 @@ model WhatsAppConnection {
   enabled Boolean @default(false)
   credentialsCiphertext String?
   automation Json?
+  orderingEnabled Boolean @default(false)
   updatedAt DateTime @updatedAt
   establishment Establishment @relation(fields: [establishmentId], references: [id])
 }
 
+model WhatsAppOrderingSession {
+  id String @id @default(cuid())
+  establishmentId String
+  phone String
+  state Json
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  establishment Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  @@unique([establishmentId, phone])
+  @@index([establishmentId, expiresAt])
+}
+
+model WhatsAppInboundReceipt {
+  id String @id @default(cuid())
+  establishmentId String
+  messageId String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  establishment Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  @@unique([establishmentId, messageId])
+  @@index([establishmentId, expiresAt])
+}
 model WhatsAppAutomationEvent {
   id String @id @default(cuid())
   establishmentId String
