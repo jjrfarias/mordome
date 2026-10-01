@@ -3,12 +3,14 @@ import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { db } from "@/lib/db";
 import { customerLoginConfigured, whatsappGateway } from "@/lib/whatsapp-gateway";
 
+export const runtime = "nodejs";
+
 export async function GET(request: Request) {
   if (!isSameOrigin(request)) return Response.json({ error: "Origem inválida." }, { status: 403 });
   const actor = await getCurrentSession();
   if (!actor?.canManageIntegrations) return Response.json({ error: "Acesso negado." }, { status: 403 });
   if (!customerLoginConfigured()) return Response.json({ configured: false }, { headers: { "Cache-Control": "no-store" } });
-  try { return Response.json({ configured: true, ...await whatsappGateway(actor.establishment.id, "status") }, { headers: { "Cache-Control": "no-store, private" } }); }
+  try { return Response.json({ configured: true, ...await whatsappGateway(actor.establishment.id, "resume") }, { headers: { "Cache-Control": "no-store, private" } }); }
   catch { return Response.json({ configured: true, status: "UNAVAILABLE" }, { headers: { "Cache-Control": "no-store" } }); }
 }
 
