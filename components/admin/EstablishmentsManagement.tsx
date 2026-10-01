@@ -282,7 +282,7 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
     if (!file) return;
     setStorefrontDraft(id, { busy: true, error: "" });
     try {
-      const compressed = await compressImageFile(file);
+      const compressed = await compressImageFile(file, { preserveTransparency: field === "logoUrl" });
       setStorefrontDraft(id, { [field]: compressed } as Partial<StorefrontFormState>);
     } catch (cause) {
       setStorefrontDraft(id, { error: cause instanceof Error ? cause.message : "Não foi possível processar a imagem." });

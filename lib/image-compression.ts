@@ -3,6 +3,7 @@
 
 export const MAX_PRODUCT_IMAGE_DIMENSION = 800;
 export const PRODUCT_IMAGE_JPEG_QUALITY = 0.7;
+export const TRANSPARENT_IMAGE_WEBP_QUALITY = 0.82;
 
 export type ImageDimensions = { width: number; height: number };
 
@@ -27,7 +28,7 @@ export function calculateResizedDimensions(
  * comprime como JPEG (qualidade ~0.7) usando um <canvas> do navegador, retornando a data URL base64.
  * Não roda em Node — depende de APIs de DOM (Image, canvas).
  */
-export async function compressImageFile(file: File): Promise<string> {
+export async function compressImageFile(file: File, options: { preserveTransparency?: boolean } = {}): Promise<string> {
   const dataUrl = await new Promise<string>((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(reader.result as string);
@@ -49,5 +50,7 @@ export async function compressImageFile(file: File): Promise<string> {
   const context = canvas.getContext("2d");
   if (!context) throw new Error("Não foi possível preparar a imagem para envio.");
   context.drawImage(image, 0, 0, width, height);
-  return canvas.toDataURL("image/jpeg", PRODUCT_IMAGE_JPEG_QUALITY);
+  return options.preserveTransparency
+    ? canvas.toDataURL("image/webp", TRANSPARENT_IMAGE_WEBP_QUALITY)
+    : canvas.toDataURL("image/jpeg", PRODUCT_IMAGE_JPEG_QUALITY);
 }
