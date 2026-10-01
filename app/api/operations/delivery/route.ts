@@ -1,3 +1,5 @@
+import { linkedKitchen, setKitchenStage } from "@/lib/delivery-kitchen";
+import { deliveryTransitionError, workflowMessages } from "@/lib/delivery-workflow";
 import { getCounterTable } from "@/lib/counter-table";
 import { deliveryLocationSchema } from "@/lib/delivery-location";
 import { MembershipStatus, DeliveryStatus, Prisma } from "@/generated/prisma/client";
@@ -32,7 +34,7 @@ const statusSchema = z.object({ action: z.literal("CHANGE_STATUS"), orderId: z.s
 const courierSchema = z.object({ action: z.literal("ASSIGN_COURIER"), orderId: z.string().min(1), courierId: z.string().min(1).nullable() });
 const actionSchema = z.discriminatedUnion("action", [createSchema, statusSchema, courierSchema, deliveryLocationSchema]);
 
-const nextStatus: Partial<Record<DeliveryStatus, DeliveryStatus>> = { RECEIVED: "PREPARING", PREPARING: "OUT_FOR_DELIVERY", OUT_FOR_DELIVERY: "DELIVERED" };
+
 
 async function resolveActor() {
   const session = await getCurrentSession();
@@ -69,11 +71,13 @@ export async function GET(request: Request) {
     db.establishmentAccess.findMany({ where: { establishmentId: actor.establishment.id, membership: { organizationId: actor.organization.id, status: MembershipStatus.ACTIVE } }, include: { membership: { include: { user: { select: { id: true, name: true, active: true } } } } } }),
     db.deliveryArea.findMany({ where: { establishmentId: actor.establishment.id, active: true }, orderBy: { name: "asc" } }),
   ]);
+  const kitchenOrders = await db.order.findMany({ where: { id: { in: orders.flatMap(order => order.kitchenOrderId ? [order.kitchenOrderId] : []) }, tab: { establishmentId: actor.establishment.id } }, select: { id: true, status: true } });
+  const kitchenStages = new Map(kitchenOrders.map(order => [order.id, order.status]));
   const products = offerings.map(offering => ({ id: offering.variant.product.id, name: offering.variant.product.name, category: offering.variant.product.category?.name ?? "Sem categoria", price: Number(offering.price), ingredientGroups: offering.variant.product.isCombo ? mapComboGroupsToIngredientGroups(offering.variant.product.comboGroups) : offering.variant.product.ingredientGroups.map(group => ({ id: group.id, productId: group.productId, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) })) }));
   const couriers = accesses.map(access => access.membership.user).filter(user => user.active).filter((user, index, list) => list.findIndex(candidate => candidate.id === user.id) === index).map(user => ({ id: user.id, name: user.name }));
   const activeCourierIds = [...new Set(orders.filter(order => order.status === "OUT_FOR_DELIVERY" && order.courierId).map(order => order.courierId as string))];
   const courierLocations = activeCourierIds.length ? await db.courierLocation.findMany({ where: { courierId: { in: activeCourierIds } } }) : [];
-  return Response.json({ orders: orders.map(serializeOrder), products, couriers, courierLocations: courierLocations.map(location => ({ courierId: location.courierId, lat: location.lat, lng: location.lng, updatedAt: location.updatedAt.toISOString() })), deliveryAreas: deliveryAreas.map(area => ({ ...area, deliveryFee: Number(area.deliveryFee) })), canManageDeliveryAreas: actor.canManageCatalog });
+  return Response.json({ orders: orders.map(order => ({ ...serializeOrder(order), kitchenOrderId: order.kitchenOrderId, kitchenStatus: kitchenStages.get(order.kitchenOrderId ?? "") ?? null })), products, couriers, courierLocations: courierLocations.map(location => ({ courierId: location.courierId, lat: location.lat, lng: location.lng, updatedAt: location.updatedAt.toISOString() })), deliveryAreas: deliveryAreas.map(area => ({ ...area, deliveryFee: Number(area.deliveryFee) })), canManageDeliveryAreas: actor.canManageCatalog });
 }
 
 export async function POST(request: Request) {
@@ -128,9 +132,10 @@ export async function POST(request: Request) {
       return Response.json({ ok: true });
     }
     if (data.action === "CHANGE_STATUS") {
-      const result = changeLocalDeliveryStatus(session.establishment.id, data.orderId, data.status, kitchenOrderId => cancelLocalCounterOrder(session.establishment.id, kitchenOrderId, session.user.id));
+      const result = changeLocalDeliveryStatus(session.establishment.id, data.orderId, data.status, kitchenOrderId => cancelLocalCounterOrder(session.establishment.id, kitchenOrderId, session.user.id), session.user.id);
       if (result === "NOT_FOUND") return Response.json({ error: "Pedido não encontrado." }, { status: 404 });
       if (result === "INVALID_TRANSITION") return Response.json({ error: "Esta mudança de etapa não é permitida." }, { status: 409 });
+      if (result === "KITCHEN_NOT_READY") return Response.json({ error: workflowMessages.KITCHEN_NOT_READY }, { status: 409 });
       if (result === "COURIER_REQUIRED") return Response.json({ error: "Defina o entregador antes de iniciar a rota." }, { status: 409 });
       recordLocalAudit({ ...base, action: "UPDATE", entityType: "DeliveryOrder", entityId: result.order.id, reason: `Etapa do delivery alterada`, before: { status: result.before }, after: { status: result.order.status } });
       return Response.json({ order: result.order });
@@ -175,8 +180,8 @@ export async function POST(request: Request) {
         // Delivery envia para a cozinha: mesmo pipeline Tab -> Order -> OrderItem do PDV (ADR 0044),
         // via a mesa virtual "Balcão" — mas, diferente do PDV, a comanda é criada já no pedido (não
         // no pagamento), porque a cozinha precisa preparar antes de o pedido sair para entrega e ser
-        // pago. Fica OPEN indefinidamente (nunca fechada por aqui); `kitchenOrderId` liga de volta
-        // para o pedido de delivery só para referência — nada no fluxo de pagamento depende dele.
+        // pago. A comanda fica aberta até pagamento/cancelamento; `kitchenOrderId` sincroniza
+        // preparo e retirada com o delivery, preservando um tíquete por pedido.
         const counterTable = await getCounterTable(tx, actor.establishment.id);
         const counterTab = await tx.tab.create({ data: { establishmentId: actor.establishment.id, tableId: counterTable.id, openedById: actor.user.id } });
         const tabItems = await Promise.all(created.items.map(item => tx.tabItem.create({ data: { tabId: counterTab.id, productId: item.productId, productName: item.productName, quantity: item.quantity, sentQuantity: item.quantity, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? undefined, addedById: actor.user.id } })));
@@ -203,22 +208,30 @@ export async function POST(request: Request) {
   }
 
   if (data.action === "CHANGE_STATUS") {
-    const current = await db.deliveryOrder.findFirst({ where: { id: data.orderId, establishmentId: actor.establishment.id } });
-    if (!current) return Response.json({ error: "Pedido não encontrado." }, { status: 404 });
-    if (data.status === DeliveryStatus.OUT_FOR_DELIVERY && !current.courierId) return Response.json({ error: "Defina o entregador antes de iniciar a rota." }, { status: 409 });
-    const validTransition = data.status === "CANCELLED" ? current.status !== "DELIVERED" && current.status !== "CANCELLED" : nextStatus[current.status] === data.status;
-    if (!validTransition) return Response.json({ error: "Esta mudança de etapa não é permitida." }, { status: 409 });
+    try {
     const updated = await db.$transaction(async tx => {
+      const current = await tx.deliveryOrder.findFirst({ where: { id: data.orderId, establishmentId: actor.establishment.id } });
+      if (!current) throw new Error("INVALID_TRANSITION");
+      const kitchen = await linkedKitchen(tx, actor.establishment.id, current.kitchenOrderId);
+      const problem = deliveryTransitionError(current, data.status, kitchen?.status ?? null);
+      if (problem) throw new Error(problem);
+      const context = { establishmentId: actor.establishment.id, organizationId: actor.organization.id, actorId: actor.user.id };
       const result = await tx.deliveryOrder.update({ where: { id: current.id }, data: { status: data.status } });
+      if (data.status === "PREPARING" && kitchen?.status === "RECEIVED") await setKitchenStage(tx, context, kitchen.id, "PREPARING", "Preparo iniciado pelo delivery");
+      if (data.status === "OUT_FOR_DELIVERY" || data.status === "DELIVERED") await setKitchenStage(tx, context, current.kitchenOrderId, "DELIVERED", "Pedido retirado da cozinha para entrega");
       if (data.status === "CANCELLED" && current.kitchenOrderId) {
-        const kitchenOrder = await tx.order.update({ where: { id: current.kitchenOrderId }, data: { status: "CANCELLED" }, select: { id: true, tabId: true } });
-        await tx.orderStatusHistory.create({ data: { orderId: current.kitchenOrderId, status: "CANCELLED", actorId: actor.user.id } });
-        await tx.tab.updateMany({ where: { id: kitchenOrder.tabId, status: "OPEN" }, data: { status: "CANCELLED", closedAt: new Date() } });
+        const kitchenOrder = await setKitchenStage(tx, context, current.kitchenOrderId, "CANCELLED", "Cancelamento do delivery");
+        if (kitchenOrder) await tx.tab.updateMany({ where: { id: kitchenOrder.tabId, status: "OPEN" }, data: { status: "CANCELLED", closedAt: new Date() } });
       }
       await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: current.id, reason: "Etapa do delivery alterada", before: { status: current.status }, after: { status: result.status } } });
       return result;
-    });
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     return Response.json({ order: { ...updated, items: [] } });
+    } catch (error) {
+      if (error instanceof Error && workflowMessages[error.message]) return Response.json({ error: workflowMessages[error.message] }, { status: 409 });
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2034") return Response.json({ error: "Pedido alterado por outra pessoa. Atualize e tente novamente." }, { status: 409 });
+      throw error;
+    }
   }
 
   if (data.courierId) {

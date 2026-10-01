@@ -1,3 +1,5 @@
+import { deliveryTransitionError, kitchenReady } from "./delivery-workflow.ts";
+import { getLocalCounterOrder, syncLocalCounterOrder } from "./local-floor.ts";
 import { randomUUID } from "node:crypto";
 import type { SelectedOptionSnapshot } from "./ingredient-options.ts";
 
@@ -13,10 +15,10 @@ const ordersFor = (establishmentId: string) => {
   return stores.get(establishmentId)!;
 };
 
-const nextStatus: Partial<Record<LocalDeliveryStatus, LocalDeliveryStatus>> = { RECEIVED: "PREPARING", PREPARING: "OUT_FOR_DELIVERY", OUT_FOR_DELIVERY: "DELIVERED" };
+
 
 export function listLocalDeliveryOrders(establishmentId: string) {
-  return ordersFor(establishmentId).slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(order => ({ ...order, items: order.items.map(item => ({ ...item })) }));
+  return ordersFor(establishmentId).slice().sort((a, b) => b.createdAt.localeCompare(a.createdAt)).map(order => ({ ...order, kitchenStatus: getLocalCounterOrder(establishmentId, order.kitchenOrderId)?.status ?? null, items: order.items.map(item => ({ ...item })) }));
 }
 
 export function getLocalDeliveryOrder(establishmentId: string, orderId: string) {
@@ -66,13 +68,15 @@ export function getLocalCourierLocations(courierIds: string[]) {
   return courierIds.filter(id => locations.has(id)).map(id => ({ courierId: id, ...locations.get(id)! }));
 }
 
-export function changeLocalDeliveryStatus(establishmentId: string, orderId: string, status: LocalDeliveryStatus, onCancelKitchenOrder?: (kitchenOrderId: string) => void) {
+export function changeLocalDeliveryStatus(establishmentId: string, orderId: string, status: LocalDeliveryStatus, onCancelKitchenOrder?: (kitchenOrderId: string) => void, actorId = "local-operator") {
   const order = ordersFor(establishmentId).find(candidate => candidate.id === orderId);
   if (!order) return "NOT_FOUND" as const;
-  if (order.status === "CANCELLED" || order.status === "DELIVERED") return "INVALID_TRANSITION" as const;
-  if (status === "CANCELLED") { const before = order.status; order.status = "CANCELLED"; order.updatedAt = new Date().toISOString(); if (order.kitchenOrderId) onCancelKitchenOrder?.(order.kitchenOrderId); return { order, before }; }
-  if (nextStatus[order.status] !== status) return "INVALID_TRANSITION" as const;
-  if (status === "OUT_FOR_DELIVERY" && !order.courierId) return "COURIER_REQUIRED" as const;
+  const kitchen = getLocalCounterOrder(establishmentId, order.kitchenOrderId);
+  const problem = deliveryTransitionError(order, status, kitchen?.status ?? null);
+  if (problem) return problem;
+  if (status === "CANCELLED") { syncLocalCounterOrder(establishmentId, order.kitchenOrderId, "CANCELLED", actorId); const before = order.status; order.status = "CANCELLED"; order.updatedAt = new Date().toISOString(); if (order.kitchenOrderId) onCancelKitchenOrder?.(order.kitchenOrderId); return { order, before }; }
+  if (status === "PREPARING" && kitchen?.status === "RECEIVED") syncLocalCounterOrder(establishmentId, kitchen.id, "PREPARING", actorId);
+  if (status === "OUT_FOR_DELIVERY" || status === "DELIVERED") syncLocalCounterOrder(establishmentId, order.kitchenOrderId, "DELIVERED", actorId);
   const before = order.status; order.status = status; order.updatedAt = new Date().toISOString(); return { order, before };
 }
 
@@ -84,9 +88,11 @@ export function assignLocalCourier(establishmentId: string, orderId: string, cou
   return { ...order, items: order.items.map(item => ({ ...item })) };
 }
 
-export function attachLocalDeliverySale(establishmentId: string, orderId: string, saleId: string) {
+export function attachLocalDeliverySale(establishmentId: string, orderId: string, saleId: string, actorId = "local-operator") {
   const order = ordersFor(establishmentId).find(candidate => candidate.id === orderId);
   if (!order) return "NOT_FOUND" as const;
+  if (order.status !== "OUT_FOR_DELIVERY" || (order.kitchenOrderId && !kitchenReady(getLocalCounterOrder(establishmentId, order.kitchenOrderId)?.status))) return "INVALID_TRANSITION" as const;
+  syncLocalCounterOrder(establishmentId, order.kitchenOrderId, "DELIVERED", actorId);
   order.saleId = saleId;
   order.status = "DELIVERED";
   order.updatedAt = new Date().toISOString();
@@ -109,4 +115,9 @@ export function setLocalDeliveryLocation(establishmentId: string, orderId: strin
   order.destinationLng = lng;
   order.updatedAt = new Date().toISOString();
   return { ...order };
+}
+
+export function syncLocalDeliveryPreparation(establishmentId: string, kitchenOrderId: string) {
+  const order = ordersFor(establishmentId).find(candidate => candidate.kitchenOrderId === kitchenOrderId);
+  if (order?.status === "RECEIVED") { order.status = "PREPARING"; order.updatedAt = new Date().toISOString(); }
 }
