@@ -24,6 +24,7 @@ import { listLocalSalesForManagement } from "@/lib/local-finance";
 import { getLocalFiscalConfig, upsertLocalFiscalDocument } from "@/lib/local-fiscal";
 import { focusNfeProvider } from "@/lib/fiscal/focus-nfe";
 import { mockFiscalProvider } from "@/lib/fiscal/mock-provider";
+import { dispatchDeliveryWhatsAppAutomation } from "@/lib/whatsapp-automation";
 import type { FiscalPaymentInput, FiscalSaleItemInput } from "@/lib/fiscal/types";
 
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
@@ -410,7 +411,7 @@ export async function POST(request: Request) {
         }
         kitchenTicket = { orderId: counterOrder.id, sentAt: counterOrder.sentAt.toISOString(), tickets: [...grouped.values()] };
       }
-      return { sale: created, kitchenTicket, fiscalItems, fiscalPayments: payments.map(payment => ({ method: payment.method, amount: payment.amount }) as FiscalPaymentInput), cnpj: establishment.document };
+      return { sale: created, kitchenTicket, deliveryOrderId: deliveryOrder?.id ?? null, fiscalItems, fiscalPayments: payments.map(payment => ({ method: payment.method, amount: payment.amount }) as FiscalPaymentInput), cnpj: establishment.document };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
     // Emissão de NFC-e (ADR 0049): sempre DEPOIS que a transação da venda já foi confirmada, e
@@ -418,6 +419,7 @@ export async function POST(request: Request) {
     // cobrar o cliente. Uma falha aqui vira um FiscalDocument com status ERROR, visível e
     // re-emitível na tela de Notas fiscais, não um erro 500 na hora de vender.
     const fiscalStatus = await tryEmitFiscalDocument(actor.session.establishment.id, sale.sale.id, sale.cnpj, sale.fiscalItems, sale.fiscalPayments);
+    if (sale.deliveryOrderId) void dispatchDeliveryWhatsAppAutomation(sale.deliveryOrderId, "DELIVERED").catch(() => {});
     return Response.json({ sale: { id: sale.sale.id, total: Number(sale.sale.total) }, kitchenTicket: sale.kitchenTicket, fiscal: fiscalStatus }, { status: 201 });
   } catch (error) {
     if (error instanceof IngredientOptionError) return Response.json({ error: error.message }, { status: 400 });

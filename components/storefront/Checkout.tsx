@@ -8,7 +8,7 @@ import { formatAddressLines, formatCents, type DeliveryAddress } from "@/lib/sto
 import { Dialog, cx } from "./primitives";
 import styles from "./storefront.module.css";
 
-export type CheckoutForm = { name: string; phone: string; fulfillment: "delivery" | "pickup"; notes: string; paymentMethod: string | null };
+export type CheckoutForm = { name: string; phone: string; fulfillment: "delivery" | "pickup"; notes: string; paymentMethod: string | null; accountInviteOptIn: boolean };
 export type CheckoutResult = { kind: "live"; orderId: string; feeToConfirm: boolean } | { kind: "demo" };
 
 type Totals = { subtotalCents: number; discountCents: number; deliveryFeeCents: number | null; totalCents: number; totalIsFinal: boolean };
@@ -40,7 +40,7 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
   onSubmit: (form: CheckoutForm) => Promise<CheckoutResult>;
   onFinished: () => void;
 }) {
-  const [form, setForm] = useState<CheckoutForm>({ name: "", phone: "", fulfillment: "delivery", notes: "", paymentMethod: null });
+  const [form, setForm] = useState<CheckoutForm>({ name: "", phone: "", fulfillment: "delivery", notes: "", paymentMethod: null, accountInviteOptIn: false });
   useEffect(() => { if (customer) queueMicrotask(() => setForm(current => ({ ...current, name: customer.name, phone: formatPhone(customer.phone.replace(/^55/, "")) }))); }, [customer]);
   const [submitted, setSubmitted] = useState(false);
   const [sending, setSending] = useState(false);
@@ -112,6 +112,9 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
           </label>
         </div>
         <p className={styles.formNote}>Usamos nome e telefone somente para preparar, entregar e confirmar este pedido.</p>
+        {!customer && !isDemo && <label className={styles.field}>
+          <span><input type="checkbox" checked={form.accountInviteOptIn} onChange={event => setForm({ ...form, accountInviteOptIn: event.target.checked })} /> Quero receber no WhatsApp um convite para criar conta e participar de futuros programas desta loja.</span>
+        </label>}
       </section>
 
       <section className={styles.checkoutStep} aria-labelledby="checkout-entrega">

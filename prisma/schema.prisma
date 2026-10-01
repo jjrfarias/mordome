@@ -290,6 +290,7 @@ model Establishment {
   customerSessions CustomerSession[]
   customerChallenges CustomerChallenge[]
   customerAccountEvents CustomerAccountEvent[]
+  whatsappAutomationEvents WhatsAppAutomationEvent[]
   whatsappConnection WhatsAppConnection?
   id               String                       @id @default(cuid())
   organizationId   String
@@ -620,6 +621,7 @@ model DiningTable {
 model DeliveryOrder {
   customerAccountId String?
   customerAccount CustomerAccount? @relation(fields: [customerAccountId, establishmentId], references: [id, establishmentId])
+  accountInviteOptIn Boolean @default(false)
   id              String         @id @default(cuid())
   establishmentId String
   customerName    String
@@ -647,8 +649,10 @@ model DeliveryOrder {
   deliveryArea    DeliveryArea?  @relation(fields: [deliveryAreaId], references: [id], onDelete: SetNull)
   customer        Customer?      @relation(fields: [customerId], references: [id], onDelete: SetNull)
   items           DeliveryOrderItem[]
+  whatsappAutomationEvents WhatsAppAutomationEvent[]
 
   @@index([establishmentId, customerAccountId, createdAt])
+  @@unique([id, establishmentId])
 
   @@index([establishmentId, status])
   @@index([establishmentId, deliveryAreaId])
@@ -1621,8 +1625,23 @@ model WhatsAppConnection {
   establishmentId String @id
   enabled Boolean @default(false)
   credentialsCiphertext String?
+  automation Json?
   updatedAt DateTime @updatedAt
   establishment Establishment @relation(fields: [establishmentId], references: [id])
+}
+
+model WhatsAppAutomationEvent {
+  id String @id @default(cuid())
+  establishmentId String
+  deliveryOrderId String
+  event String
+  sentAt DateTime?
+  failedAt DateTime?
+  createdAt DateTime @default(now())
+  deliveryOrder DeliveryOrder @relation(fields: [deliveryOrderId, establishmentId], references: [id, establishmentId], onDelete: Cascade)
+  establishment Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  @@unique([deliveryOrderId, event])
+  @@index([establishmentId, createdAt])
 }
 
 model CustomerAccountEvent {
