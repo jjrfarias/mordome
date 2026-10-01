@@ -30,6 +30,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
   const [deliveryAreas, setDeliveryAreas] = useState<DeliveryArea[]>([]);
   const [canManageDeliveryAreas, setCanManageDeliveryAreas] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [lastRefreshAt, setLastRefreshAt] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
@@ -41,6 +42,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
       const response = await fetch("/api/operations/delivery", { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar o delivery.");
+      setLastRefreshAt(Date.now());
       setOrders(data.orders ?? []); setProducts(data.products ?? []); setCouriers(data.couriers ?? []); setCourierLocations(data.courierLocations ?? []); setDeliveryAreas(data.deliveryAreas ?? []); setCanManageDeliveryAreas(Boolean(data.canManageDeliveryAreas)); setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar o delivery."); } finally { setLoading(false); }
   };
@@ -67,6 +69,11 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
       <div className="stat"><div><Truck /></div><section><b>{outForDelivery}</b><span>em rota</span></section></div>
       <div className="stat"><div><Bike /></div><section><b>{couriers.length}</b><span>entregadores disponíveis</span></section></div>
     </div>
+    <div className="delivery-courier-status" aria-label="Última localização dos entregadores">{couriers.map(courier => {
+      const location = courierLocations.find(point => point.courierId === courier.id);
+      const stale = location && lastRefreshAt - new Date(location.updatedAt).getTime() > 120000;
+      return <span key={courier.id}><strong>{courier.name}</strong> · {location ? `${stale ? "Localização antiga" : "Atualizado"} às ${new Date(location.updatedAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}` : "Sem localização"}</span>;
+    })}</div>
     <DeliveryMap
       destinations={active.filter(order => order.destinationLat !== null && order.destinationLng !== null).map(order => ({ orderId: order.id, lat: order.destinationLat!, lng: order.destinationLng!, label: order.customerName }))}
       couriers={courierLocations.map(location => ({ courierId: location.courierId, lat: location.lat, lng: location.lng, label: couriers.find(candidate => candidate.id === location.courierId)?.name ?? "Entregador" }))}

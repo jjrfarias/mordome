@@ -394,3 +394,19 @@ Obrigatória para alteração de permissões, cancelamento, desconto, mudança d
 - O checkout tem identificação, entrega, pagamento (combinado com o estabelecimento) e revisão. O envio usa o `POST` público existente, com recálculo no servidor e idempotência.
 - Gerenciado no painel (ADR 0058): preço anterior ("de") por unidade e marcação vegetariana em Configurações → Cardápio; ordem das categorias no painel "Ordem das categorias no cardápio"; telefone de contato da unidade em Configurações → Estabelecimentos.
 - Atalhos, selos, cupom, fidelidade, benefícios, prazo e retirada só aparecem quando existem dados ou integração reais. A demonstração completa fica em `/pedido-online/demonstracao`, desligada em produção salvo `STOREFRONT_DEMO_ENABLED=true`.
+
+## Percurso de delivery (evolução do mapa)
+
+- O entregador escolhe a próxima entrega entre seus pedidos em rota com coordenadas. Ela vem primeiro; as demais mantêm a ordem recebida. A seleção é temporária, não uma otimização automática nem uma alteração do pedido.
+- Até 24 paradas numeradas por percurso, com trajeto pelas ruas, distância, duração estimada e lista de instruções em português. O OSRM continua usando o perfil automóvel; não inclui trânsito em tempo real nem navegação por voz.
+- A localização é compartilhada apenas com a opção ativa e a tela aberta. O percurso é recalculado nas atualizações de posição (no máximo uma atualização de posição a cada 10 segundos), com cancelamento de consultas antigas e cache temporário por componente.
+- Falhas de roteamento são explícitas, com recálculo manual. Não se apresenta linha reta como rota real. Pedidos sem coordenadas permanecem nos cartões.
+- Não muda autenticação, permissões, escopo das APIs, cobrança ou conclusão de entrega. Não adiciona provedores ou dependências. Segue ADR 0014 para o OSRM público.
+- Referência do contrato de manobras: https://project-osrm.org/docs/v5.24.0/api/ (consulta em 01/10/2026).
+
+### Validação desta evolução (01/10/2026)
+
+- Typecheck e build aprovados; build usa URL local fictícia apenas para carregar a configuração Prisma, sem migration ou acesso à produção.
+- Lint sem erros (23 avisos na base). Quatro testes novos de roteamento aprovados.
+- Navegador desktop e 390 px: login local, localização simulada, seleção de próxima parada, instruções, falha/recálculo, interrupção do compartilhamento e mapa vazio. Sem erros de JavaScript ou overflow horizontal. Pedidos e respostas de rota simulados; tiles reais. Consulta separada ao OSRM real com pontos públicos retornou 161 coordenadas e 15 instruções.
+- Suíte padrão: 249/263 aprovados; 14 falhas em testes existentes com períodos fixos de setembro de 2026. Diagnóstico com relógio do processo deslocado para setembro (sem modificar testes ou código): 263/263 aprovados. A dependência da data atual nesses testes continua pendente.
