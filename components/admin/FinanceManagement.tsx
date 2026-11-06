@@ -1,3 +1,4 @@
+import { PosFinanceSettings } from "./PosFinanceSettings";
 import { FinanceWorkspace, type FinanceProps } from "./FinanceWorkspace";
 import { useEffect, useState } from "react";
 import { PeriodFilter, startOfMonth, toDateInput } from "@/components/admin/PeriodFilter";
@@ -8,7 +9,7 @@ type PaymentMethodConfig = { id: string; name: string; kind: string; feeRate: nu
 type Supplier = { id: string; name: string; tradeName: string | null; document: string | null; phone: string | null; email: string | null; notes: string | null; active: boolean };
 type ReconciliationEntry = { id: string; description: string; amount: number | string; paidAt: string | null; reconciled: boolean; reconciledAt: string | null };
 
-type FinanceSection = "categories" | "accounts" | "methods" | "suppliers" | "entries" | "cashflow" | "settlements" | "reconciliation";
+type FinanceSection = "pos" | "categories" | "accounts" | "methods" | "suppliers" | "entries" | "cashflow" | "settlements" | "reconciliation";
 type CommissionRule = { id: string; userId: string; role: "COURIER" | "WAITER"; amountPerDelivery: number | string | null; percentOfSales: number | string | null };
 type SettlementCandidate = { userId: string; userName?: string; role: "COURIER" | "WAITER"; deliveryCount: number; salesTotal: number; hasRule: boolean; amount: number };
 type SettlementHistoryItem = { id: string; userId: string; role: "COURIER" | "WAITER"; from: string; to: string; amount: number | string; paidAt: string; user?: { name: string } };
@@ -22,7 +23,7 @@ export function FinanceManagement(props: FinanceProps) {
 }
 
 function FinanceSettings({ activeEstablishmentId, canManageFinance, canManageFinanceEntries, canManageSettlements }: { activeEstablishmentId: string; canManageFinance: boolean; canManageFinanceEntries: boolean; canViewFinanceCashflow: boolean; canManageSettlements: boolean }) {
-  const initialSection: FinanceSection = canManageFinance ? "categories" : canManageFinanceEntries ? "reconciliation" : "settlements";
+  const initialSection: FinanceSection = canManageFinance ? "pos" : canManageFinanceEntries ? "reconciliation" : "settlements";
   const [section, setSection] = useState<FinanceSection>(initialSection);
 
   return <section className="page-content">
@@ -32,6 +33,7 @@ function FinanceSettings({ activeEstablishmentId, canManageFinance, canManageFin
       </div>
       <p className="section-note">Categorias, contas, fornecedores, formas de pagamento, acertos e conciliação manual. Use as abas principais para acompanhar pagamentos e recebimentos.</p>
       <nav className="settings-tabs" aria-label="Seções do financeiro">
+        {canManageFinance && <button className={section === "pos" ? "active" : ""} onClick={() => setSection("pos")}>Recebimentos do PDV</button>}
         {canManageFinance && <button className={section === "categories" ? "active" : ""} onClick={() => setSection("categories")}>Categorias</button>}
         {canManageFinance && <button className={section === "accounts" ? "active" : ""} onClick={() => setSection("accounts")}>Contas bancárias</button>}
         {canManageFinance && <button className={section === "methods" ? "active" : ""} onClick={() => setSection("methods")}>Formas de pagamento</button>}
@@ -40,6 +42,7 @@ function FinanceSettings({ activeEstablishmentId, canManageFinance, canManageFin
         {canManageFinanceEntries && <button className={section === "reconciliation" ? "active" : ""} onClick={() => setSection("reconciliation")}>Conciliação bancária</button>}
       </nav>
     </section>
+    {section === "pos" && canManageFinance && <PosFinanceSettings />}
     {section === "categories" && canManageFinance && <CategoriesTab />}
     {section === "accounts" && canManageFinance && <BankAccountsTab activeEstablishmentId={activeEstablishmentId} />}
     {section === "methods" && canManageFinance && <PaymentMethodsTab activeEstablishmentId={activeEstablishmentId} />}

@@ -1,3 +1,4 @@
+import { cents } from "@/lib/finance-ledger";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
@@ -50,7 +51,7 @@ export async function GET(request: Request) {
   if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
   if (!session.permissionKeys.includes(REPORTS_DRE_VIEW)) return Response.json({ error: "Acesso negado." }, { status: 403 });
 
-  const [sales, establishmentItems, financialEntries] = await Promise.all([
+  const [sales, establishmentItems, financialEntries, posFees] = await Promise.all([
     db.sale.findMany({
       where: { organizationId: session.organization.id, establishmentId: session.establishment.id, status: { in: ["COMPLETED", "PARTIALLY_REFUNDED"] }, completedAt: { gte: fromDate, lte: toDate } },
       include: { items: true, refunds: true },
@@ -60,8 +61,12 @@ export async function GET(request: Request) {
       select: { inventoryItemId: true, movements: { where: { type: "ENTRY", unitCost: { not: null } }, select: { quantity: true, unitCost: true } } },
     }),
     db.financialEntry.findMany({
-      where: { establishmentId: session.establishment.id, status: "PAID", paidAt: { gte: fromDate, lte: toDate } },
+      where: { organizationId: session.organization.id, establishmentId: session.establishment.id, voidedAt: null, sourcePaymentId: null, sourceRefundPaymentId: null, reversalOfId: null, status: "PAID", paidAt: { gte: fromDate, lte: toDate } },
       include: { category: true },
+    }),
+    db.financialEntry.findMany({
+      where: { organizationId: session.organization.id, establishmentId: session.establishment.id, voidedAt: null, sourcePayment: { sale: { organizationId: session.organization.id, establishmentId: session.establishment.id, status: { not: "CANCELLED" }, completedAt: { gte: fromDate, lte: toDate } } } },
+      select: { feeAmount: true },
     }),
   ]);
 
@@ -101,7 +106,8 @@ export async function GET(request: Request) {
 
   // Despesas operacionais / Outras receitas: lançamentos financeiros pagos no período, separados
   // por categoria INCOME/EXPENSE — mesma lógica já usada pelo Fluxo de caixa.
-  let operatingExpenses = 0;
+  // PDV revenue/refunds are already counted through sales. Only fees add a new expense.
+  let operatingExpenses = posFees.reduce((sum, entry) => sum + cents(entry.feeAmount ?? "0"), 0) / 100;
   let otherIncome = 0;
   for (const entry of financialEntries) {
     if (entry.category.kind === "INCOME") otherIncome += Number(entry.amount);

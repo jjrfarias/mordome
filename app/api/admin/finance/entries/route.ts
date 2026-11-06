@@ -28,7 +28,7 @@ function localReferences(org: string, unit: string, data: References) {
     (!data.supplierId || listLocalSuppliers(org).some(s => s.id === data.supplierId && s.active));
 }
 function safeError(error: unknown) {
-  const allowed = ["Categoria inválida.", "Conta inválida.", "Forma de pagamento inválida.", "Fornecedor inválido.", "Lançamento não encontrado.", "Informe a conta e a data efetiva da baixa.", "Desfaça a conciliação antes de alterar este lançamento.", "A data efetiva não pode estar no futuro.", "Esta solicitação já foi usada com outros dados."];
+  const allowed = ["Venda cancelada: o recebimento original é preservado junto com o estorno.","Este lançamento foi anulado pelo PDV.", "Valores e origem do PDV não podem ser alterados manualmente.","Categoria inválida.", "Conta inválida.", "Forma de pagamento inválida.", "Fornecedor inválido.", "Lançamento não encontrado.", "Informe a conta e a data efetiva da baixa.", "Desfaça a conciliação antes de alterar este lançamento.", "A data efetiva não pode estar no futuro.", "Esta solicitação já foi usada com outros dados."];
   if (error instanceof Error && allowed.includes(error.message)) return fail(error.message, error.message === "Lançamento não encontrado." ? 404 : 409);
   return fail("Não foi possível salvar. Atualize os dados antes de tentar novamente.", 409);
 }
@@ -43,7 +43,7 @@ export async function GET(request: Request) {
   const scope = { organizationId: session.organization.id, establishmentId: session.establishment.id };
   if (local) return Response.json({ entries: listLocalFinancialEntries(scope.establishmentId, { status: status as "PAID" | "PENDING" | undefined, from: from ?? undefined, to: to ? `${to}T23:59:59.999Z` : undefined }), categories: listLocalFinancialCategories(scope.organizationId), bankAccounts: listLocalBankAccounts(scope.establishmentId), paymentMethods: listLocalPaymentMethods(scope.establishmentId), suppliers: listLocalSuppliers(scope.organizationId) });
   const [entries, categories, bankAccounts, paymentMethods, suppliers] = await Promise.all([
-    db.financialEntry.findMany({ where: { ...scope, status: status as "PAID" | "PENDING" | undefined || undefined, dueDate: from || to ? { gte: from ? new Date(from) : undefined, lte: to ? new Date(`${to}T23:59:59.999Z`) : undefined } : undefined }, orderBy: [{ dueDate: "asc" }, { id: "asc" }] }),
+    db.financialEntry.findMany({ where: { ...scope, status: status as "PAID" | "PENDING" | undefined || undefined, dueDate: from || to ? { gte: from ? new Date(from) : undefined, lte: to ? new Date(`${to}T23:59:59.999Z`) : undefined } : undefined }, include: { sourcePayment: { select: { sale: { select: { status: true } } } } }, orderBy: [{ dueDate: "asc" }, { id: "asc" }] }),
     db.financialCategory.findMany({ where: { organizationId: scope.organizationId }, orderBy: { name: "asc" } }),
     db.bankAccount.findMany({ where: { establishmentId: scope.establishmentId }, orderBy: { name: "asc" } }),
     db.paymentMethodConfig.findMany({ where: { establishmentId: scope.establishmentId }, orderBy: { name: "asc" } }),
@@ -107,8 +107,11 @@ export async function PATCH(request: Request) {
   try {
     const entry = await db.$transaction(async tx => {
       await tx.$queryRaw`SELECT "id" FROM "FinancialEntry" WHERE "id" = ${entryId} AND "organizationId" = ${scope.organizationId} AND "establishmentId" = ${scope.establishmentId} FOR UPDATE`;
-      const current = await tx.financialEntry.findFirst({ where: { id: entryId, ...scope } });
+      const current = await tx.financialEntry.findFirst({ where: { id: entryId, ...scope }, include: { sourcePayment: { select: { sale: { select: { status: true } } } } } });
       if (!current) throw new Error("Lançamento não encontrado.");
+      if (current.sourcePayment?.sale.status === "CANCELLED") throw new Error("Venda cancelada: o recebimento original é preservado junto com o estorno.");
+      if (current.voidedAt) throw new Error("Este lançamento foi anulado pelo PDV.");
+      if ((current.sourcePaymentId || current.sourceRefundPaymentId || current.reversalOfId) && [data.amount, data.categoryId, data.description, data.paymentMethodId, data.supplierId].some(v => v !== undefined)) throw new Error("Valores e origem do PDV não podem ser alterados manualmente.");
       if (current.reconciled) throw new Error("Desfaça a conciliação antes de alterar este lançamento.");
       await references(tx, scope.organizationId, scope.establishmentId, data);
       const status = data.status ?? current.status;

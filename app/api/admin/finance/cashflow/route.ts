@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     const categories = listLocalFinancialCategories(scope.organizationId);
     return { accounts: listLocalBankAccounts(scope.establishmentId).map(a => ({ ...a, balanceAsOf: a.balanceAsOf ?? null })), entries: listLocalFinancialEntries(scope.establishmentId).map(e => ({ ...e, kind: categories.find(c => c.id === e.categoryId)!.kind })) };
   })() : await db.$transaction(async tx => {
-    const [accounts, entries] = await Promise.all([tx.bankAccount.findMany({ where: { establishmentId: scope.establishmentId, establishment: { organizationId: scope.organizationId } } }), tx.financialEntry.findMany({ where: scope, include: { category: true } })]);
+    const [accounts, entries] = await Promise.all([tx.bankAccount.findMany({ where: { establishmentId: scope.establishmentId, establishment: { organizationId: scope.organizationId } } }), tx.financialEntry.findMany({ where: { ...scope, voidedAt: null }, include: { category: true } })]);
     return { accounts: accounts.map(a => ({ ...a, initialBalance: a.initialBalance.toString(), balanceAsOf: a.balanceAsOf?.toISOString() ?? null })), entries: entries.map(e => ({ ...e, amount: e.amount.toString(), dueDate: e.dueDate.toISOString(), paidAt: e.paidAt?.toISOString() ?? null, kind: e.category.kind })) };
   }, { isolationLevel: "RepeatableRead" });
   const items = data.entries.filter(e => e.status === "PAID" && e.paidAt && businessDay(e.paidAt) >= from && businessDay(e.paidAt) <= to).map(e => ({ id: e.id, date: e.paidAt!, description: e.description, type: e.kind === "INCOME" ? "IN" : "OUT", amount: cents(e.amount) / 100, source: "ENTRY" }));

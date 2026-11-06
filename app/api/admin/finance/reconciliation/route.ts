@@ -60,7 +60,7 @@ export async function GET(request: Request) {
 
   const [entries, bankAccounts] = await Promise.all([
     db.financialEntry.findMany({
-      where: { establishmentId: actor.establishment.id, bankAccountId, status: "PAID", paidAt: { gte: fromDate, lte: toDate } },
+      where: { establishmentId: actor.establishment.id, bankAccountId, status: "PAID", voidedAt: null, paidAt: { gte: fromDate, lte: toDate } },
       orderBy: { paidAt: "asc" },
     }),
     db.bankAccount.findMany({ where: { establishmentId: actor.establishment.id, active: true }, orderBy: { name: "asc" } }),
@@ -99,6 +99,7 @@ export async function PATCH(request: Request) {
     const current = await tx.financialEntry.findMany({ where: { id: { in: ids }, establishmentId: actor.establishment.id, organizationId: actor.organization.id } });
     if (current.length !== ids.length) throw new Error("Lançamento não encontrado.");
     if (data.reconciled && current.some(e => e.status !== "PAID" || !e.paidAt || !e.bankAccountId)) throw new Error("Somente baixas com conta e data efetiva podem ser conciliadas.");
+    if (current.some(e => e.voidedAt)) throw new Error("Somente baixas com conta e data efetiva podem ser conciliadas.");
     const result = await Promise.all(current.map(entry => tx.financialEntry.update({
       where: { id: entry.id },
       data: {

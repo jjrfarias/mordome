@@ -1,3 +1,4 @@
+import { syncPosSale, cancelPosReceipts } from "@/lib/pos-finance";
 import { getLocalCounterOrder } from "@/lib/local-floor";
 import { linkedKitchen, setKitchenStage } from "@/lib/delivery-kitchen";
 import { kitchenReady, workflowMessages } from "@/lib/delivery-workflow";
@@ -253,6 +254,7 @@ export async function POST(request: Request) {
   if (!actor) return Response.json({ error: "Não autenticado." }, { status: 401 });
   if (data.action === "CANCEL") { if (!actor.session.canCancelSales) return Response.json({ error: "Você não tem permissão para cancelar vendas." }, { status: 403 }); return cancelSale(actor.session, data, requestAuditMetadata(request)); }
   if (data.action === "REFUND") { if (!actor.session.canRefundSales) return Response.json({ error: "Você não tem permissão para registrar reembolsos." }, { status: 403 }); return refundSale(actor.session, data, requestAuditMetadata(request)); }
+  if (data.channel === "POS" && data.payments.some(p => !paymentMethods[p.method])) return Response.json({ error: "Forma de pagamento do PDV inválida." }, { status: 400 });
   if (data.channel === "POS" && !actor.session.canSellPos) return Response.json({ error: "Acesso negado ao PDV." }, { status: 403 });
   if (data.channel === "FLOOR" && !actor.session.canOperateFloor) return Response.json({ error: "Acesso negado ao salão." }, { status: 403 });
   if (data.channel === "DELIVERY" && !actor.session.canOperateDelivery) return Response.json({ error: "Acesso negado ao delivery." }, { status: 403 });
@@ -368,7 +370,8 @@ export async function POST(request: Request) {
       const total = roundMoney(grossTotal - resolvedDiscount); const payments = resolvePayments(data.payments);
       if (roundMoney(payments.reduce((sum, payment) => sum + payment.amount, 0)) !== total) throw new Error("PAYMENT_MISMATCH");
       if (payments.some(payment => payment.method !== "CASH" && payment.receivedAmount !== undefined)) throw new Error("CHANGE_ONLY_CASH");
-      const created = await tx.sale.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, cashSessionId: cash.id, operatorId: actor.session.user.id, channel: data.channel, subtotal, discount: resolvedDiscount, serviceAmount, deliveryFee, total, idempotencyKey: data.idempotencyKey, items: { create: saleItems }, payments: { create: payments } } });
+      const created = await tx.sale.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, cashSessionId: cash.id, operatorId: actor.session.user.id, channel: data.channel, financeTracked: data.channel === "POS", subtotal, discount: resolvedDiscount, serviceAmount, deliveryFee, total, idempotencyKey: data.idempotencyKey, items: { create: saleItems }, payments: { create: payments } } });
+      if (data.channel === "POS") await syncPosSale(tx, { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id }, created.id);
       await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "SALE_COMPLETE", entityType: "Sale", entityId: created.id, reason: tab ? `Fechamento da mesa ${tab.table.number}` : deliveryOrder ? `Pedido de delivery para ${deliveryOrder.customerName}` : "Venda direta no PDV", after: { channel: data.channel, table: tab?.table.number, tabId: tab?.id, deliveryOrderId: deliveryOrder?.id, payments, discount: resolvedDiscount, discountReason: resolvedDiscountReason, couponCode: appliedCoupon?.code ?? null, items: saleItems.map(item => ({ productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, total: item.total })), subtotal, serviceAmount, total, cashSessionId: cash.id }, ...requestAuditMetadata(request) } });
       if (resolvedDiscount > 0) await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "DISCOUNT_APPLY", entityType: "Sale", entityId: created.id, reason: resolvedDiscountReason!, after: { amount: resolvedDiscount, percent: grossTotal ? roundMoney(resolvedDiscount / grossTotal * 100) : 0 }, ...requestAuditMetadata(request) } });
       if (appliedCoupon) {
@@ -453,12 +456,14 @@ export async function POST(request: Request) {
 async function cancelSale(session: NonNullable<Awaited<ReturnType<typeof getCurrentSession>>>, data: z.infer<typeof cancelSchema>, metadata: ReturnType<typeof requestAuditMetadata>) {
   try {
     const sale = await db.$transaction(async tx => {
+      await tx.$queryRaw`SELECT "id" FROM "Sale" WHERE "id" = ${data.saleId} AND "organizationId" = ${session.organization.id} AND "establishmentId" = ${session.establishment.id} FOR UPDATE`;
       const current = await tx.sale.findFirst({ where: { id: data.saleId, organizationId: session.organization.id, establishmentId: session.establishment.id }, include: { cashSession: true } });
       if (!current) throw new Error("SALE_NOT_FOUND");
       if (current.status === "CANCELLED") return current;
       if (current.cashSession?.status !== "OPEN") throw new Error("CASH_CLOSED");
       const claimed = await tx.sale.updateMany({ where: { id: current.id, status: "COMPLETED" }, data: { status: "CANCELLED", cancelledAt: new Date() } });
       if (claimed.count !== 1) throw new Error("ALREADY_CANCELLED");
+      await cancelPosReceipts(tx, { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id }, current.id);
       const consumptions = await tx.stockMovement.findMany({ where: { sourceType: "SALE", sourceId: current.idempotencyKey, type: "CONSUMPTION", establishmentItem: { establishmentId: session.establishment.id } } });
       for (const movement of consumptions) await tx.stockMovement.create({ data: { establishmentItemId: movement.establishmentItemId, type: "REVERSAL", quantity: -Number(movement.quantity), unitCost: movement.unitCost, actorId: session.user.id, sourceType: "SALE_CANCELLATION", sourceId: current.id, reason: data.reason, idempotencyKey: `${data.idempotencyKey}:${movement.id}` } });
       await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "SALE_CANCEL", entityType: "Sale", entityId: current.id, reason: data.reason, before: { status: current.status, total: Number(current.total) }, after: { status: "CANCELLED" }, ...metadata } });
@@ -478,7 +483,8 @@ async function cancelSale(session: NonNullable<Awaited<ReturnType<typeof getCurr
 async function refundSale(session: NonNullable<Awaited<ReturnType<typeof getCurrentSession>>>, data: z.infer<typeof refundSchema>, metadata: ReturnType<typeof requestAuditMetadata>) {
   try {
     const refund = await db.$transaction(async tx => {
-      const duplicate = await tx.refund.findUnique({ where: { idempotencyKey: data.idempotencyKey } }); if (duplicate) return duplicate;
+      await tx.$queryRaw`SELECT "id" FROM "Sale" WHERE "id" = ${data.saleId} AND "organizationId" = ${session.organization.id} AND "establishmentId" = ${session.establishment.id} FOR UPDATE`;
+      const duplicate = await tx.refund.findFirst({ where: { idempotencyKey: data.idempotencyKey, saleId: data.saleId, sale: { organizationId: session.organization.id, establishmentId: session.establishment.id } } }); if (duplicate) return duplicate;
       const sale = await tx.sale.findFirst({ where: { id: data.saleId, organizationId: session.organization.id, establishmentId: session.establishment.id, status: { in: ["COMPLETED", "PARTIALLY_REFUNDED"] } }, include: { refunds: true } });
       if (!sale) throw new Error("REFUND_SALE_NOT_FOUND");
       const refundedBefore = roundMoney(sale.refunds.reduce((sum, item) => sum + Number(item.amount), 0)); const remaining = roundMoney(Number(sale.total) - refundedBefore);
@@ -497,6 +503,7 @@ async function refundSale(session: NonNullable<Awaited<ReturnType<typeof getCurr
         const consumptions = await tx.stockMovement.findMany({ where: { sourceType: "SALE", sourceId: sale.idempotencyKey, type: "CONSUMPTION", establishmentItem: { establishmentId: session.establishment.id } } });
         for (const movement of consumptions) await tx.stockMovement.create({ data: { establishmentItemId: movement.establishmentItemId, type: "REVERSAL", quantity: -Number(movement.quantity), unitCost: movement.unitCost, actorId: session.user.id, sourceType: "SALE_REFUND", sourceId: created.id, reason: data.reason, idempotencyKey: `${data.idempotencyKey}:${movement.id}` } });
       }
+      await syncPosSale(tx, { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id }, sale.id);
       const status = totalRefund ? "REFUNDED" : "PARTIALLY_REFUNDED"; await tx.sale.update({ where: { id: sale.id }, data: { status } });
       await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "SALE_REFUND", entityType: "Refund", entityId: created.id, reason: data.reason, before: { saleStatus: sale.status, refunded: refundedBefore }, after: { saleId: sale.id, amount: data.amount, payments, restoreStock: data.restoreStock, saleStatus: status }, ...metadata } });
       return created;
