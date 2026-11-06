@@ -21,7 +21,7 @@ async function actor(request: Request) {
 }
 export async function GET(request: Request) {
   const scope = await actor(request); if (!scope) return Response.json({ error: "Acesso negado. A integração requer o ambiente com banco de dados." }, { status: 403 });
-  const saleScope = { organizationId: scope.organizationId, establishmentId: scope.establishmentId, financeTracked: true, channel: "POS" as const, status: { not: "CANCELLED" as const } };
+  const saleScope = { organizationId: scope.organizationId, establishmentId: scope.establishmentId, financeTracked: true, status: { not: "CANCELLED" as const } };
   const [rules, accounts, pending, refunds] = await Promise.all([
     db.posReceiptRule.findMany({ where: { organizationId: scope.organizationId, establishmentId: scope.establishmentId }, orderBy: { method: "asc" } }),
     db.bankAccount.findMany({ where: { establishmentId: scope.establishmentId, establishment: { organizationId: scope.organizationId } }, select: { id: true, name: true, active: true } }),
@@ -51,7 +51,7 @@ export async function POST(request: Request) {
   // Only new tracked sales. No historical backfill that might duplicate manual receipts.
   const available = await db.posReceiptRule.findMany({ where: { organizationId: scope.organizationId, establishmentId: scope.establishmentId, active: true, bankAccount: { active: true } }, select: { method: true } });
   const methods = available.map(rule => rule.method);
-  const sales = await db.sale.findMany({ where: { organizationId: scope.organizationId, establishmentId: scope.establishmentId, financeTracked: true, channel: "POS", status: { not: "CANCELLED" }, OR: [{ payments: { some: { financialEntry: null, method: { in: methods } } } }, { refunds: { some: { payments: { some: { financialEntry: null, method: { in: methods } } } } } }] }, select: { id: true }, orderBy: { completedAt: "asc" }, take: 100 });
+  const sales = await db.sale.findMany({ where: { organizationId: scope.organizationId, establishmentId: scope.establishmentId, financeTracked: true, status: { not: "CANCELLED" }, OR: [{ payments: { some: { financialEntry: null, method: { in: methods } } } }, { refunds: { some: { payments: { some: { financialEntry: null, method: { in: methods } } } } } }] }, select: { id: true }, orderBy: { completedAt: "asc" }, take: 100 });
   let created = 0;
   try {
     for (const sale of sales) created += await db.$transaction(tx => syncPosSale(tx, scope, sale.id), { timeout: 15000 });

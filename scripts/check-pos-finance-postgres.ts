@@ -22,7 +22,7 @@ try {
   const otherUnit = await db.establishment.create({ data: { organizationId: otherOrg.id, name: "Other", slug: `other-${stamp}` } });
   const sibling = await db.establishment.create({ data: { organizationId: organization.id, name: "Sibling", slug: `sibling-${stamp}` } });
   const user = await db.user.create({ data: { username: `finance-${stamp}`, name: "Finance QA", passwordHash: "not-a-login-credential" } }); users.push(user.id);
-  const permissions = await db.permission.findMany({ where: { key: { in: ["finance.manage", "finance.entries.manage", "finance.cashflow.view", "pos.sell", "pos.cancel_sale", "sale.refund", "reports.dre.view"] } } }); assert.equal(permissions.length, 7);
+  const permissions = await db.permission.findMany({ where: { key: { in: ["finance.manage", "finance.entries.manage", "finance.cashflow.view", "pos.sell", "pos.cancel_sale", "sale.refund", "reports.dre.view", "floor.operate", "delivery.operate"] } } }); assert.equal(permissions.length, 9);
   const role = await db.customRole.create({ data: { organizationId: organization.id, name: "Finance QA", permissions: { create: permissions.map(p => ({ permissionId: p.id })) } } });
   await db.organizationMembership.create({ data: { organizationId: organization.id, userId: user.id, status: "ACTIVE", accesses: { create: { establishmentId: unit.id } }, roles: { create: { roleId: role.id } } } });
   await db.session.create({ data: { userId: user.id, tokenHash: createHash("sha256").update(token).digest("hex"), expiresAt: new Date(Date.now() + 3600000), activeEstablishmentId: unit.id } });
@@ -80,19 +80,67 @@ try {
   const fullRefund=await request("/api/operations/sales","POST",{...refund,amount:70,payments:[{method:"Cartão de débito",amount:70}],idempotencyKey:randomUUID()});assert.equal(fullRefund.status,201,JSON.stringify(fullRefund));
   assert.equal((await request("/api/admin/finance/overview?days=60")).data.projectedBalanceCents,-150);
   const fullDre=await request(`/api/admin/reports/dre?from=${today}&to=${today}`);assert.equal(fullDre.data.operatingExpenses,1.5);assert.equal(fullDre.data.otherIncome,0);
+  // Real channel closure includes service/delivery charges in the paid gross.
+  await db.establishment.update({ where: { id: unit.id }, data: { serviceRate: "10" } });
+  const variant = await db.productVariant.findFirstOrThrow({ where: { productId: product.id } });
+  await db.productOffering.createMany({ data: ["FLOOR", "DELIVERY"].map(channel => ({ establishmentId: unit.id, variantId: variant.id, channel: channel as "FLOOR" | "DELIVERY", price: "100" })) });
+  const table = await db.diningTable.create({ data: { establishmentId: unit.id, number: 1, seats: 4 } });
+  const tab = await db.tab.create({ data: { establishmentId: unit.id, tableId: table.id, openedById: user.id, items: { create: { productId: product.id, productName: product.name, quantity: 1, sentQuantity: 0, unitPrice: "100", addedById: user.id } } } });
+  const floorInput = { ...saleInput, channel: "FLOOR", tabId: tab.id, payments: [{ method: "Cartão de crédito", amount: 110 }], idempotencyKey: randomUUID() };
+  const countBefore = await db.financialEntry.count({ where: { organizationId: organization.id } });
+  assert.equal((await request("/api/operations/sales", "POST", floorInput)).status, 409);
+  assert.equal(await db.financialEntry.count({ where: { organizationId: organization.id } }), countBefore);
+  await db.tabItem.updateMany({ where: { tabId: tab.id }, data: { sentQuantity: 1 } });
+  const floorResults = await Promise.all([request("/api/operations/sales", "POST", floorInput), request("/api/operations/sales", "POST", { ...floorInput, idempotencyKey: randomUUID() })]);
+  assert.equal(floorResults.filter(r => r.status === 201).length, 1, JSON.stringify(floorResults));
+  const floorSale = floorResults.find(r => r.status === 201)!.data.sale;
+  assert.equal(await db.sale.count({ where: { establishmentId: unit.id, channel: "FLOOR", financeTracked: true } }), 1);
+  const floorEntry = await db.financialEntry.findFirstOrThrow({ where: { sourcePayment: { saleId: floorSale.id } }, include: { category: true } });
+  assert.equal(floorEntry.grossAmount?.toString(), "110"); assert.equal(floorEntry.amount.toString(), "104.5"); assert.equal(floorEntry.feeAmount?.toString(), "5.5");
+  assert.equal(floorEntry.dueDate.toISOString().slice(0, 10), addDays(today, 1)); assert.equal(floorEntry.category.name, "Vendas do Salão"); assert.match(floorEntry.description, /^Salão /);
+  assert.equal((await db.tab.findUniqueOrThrow({ where: { id: tab.id } })).status, "PAID");
+  const delivery = await db.deliveryOrder.create({ data: { establishmentId: unit.id, customerName: "QA", customerPhone: "00000000000", address: "Endereço fictício", status: "RECEIVED", deliveryFee: "7", items: { create: { productId: product.id, productName: product.name, quantity: 1, unitPrice: "100" } } } });
+  const deliveryInput = { ...saleInput, channel: "DELIVERY", deliveryOrderId: delivery.id, payments: [{ method: "Cartão de débito", amount: 107 }], idempotencyKey: randomUUID() };
+  assert.equal((await request("/api/operations/sales", "POST", deliveryInput)).status, 409);
+  assert.equal((await db.deliveryOrder.findUniqueOrThrow({ where: { id: delivery.id } })).saleId, null);
+  await db.deliveryOrder.update({ where: { id: delivery.id }, data: { status: "OUT_FOR_DELIVERY" } });
+  const deliveryResults = await Promise.all([request("/api/operations/sales", "POST", deliveryInput), request("/api/operations/sales", "POST", { ...deliveryInput, idempotencyKey: randomUUID() })]);
+  assert.equal(deliveryResults.filter(r => r.status === 201).length, 1, JSON.stringify(deliveryResults));
+  const deliverySale = deliveryResults.find(r => r.status === 201)!.data.sale;
+  const deliveryEntry = await db.financialEntry.findFirstOrThrow({ where: { sourcePayment: { saleId: deliverySale.id } }, include: { category: true } });
+  assert.equal(deliveryEntry.grossAmount?.toString(), "107"); assert.equal(deliveryEntry.amount.toString(), "105.39"); assert.equal(deliveryEntry.feeAmount?.toString(), "1.61");
+  assert.equal(deliveryEntry.dueDate.toISOString().slice(0, 10), addDays(today, 1)); assert.equal(deliveryEntry.category.name, "Vendas do Delivery"); assert.match(deliveryEntry.description, /^Delivery /);
+  assert.equal((await db.deliveryOrder.findUniqueOrThrow({ where: { id: delivery.id } })).status, "DELIVERED");
+  assert.equal((await request("/api/operations/sales", "POST", { ...cancelInput, saleId: deliverySale.id, idempotencyKey: randomUUID() })).status, 200);
+  assert.ok((await db.financialEntry.findUniqueOrThrow({ where: { id: deliveryEntry.id } })).voidedAt);
+  const floorRefund = await request("/api/operations/sales", "POST", { ...refund, saleId: floorSale.id, amount: 110, payments: [{ method: "Cartão de crédito", amount: 110 }], idempotencyKey: randomUUID() });
+  assert.equal(floorRefund.status, 201, JSON.stringify(floorRefund));
+  assert.match((await db.financialEntry.findFirstOrThrow({ where: { sourceRefundPayment: { refund: { saleId: floorSale.id } } } })).description, /^Reembolso Salão /);
+  for (const channel of ["FLOOR", "DELIVERY"] as const) {
+    await db.sale.create({ data: { organizationId: organization.id, establishmentId: unit.id, operatorId: user.id, channel, subtotal: "100", total: "100", idempotencyKey: randomUUID(), payments: { create: { method: "PIX", amount: "100" } } } });
+    const pending = await request("/api/operations/sales", "POST", { ...saleInput, channel, payments: [{ method: "Pix", amount: channel === "FLOOR" ? 110 : 100 }], idempotencyKey: randomUUID() });
+    assert.equal(pending.status, 201, JSON.stringify(pending));
+  }
+  assert.equal((await request("/api/admin/finance/overview")).data.unconfiguredPosPayments, 2);
+  assert.equal((await request("/api/admin/finance/pos-integration")).data.pending.find((p: { method: string }) => p.method === "PIX").count, 2);
+  assert.equal((await request("/api/admin/finance/pos-integration", "PATCH", { ...rule, method: "PIX", feeRate: "0", settlementDays: 0 })).status, 200);
+  assert.equal((await request("/api/admin/finance/pos-integration", "POST")).data.created, 2);
+  assert.equal((await request("/api/admin/finance/pos-integration", "POST")).data.created, 0);
+  assert.equal((await request("/api/admin/finance/overview")).data.unconfiguredPosPayments, 0);
   // Cashier may sell but cannot alter settlement rules; foreign sale cannot be reversed.
   assert.equal((await request("/api/operations/sales","POST",{...cancelInput,saleId:"foreign-or-missing"})).status,404);
   await db.rolePermission.deleteMany({where:{roleId:role.id,permission:{key:"finance.manage"}}});
   assert.equal((await request("/api/admin/finance/pos-integration","PATCH",rule)).status,403);
   assert.equal((await request("/api/admin/finance/pos-integration","POST")).status,403);
   assert.ok(await db.auditEvent.count({where:{organizationId:organization.id,entityType:"PosReceiptRule"}}));
-  console.log("PASS: venda real PDV, pagamentos divididos/troco, taxas e prazos, saldo/previsão, snapshot, DRE sem duplicidade, cancelamento/estorno, reembolso, replay concorrente, legado preservado e isolamento/autorização.");
+  console.log("PASS: PDV, salão e delivery (fechamento, serviço/entrega, concorrência e pendências), pagamentos divididos/troco, taxas e prazos, saldo/previsão, snapshot, DRE sem duplicidade, cancelamento/estorno, reembolso, replay concorrente, legado preservado e isolamento/autorização.");
 } finally {
   const scope={organizationId:{in:orgs}};
   await db.financialEntry.deleteMany({where:{...scope,reversalOfId:{not:null}}});
   await db.financialEntry.deleteMany({where:scope});
   await db.posReceiptRule.deleteMany({where:scope});
   await db.refund.deleteMany({where:{sale:scope}});
+  await db.deliveryOrder.deleteMany({where:{establishment:scope}});
   await db.order.deleteMany({where:{tab:{establishment:scope}}});
   await db.tab.deleteMany({where:{establishment:scope}});
   await db.sale.deleteMany({where:scope});

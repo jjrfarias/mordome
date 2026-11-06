@@ -19,15 +19,15 @@ export function PosFinanceSettings() {
   }, []);
   useEffect(() => { queueMicrotask(() => void load()); }, [load]);
   return <section className={styles.panel}>
-    <h3>Recebimentos automáticos do PDV</h3>
-    <p className={styles.note}>Configure uma regra por forma de pagamento e unidade. Use as taxas e os prazos do seu contrato Stone/Ton ou de outra adquirente. Mudanças valem para novos recebíveis e não recalculam os existentes.</p>
-    <p className={styles.note}>Dinheiro e Pix com prazo zero entram como recebidos no ato. Cartões geram contas a receber pelo líquido, aguardando confirmação do repasse. Crédito à vista: o PDV ainda não registra parcelamento. Dias úteis consideram segunda a sexta e os feriados que você informar.</p>
+    <h3>Recebimentos automáticos de vendas</h3>
+    <p className={styles.note}>As regras são compartilhadas pelo PDV, salão e delivery da unidade. O recebível nasce ao concluir o pagamento da venda, não ao abrir a comanda ou criar o pedido. Configure uma regra por forma de pagamento e unidade. Use as taxas e os prazos do seu contrato Stone/Ton ou de outra adquirente. Mudanças valem para novos recebíveis e não recalculam os existentes.</p>
+    <p className={styles.note}>Dinheiro e Pix com prazo zero entram como recebidos no ato. Cartões geram contas a receber pelo líquido, aguardando confirmação do repasse. Crédito à vista: o checkout ainda não registra parcelamento. Dias úteis consideram segunda a sexta e os feriados que você informar.</p>
     {error && <p role="alert" className={styles.error}>{error}</p>}{message && <p role="status" className={styles.success}>{message}</p>}
     {!data ? <p>Carregando configurações…</p> : <>
       {!data.accounts.some(a => a.active) && <p className={styles.warning}>Cadastre uma conta de destino em Contas bancárias antes de ativar. Para dinheiro físico, use uma conta separada, como Caixa da loja.</p>}
       <div className={styles.twoColumns}>{posMethods.map(method => <RuleForm key={`${method}-${JSON.stringify(data.rules.find(r => r.method === method))}`} method={method} rule={data.rules.find(r => r.method === method)} accounts={data.accounts} onSaved={async () => { setError(""); setMessage("Regra salva. Novas vendas usarão esta configuração."); await load(); }} />)}</div>
       <h4>Pagamentos aguardando configuração</h4>
-      <p className={styles.note}>Somente vendas novas, registradas após esta integração. Vendas antigas não são importadas para evitar duplicar lançamentos manuais. Ao processar, as pendências usam as regras atuais; as datas partem do dia original da venda.</p>
+      <p className={styles.note}>Somente vendas novas: PDV após sua integração; salão e delivery após a ampliação para esses canais. Vendas antigas não são importadas para evitar duplicar lançamentos manuais. Ao processar, as pendências usam as regras atuais; as datas partem do dia original da venda.</p>
       {data.pending.map(p => <div className={styles.priority} key={p.method}><span>{posMethodLabels[p.method]}</span><strong>{p.count} · {(p.grossCents / 100).toLocaleString("pt-BR", { style: "currency", currency: "BRL" })}</strong></div>)}
       {data.pendingRefunds > 0 && <p>{data.pendingRefunds} reembolso(s) também aguardam uma conta de destino.</p>}
       <button type="button" className="primary" disabled={processing || !data.pending.some(p => p.count) && !data.pendingRefunds} onClick={async () => {
