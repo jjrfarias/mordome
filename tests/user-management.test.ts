@@ -13,10 +13,11 @@ test("todas as permissões disponíveis possuem nomes de gestão em português",
 });
 
 test("novo usuário exige e-mail válido, perfil e unidade, sem aceitar confirmação pelo cliente", () => {
-  const input = { name: "Pessoa Teste", username: "pessoa.teste", password: "Password123", email: " Nome@EXAMPLE.COM ", establishmentIds: ["unit"], roleIds: ["role"] };
+  const input = { name: "Pessoa Teste", username: "pessoa.teste", email: " Nome@EXAMPLE.COM ", establishmentIds: ["unit"], roleIds: ["role"] };
   assert.equal(createManagedUserSchema.parse(input).email, "nome@example.com");
   for (const invalid of [{ email: undefined }, { email: "inválido" }, { roleIds: [] }, { establishmentIds: [] }, { username: "nome com espaço" }]) {
     assert.equal(createManagedUserSchema.safeParse({ ...input, ...invalid }).success, false);
   }
+  assert.equal("password" in createManagedUserSchema.parse({ ...input, password: "Admin123" }), false);
   assert.equal("emailVerifiedAt" in createManagedUserSchema.parse({ ...input, emailVerifiedAt: new Date() }), false);
 });

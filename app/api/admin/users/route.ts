@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { after } from "next/server";
 import { createManagedUserSchema as createSchema } from "@/lib/user-management-validation";
 import { securityMailConfig } from "@/lib/security-mail";
@@ -90,7 +91,7 @@ export async function POST(request: Request) {
     if (localParsed.data.establishmentIds.some(id => !establishments.some(item => item.id === id)) || localParsed.data.roleIds.some(id => !roles.some(item => item.id === id && item.active))) return Response.json({ error: "Acesso selecionado é inválido." }, { status: 400 });
     const grantedRoles = roles.filter(role => localParsed.data.roleIds.includes(role.id));
     if (!localSession.isOwner && (grantedRoles.some(role => role.systemTemplate) || grantedRoles.some(role => role.permissionKeys.some(key => !localSession.permissionKeys.includes(key))))) return Response.json({ error: "Você não pode conceder um perfil com permissões que não possui." }, { status: 403 });
-    const user = createLocalUser({ ...localParsed.data, username: normalizeUsername(localParsed.data.username) });
+    const user = createLocalUser({ ...localParsed.data, password: randomBytes(32).toString("base64url"), username: normalizeUsername(localParsed.data.username) });
     if (!user) return Response.json({ error: "Já existe um usuário com esse nome de usuário." }, { status: 409 });
     recordLocalAudit({ organizationId: localSession.organization.id, establishmentId: null, actorId: localSession.user.id, actorName: localSession.user.name, actorUsername: localSession.user.username, action: "CREATE", entityType: "User", entityId: user.userId, reason: `Usuário "${user.name}" criado`, after: { ...user, password: undefined }, ...requestAuditMetadata(request) });
     return Response.json({ user, message: "Usuário criado no ambiente de demonstração. Nenhum e-mail foi enviado." }, { status: 201 });
@@ -117,15 +118,15 @@ export async function POST(request: Request) {
   if (!actor.session.isOwner && roles.some(role => role.permissions.some(link => !actor.session.permissionKeys.includes(link.permission.key)))) return Response.json({ error: "Você não pode conceder uma permissão que não possui." }, { status: 403 });
 
   try {
-    const passwordHash = await hashPassword(data.password);
+    const passwordHash = await hashPassword(randomBytes(32).toString("base64url"));
     const membership = await db.$transaction(async tx => {
       const user = await tx.user.create({ data: { name: data.name, username: normalizeUsername(data.username), passwordHash, pendingEmail: data.email } });
-      const created = await tx.organizationMembership.create({ data: { organizationId: actor.session.organization.id, userId: user.id, status: "ACTIVE", accesses: { create: data.establishmentIds.map(establishmentId => ({ establishmentId })) }, roles: { create: data.roleIds.map(roleId => ({ roleId })) } } });
+      const created = await tx.organizationMembership.create({ data: { organizationId: actor.session.organization.id, userId: user.id, status: "INVITED", accesses: { create: data.establishmentIds.map(establishmentId => ({ establishmentId })) }, roles: { create: data.roleIds.map(roleId => ({ roleId })) } } });
       await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, actorId: actor.session.user.id, action: "CREATE", entityType: "User", entityId: user.id, reason: `Usuário "${user.name}" criado`, after: { name: user.name, username: user.username, establishmentIds: data.establishmentIds, roleIds: data.roleIds } } });
       return { ...created, user };
     });
-    after(() => deliverAccountToken(membership.user.id, "VERIFY_EMAIL", data.email, membership.user.passwordHash));
-    return Response.json({ message: "Usuário criado. Solicitamos o envio da confirmação para o e-mail informado.", user: { membershipId: membership.id, userId: membership.user.id, name: membership.user.name, username: membership.user.username, userActive: true, status: membership.status, establishmentIds: data.establishmentIds, roleIds: data.roleIds, isSelf: false } }, { status: 201 });
+    after(() => deliverAccountToken(membership.user.id, "ACCEPT_INVITE", data.email, membership.user.passwordHash));
+    return Response.json({ message: "Convite solicitado. O usuário receberá um link para confirmar o e-mail e criar a própria senha.", user: { membershipId: membership.id, userId: membership.user.id, name: membership.user.name, username: membership.user.username, userActive: true, status: membership.status, establishmentIds: data.establishmentIds, roleIds: data.roleIds, isSelf: false } }, { status: 201 });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return Response.json({ error: "Já existe um usuário com esse nome de usuário." }, { status: 409 });
     return Response.json({ error: "Não foi possível criar o usuário." }, { status: 500 });
@@ -170,6 +171,8 @@ export async function PATCH(request: Request) {
 
   const current = await db.organizationMembership.findFirst({ where: { id: data.membershipId, organizationId: actor.session.organization.id }, include: { user: true, roles: { include: { role: true } }, overrides: { include: { permission: true } } } });
   if (!current) return Response.json({ error: "Usuário não encontrado." }, { status: 404 });
+
+  if (current.status === "INVITED" && (data.password !== undefined || data.status === "ACTIVE")) return Response.json({ error: "O usuário precisa aceitar o convite e criar sua própria senha." }, { status: 409 });
 
   const isSelf = current.id === actor.membershipId;
   if (isSelf && (data.active === false || data.status === "SUSPENDED")) return Response.json({ error: "Você não pode desativar seu próprio acesso." }, { status: 403 });
