@@ -204,7 +204,8 @@ export async function PATCH(request: Request) {
   try {
     const membership = await db.$transaction(async tx => {
       if (data.password !== undefined) {
-        await tx.user.update({ where: { id: current.userId }, data: { passwordHash: await hashPassword(data.password) } });
+        await tx.user.update({ where: { id: current.userId }, data: { passwordHash: await hashPassword(data.password), pendingEmail: null } });
+        await tx.accountSecurityToken.updateMany({ where: { userId: current.userId, consumedAt: null }, data: { consumedAt: new Date() } });
         await tx.session.deleteMany({ where: { userId: current.userId } });
       }
       if (data.active !== undefined) await tx.user.update({ where: { id: current.userId }, data: { active: data.active } });
