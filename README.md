@@ -2,6 +2,16 @@
 
 > A documentação completa e versionada começa em [`docs/README.md`](docs/README.md). Ela é a fonte de verdade para produto, funções, arquitetura, domínio, autorização, método de desenvolvimento e decisões.
 
+## Segurança de contas — atualização de 06/11/2026
+
+Recuperação de senha por e-mail confirmado e cadastro/confirmação/troca de e-mail estão
+implementados. No login, use **Esqueci minha senha**; dentro do sistema, **Segurança da conta**.
+O envio exige configurar o SMTP contratado e as variáveis descritas em `.env.example`.
+Contas existentes continuam usando usuário e senha; precisam cadastrar e confirmar seu
+e-mail antes de usar a recuperação. Veja [ADR 0062](docs/decisoes/0062-recuperacao-senha-confirmacao-email.md)
+para implantação, testes, segurança e limites. As seções de protótipo abaixo são históricas
+e não representam o estado completo dos módulos operacionais atuais.
+
 Primeira fatia vertical funcional do SaaS para bares e restaurantes. Esta versão demonstra, de ponta a ponta: login, abertura de comanda pela mesa, inclusão de produtos, envio à cozinha, avanço do preparo, fechamento da conta e venda no resumo diário.
 
 ## Executar
@@ -46,7 +56,7 @@ npm run build
 ## Próximas etapas
 
 1. PostgreSQL + Prisma, migrações e seed idempotente.
-2. Recuperação de acesso, gestão de usuários e aplicação completa do RBAC no servidor.
+2. Evolução da segurança de contas (MFA, convites e política de confirmação obrigatória), gestão de usuários e aplicação completa do RBAC no servidor.
 3. APIs validadas no servidor e escopo obrigatório por estabelecimento; testes de tentativa de acesso cruzado.
 4. Eventos em tempo real no KDS e histórico completo de alterações.
 5. Caixa por turno, pagamentos divididos, descontos/cancelamentos auditados.
@@ -55,4 +65,4 @@ npm run build
 
 ## Limitações conhecidas
 
-A autenticação e a sessão usam o PostgreSQL, mas os dados operacionais permanecem locais e podem ser alterados pelo usuário. Ainda não há recuperação de senha, rate limiting distribuído, RBAC aplicado a todos os endpoints, persistência operacional multiusuário, estoque, pedidos externos, sincronização em tempo real ou integração fiscal/TEF/gateway.
+Registro histórico da primeira fatia: a autenticação e a sessão usavam PostgreSQL, mas os dados operacionais permaneciam locais. A implementação atual já possui módulos operacionais persistentes e recuperação de senha por e-mail confirmado; consulte os documentos de cada módulo para seus limites atuais. A proteção persistente contra abuso introduzida na ADR 0062 cobre os novos endpoints de segurança, não substitui ainda o limitador em memória do login existente.

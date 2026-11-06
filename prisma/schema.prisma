@@ -164,6 +164,11 @@ model User {
   name           String
   username       String                   @unique
   passwordHash   String
+  email          String?                  @unique
+  emailVerifiedAt DateTime?
+  pendingEmail   String?
+  securityTokens AccountSecurityToken[]
+  securityEvents AccountSecurityEvent[]
   active         Boolean                  @default(true)
   createdAt      DateTime                 @default(now())
   updatedAt      DateTime                 @updatedAt
@@ -192,6 +197,38 @@ model User {
   goodsReceiptNotesCreated GoodsReceiptNote[]
   purchaseOrdersCreated   PurchaseOrder[]
   shoppingListItemsCreated ShoppingListItem[]
+}
+
+// Global account identity, not tenant data. Never exposed through tenant administration.
+model AccountSecurityToken {
+  id           String   @id @default(cuid())
+  userId       String
+  purpose      String
+  tokenHash    String   @unique
+  email        String
+  credentialHash String
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, purpose])
+  @@index([expiresAt])
+}
+
+model AccountSecurityEvent {
+  id        String   @id @default(cuid())
+  userId    String
+  action    String
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@index([userId, createdAt])
+}
+
+model AuthRateBucket {
+  key       String   @id
+  count     Int
+  expiresAt DateTime
+  @@index([expiresAt])
 }
 
 model SystemAdmin {

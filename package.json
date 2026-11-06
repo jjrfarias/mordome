@@ -16,7 +16,9 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "node --test --experimental-strip-types tests/*.test.ts",
-    "prebuild": "npm run lint && npm test && npm run db:validate"
+    "prebuild": "npm run lint && npm test && npm run db:validate",
+    "test:account-security:postgres": "tsx scripts/check-account-security-postgres.ts",
+    "security:cleanup": "tsx scripts/cleanup-account-security.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.10.0",
@@ -29,7 +31,8 @@
     "jspdf-autotable": "^5.0.8",
     "leaflet": "^1.9.4",
     "lucide-react": "latest",
-    "next": "16.3.8",
+    "next": "16.4.5",
+    "nodemailer": "^10.3.1",
     "pg": "^8.23.0",
     "pino": "^10.3.1",
     "qrcode": "^1.5.4",
@@ -42,12 +45,13 @@
     "@eslint/eslintrc": "latest",
     "@types/leaflet": "^1.9.22",
     "@types/node": "latest",
+    "@types/nodemailer": "^8.0.2",
     "@types/pg": "^8.23.1",
     "@types/qrcode": "^1.5.6",
     "@types/react": "latest",
     "@types/react-dom": "latest",
     "eslint": "latest",
-    "eslint-config-next": "16.3.8",
+    "eslint-config-next": "16.4.5",
     "prisma": "^7.10.0",
     "tsx": "latest",
     "typescript": "latest"

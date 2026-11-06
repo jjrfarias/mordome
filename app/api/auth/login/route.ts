@@ -49,6 +49,7 @@ export async function POST(request: Request) {
   });
   if (!membership) return Response.json({ error: "Seu usuário não possui acesso ativo." }, { status: 403 });
 
-  await createSession(user.id, request, { organizationId: membership.organizationId });
+  const sessionId = await createSession(user.id, request, { organizationId: membership.organizationId }, user.passwordHash);
+  if (!sessionId) return Response.json({ error: "Usuário ou senha inválidos." }, { status: 401 });
   return Response.json({ ok: true });
 }

@@ -1,5 +1,15 @@
 # Segurança — regras para toda criação nova
 
+## Recuperação de senha e confirmação de e-mail
+
+Implementadas na [ADR 0062](decisoes/0062-recuperacao-senha-confirmacao-email.md):
+`/recuperar-senha`, `/redefinir-senha`, `/confirmar-email` e `/minha-conta`.
+A recuperação exige e-mail confirmado. Cadastro/troca exige sessão e senha atual.
+Tokens expiram, são de uso único e ficam como hash; reset revoga todas as sessões.
+O SMTP contratado e a URL canônica precisam ser configurados antes de ativar o envio.
+Contas antigas preservam o login atual; MFA e confirmação obrigatória para proprietários
+ainda não fazem parte desta primeira etapa.
+
 Este documento registra os padrões de segurança já validados no sistema
 (headers, autenticação, tratamento de erro) para que qualquer tela, API ou
 integração nova criada daqui pra frente siga o mesmo nível, em vez de

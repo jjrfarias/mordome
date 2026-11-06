@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import { useEffect, useState, type CSSProperties } from "react";
 import { BarChart3, Bell, Bike, Check, ChefHat, ChevronDown, CircleDollarSign, FileBarChart, FileClock, LayoutDashboard, LayoutGrid, LogOut, Minus, Navigation, Plus, Printer, Receipt, Search, Settings, ShoppingBag, Sparkles, UtensilsCrossed, X } from "lucide-react";
 import { money, OrderItem, products, SelectedIngredientOption } from "@/lib/domain";
@@ -111,10 +113,11 @@ export default function Home() {
           </div>
           <small>{switchingUnit ? "Trocando unidade…" : session.establishments.length > 1 ? `${session.establishments.length} unidades disponíveis` : "Unidade principal"}</small>
         </div>
-        <div className="user-card"><div className="avatar">{session.user.name.split(" ").slice(0, 2).map(part => part[0]).join("").toUpperCase()}</div><div><b>{session.user.name}</b><span>@{session.user.username}</span></div><button aria-label="Sair" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); setSession(null); }}><LogOut /></button></div>
+        <div className="user-card"><div className="avatar">{session.user.name.split(" ").slice(0, 2).map(part => part[0]).join("").toUpperCase()}</div><div><b>{session.user.name}</b><span>@{session.user.username}</span><Link href="/minha-conta" style={{ fontSize: 12 }}>Segurança da conta</Link></div><button aria-label="Sair" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); setSession(null); }}><LogOut /></button></div>
       </div>
     </aside>
     <main>
+      <div style={{ padding: "8px 20px", textAlign: "right" }}><Link href="/minha-conta">Segurança da conta</Link></div>
       <header><div><span className="header-date">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span><h1>{view === "pdv" ? "PDV rápido" : view === "salão" ? "Gestão do salão" : view === "cozinha" ? "Cozinha" : view === "delivery" ? "Delivery" : view === "entregas" ? "Minhas entregas" : view === "caixa" ? "Caixa" : view === "vendas" ? "Vendas" : view === "historico" ? "Histórico" : view === "relatorios" ? "Relatórios" : view === "dashboards" ? "Dashboards" : view === "config" ? "Configurações" : "Resumo do dia"}</h1></div><div className="header-actions"><span className="sync-state"><i /> Sincronizado agora</span><button className="icon-button" aria-label="Notificações"><Bell /></button><button className={`open-pill ${cashOpen ? "" : "closed"}`} onClick={() => setView("caixa")}><span /> {cashOpen ? "Caixa aberto" : "Caixa fechado"}</button></div></header>
       {view === "pdv" && <Pos establishmentId={session.establishment.id} onFinish={async (items, checkout) => {
         const saleItems = items.map(item => ({ id: item.id, quantity: item.quantity, selectedOptions: item.optionSelections }));
@@ -181,6 +184,7 @@ function Login({ needsSetup, onAuthenticated }: { needsSetup: boolean; onAuthent
       <h1>{needsSetup ? "Vamos começar." : "Tudo sob controle."}</h1>
       <p>{needsSetup ? "Defina o proprietário, o negócio e suas credenciais." : "Entre com seu usuário e senha."}</p>
       <form onSubmit={submit}>{needsSetup && <><label>Seu nome<input name="ownerName" autoComplete="name" required minLength={2}/></label><label>Nome da empresa<input name="organizationName" required minLength={2}/></label><label>Nome do estabelecimento<input name="establishmentName" required minLength={2}/></label></>}<label>Usuário<input name="username" autoComplete="username" required minLength={3} maxLength={40} pattern="[A-Za-z0-9._\-]+" autoFocus={!needsSetup}/></label><label>Senha<input name="password" type="password" autoComplete={needsSetup ? "new-password" : "current-password"} required minLength={needsSetup ? 8 : 1}/></label>{needsSetup && <label>Confirmar senha<input name="confirmPassword" type="password" autoComplete="new-password" required minLength={8}/></label>}{error && <div className="auth-error" role="alert">{error}</div>}<button className="primary wide" disabled={loading}>{loading ? "Aguarde…" : needsSetup ? "Criar acesso e continuar" : "Entrar no Mordomê"}</button></form>
+      {!needsSetup && <p style={{ marginTop: 20 }}><Link href="/recuperar-senha">Esqueci minha senha</Link></p>}
       {needsSetup && <div className="demo-note"><Sparkles/><span><b>Acesso do proprietário</b>Você poderá criar outros usuários e permissões depois.</span></div>}
       <small>© 2026 Mordomê <i>by JCS</i></small>
     </div></section>

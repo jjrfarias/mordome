@@ -16,13 +16,16 @@ export function normalizeUsername(username: string) {
   return username.trim().toLocaleLowerCase("pt-BR");
 }
 
-export async function createSession(userId: string, request: Request, audit: { organizationId: string; establishmentId?: string | null }) {
+export async function createSession(userId: string, request: Request, audit: { organizationId: string; establishmentId?: string | null }, expectedPasswordHash?: string) {
   const token = randomBytes(32).toString("base64url");
   const expiresAt = new Date(Date.now() + SESSION_DAYS * 24 * 60 * 60 * 1000);
   const firstAccess = await db.establishmentAccess.findFirst({ where: { membership: { userId, status: "ACTIVE" }, establishment: { active: true } }, orderBy: { establishment: { name: "asc" } } });
   const ipAddress = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   const userAgent = request.headers.get("user-agent")?.slice(0, 500);
   const session = await db.$transaction(async tx => {
+    await tx.$queryRaw`SELECT "id" FROM "User" WHERE "id" = ${userId} FOR UPDATE`;
+    const current = await tx.user.findUnique({ where: { id: userId } });
+    if (!current?.active || (expectedPasswordHash && current.passwordHash !== expectedPasswordHash)) return null;
     await tx.session.deleteMany({ where: { userId, expiresAt: { lte: new Date() } } });
     const created = await tx.session.create({
       data: { userId, activeEstablishmentId: firstAccess?.establishmentId, tokenHash: tokenHash(token), expiresAt, ipAddress, userAgent },
@@ -32,6 +35,8 @@ export async function createSession(userId: string, request: Request, audit: { o
     });
     return created;
   });
+
+  if (!session) return null;
 
   (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
