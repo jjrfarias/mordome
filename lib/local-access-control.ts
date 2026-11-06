@@ -55,7 +55,7 @@ function effectiveKeys(user: LocalUserAccess) {
 export function listLocalUsers() { return users.map(user => ({ ...user, establishmentIds: [...user.establishmentIds], roleIds: [...user.roleIds], overrides: user.overrides.map(item => ({ ...item })), effectivePermissionKeys: effectiveKeys(user) })); }
 export function createLocalUser(data: { name: string; username: string; email?: string; password: string; establishmentIds: string[]; roleIds: string[] }) {
   if (users.some(user => user.username === data.username)) return null;
-  const stamp = Date.now().toString(); const user: LocalUserAccess = { membershipId: `membership-${stamp}`, userId: `user-${stamp}`, name: data.name, username: data.username, pendingEmail: data.email ?? null, emailVerified: false, userActive: true, status: "ACTIVE", establishmentIds: [...data.establishmentIds], roleIds: [...data.roleIds], overrides: [], isSelf: false };
+  const stamp = Date.now().toString(); const user: LocalUserAccess = { membershipId: `membership-${stamp}`, userId: `user-${stamp}`, name: data.name, username: data.username, pendingEmail: data.email ?? null, emailVerified: false, userActive: true, status: "INVITED", establishmentIds: [...data.establishmentIds], roleIds: [...data.roleIds], overrides: [], isSelf: false };
   users.push(user); localPasswords.set(user.userId, data.password); return { ...user };
 }
 export function updateLocalUser(id: string, data: Partial<Pick<LocalUserAccess, "status" | "establishmentIds" | "roleIds" | "overrides">> & { password?: string }) {

@@ -13,13 +13,14 @@ export async function issueAccountToken(database: Database, userId: string, purp
     const user = await lockUser(tx, userId);
     if (!user?.active || (expectedPasswordHash && user.passwordHash !== expectedPasswordHash)) return null;
     if (purpose === "RESET_PASSWORD" && (!user.emailVerifiedAt || user.email !== email)) return null;
+    if (purpose === "ACCEPT_INVITE" && (user.emailVerifiedAt || user.pendingEmail !== email || !await tx.organizationMembership.count({ where: { userId, status: "INVITED" } }))) return null;
     const issued = newSecurityToken(purpose);
     await tx.accountSecurityToken.updateMany({ where: { userId, purpose, consumedAt: null }, data: { consumedAt: new Date() } });
     if (purpose === "VERIFY_EMAIL") await tx.user.update({ where: { id: userId }, data: { pendingEmail: email } });
     const record = await tx.accountSecurityToken.create({ data: {
       userId, purpose, email, tokenHash: issued.tokenHash, expiresAt: issued.expiresAt, credentialHash: hashSecurityToken(user.passwordHash),
     } });
-    await tx.accountSecurityEvent.create({ data: { userId, action: purpose === "VERIFY_EMAIL" ? "EMAIL_VERIFICATION_REQUESTED" : "PASSWORD_RESET_REQUESTED" } });
+    await tx.accountSecurityEvent.create({ data: { userId, action: purpose === "ACCEPT_INVITE" ? "INVITATION_REQUESTED" : purpose === "VERIFY_EMAIL" ? "EMAIL_VERIFICATION_REQUESTED" : "PASSWORD_RESET_REQUESTED" } });
     return { ...issued, id: record.id };
   });
 }
@@ -30,18 +31,22 @@ export async function consumeAccountToken(database: Database, rawToken: string, 
   return database.$transaction(async tx => {
     const user = await lockUser(tx, found.userId);
     const token = await tx.accountSecurityToken.findUnique({ where: { id: found.id } });
-    if (!user || !token || !usableSecurityToken(token, user, purpose) || (purpose === "RESET_PASSWORD" && !passwordHash)) return null;
+    if (!user || !token || !usableSecurityToken(token, user, purpose) || ((purpose === "RESET_PASSWORD" || purpose === "ACCEPT_INVITE") && !passwordHash)) return null;
     const now = new Date();
     // Row lock serializes issuance, reset and confirmation for this global identity.
-    if (purpose === "RESET_PASSWORD") {
+    if (purpose === "ACCEPT_INVITE") {
+      if (!await tx.organizationMembership.count({ where: { userId: user.id, status: "INVITED" } })) return null;
+      await tx.user.update({ where: { id: user.id }, data: { passwordHash, email: token.email, emailVerifiedAt: now, pendingEmail: null } });
+      await tx.organizationMembership.updateMany({ where: { userId: user.id, status: "INVITED" }, data: { status: "ACTIVE" } });
+    } else if (purpose === "RESET_PASSWORD") {
       await tx.user.update({ where: { id: user.id }, data: { passwordHash, pendingEmail: null } });
     } else {
       await tx.user.update({ where: { id: user.id }, data: { email: token.email, emailVerifiedAt: now, pendingEmail: null } });
     }
     await tx.accountSecurityToken.updateMany({ where: { userId: user.id, consumedAt: null }, data: { consumedAt: now } });
     await tx.session.deleteMany({ where: { userId: user.id } });
-    await tx.accountSecurityEvent.create({ data: { userId: user.id, action: purpose === "RESET_PASSWORD" ? "PASSWORD_RESET_COMPLETED" : "EMAIL_VERIFIED" } });
-    return { userId: user.id, email: purpose === "VERIFY_EMAIL" ? token.email : user.email!, previousEmail: user.email };
+    await tx.accountSecurityEvent.create({ data: { userId: user.id, action: purpose === "ACCEPT_INVITE" ? "INVITATION_ACCEPTED" : purpose === "RESET_PASSWORD" ? "PASSWORD_RESET_COMPLETED" : "EMAIL_VERIFIED" } });
+    return { userId: user.id, email: purpose !== "RESET_PASSWORD" ? token.email : user.email!, previousEmail: user.email };
   });
 }
 

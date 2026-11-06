@@ -10,6 +10,18 @@ export async function deliverAccountToken(userId: string, purpose: SecurityPurpo
     issued = await issueAccountToken(db, userId, purpose, email, expectedPasswordHash);
     if (!issued) return;
     const reset = purpose === "RESET_PASSWORD";
+    if (purpose === "ACCEPT_INVITE") {
+      const user = await db.user.findUniqueOrThrow({ where: { id: userId }, select: { username: true } });
+      await sendSecurityMail(email, "Você foi convidado para o Mordomê", `Você recebeu um convite para acessar o Mordomê.
+
+Seu usuário: ${user.username}
+
+Abra o link para confirmar seu e-mail e criar sua própria senha:
+${securityLink(origin, purpose, issued.token)}
+
+O link é de uso único e expira em 24 horas. Se expirou, peça ao administrador para reenviar o convite. Se não reconhece este convite, ignore a mensagem.`);
+      return;
+    }
     await sendSecurityMail(email, reset ? "Redefina sua senha — Mordomê" : "Confirme seu e-mail — Mordomê",
       `${reset ? "Recebemos uma solicitação de recuperação de senha." : "Confirme este endereço para proteger sua conta e recuperar sua senha."}\n\n${securityLink(origin, purpose, issued.token)}\n\nO link pode ser usado uma única vez e expira em ${reset ? "30 minutos" : "24 horas"}.\nSe você não solicitou esta ação, ignore esta mensagem. Não compartilhe este link.`);
   } catch {

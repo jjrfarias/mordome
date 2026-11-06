@@ -3,7 +3,7 @@ import { z } from "zod";
 
 export const emailSchema = z.string().trim().max(254).email("Informe um e-mail válido.").transform(value => value.toLowerCase());
 export const securityTokenSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
-export type SecurityPurpose = "RESET_PASSWORD" | "VERIFY_EMAIL";
+export type SecurityPurpose = "RESET_PASSWORD" | "VERIFY_EMAIL" | "ACCEPT_INVITE";
 export const RESET_MESSAGE = "Se houver uma conta ativa com esse e-mail confirmado, enviaremos as instruções. Confira também a caixa de spam.";
 export const INVALID_LINK = "Este link é inválido, expirou ou já foi utilizado. Solicite um novo link.";
 
@@ -28,7 +28,7 @@ export function securityOrigin(value: string | undefined, production = process.e
 
 export function securityLink(origin: string, purpose: SecurityPurpose, token: string) {
   // Fragments never reach HTTP access logs or Referer headers.
-  return `${origin}/${purpose === "RESET_PASSWORD" ? "redefinir-senha" : "confirmar-email"}#token=${token}`;
+  return `${origin}/${purpose === "RESET_PASSWORD" ? "redefinir-senha" : purpose === "ACCEPT_INVITE" ? "aceitar-convite" : "confirmar-email"}#token=${token}`;
 }
 
 export function usableSecurityToken(
@@ -39,5 +39,5 @@ export function usableSecurityToken(
 ) {
   return token.purpose === purpose && !token.consumedAt && token.expiresAt > now && user.active &&
     token.credentialHash === hashSecurityToken(user.passwordHash) &&
-    (purpose === "VERIFY_EMAIL" ? token.email === user.pendingEmail : Boolean(user.emailVerifiedAt && token.email === user.email));
+    (purpose === "ACCEPT_INVITE" ? !user.emailVerifiedAt && token.email === user.pendingEmail : purpose === "VERIFY_EMAIL" ? token.email === user.pendingEmail : Boolean(user.emailVerifiedAt && token.email === user.email));
 }

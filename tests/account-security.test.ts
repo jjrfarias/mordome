@@ -39,3 +39,19 @@ test("token exige usuário ativo, mesma credencial, finalidade, destino e prazo"
   assert.equal(usableSecurityToken({ ...token, purpose: "VERIFY_EMAIL", email: user.pendingEmail }, user, "VERIFY_EMAIL"), true);
   assert.equal(usableSecurityToken({ ...token, purpose: "VERIFY_EMAIL", email: "other@example.com" }, user, "VERIFY_EMAIL"), false);
 });
+
+
+test("convite usa link próprio, prazo de 24h e não substitui confirmação ou recuperação", () => {
+  const now = new Date();
+  const issued = newSecurityToken("ACCEPT_INVITE", now);
+  assert.equal(issued.expiresAt.getTime() - now.getTime(), 24 * 60 * 60_000);
+  assert.equal(new URL(securityLink("https://app.example.com", "ACCEPT_INVITE", issued.token)).pathname, "/aceitar-convite");
+  const user = { active: true, email: null, emailVerifiedAt: null, pendingEmail: "invite@example.com", passwordHash: "random-credential" };
+  const token = { purpose: "ACCEPT_INVITE", email: user.pendingEmail, credentialHash: hashSecurityToken(user.passwordHash), consumedAt: null, expiresAt: issued.expiresAt };
+  assert.equal(usableSecurityToken(token, user, "ACCEPT_INVITE"), true);
+  assert.equal(usableSecurityToken(token, user, "VERIFY_EMAIL"), false);
+  assert.equal(usableSecurityToken(token, user, "RESET_PASSWORD"), false);
+  assert.equal(usableSecurityToken(token, { ...user, emailVerifiedAt: now }, "ACCEPT_INVITE"), false);
+  assert.equal(usableSecurityToken(token, { ...user, pendingEmail: "other@example.com" }, "ACCEPT_INVITE"), false);
+  assert.equal(usableSecurityToken({ ...token, expiresAt: new Date(0) }, user, "ACCEPT_INVITE"), false);
+});

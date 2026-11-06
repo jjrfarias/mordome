@@ -11,6 +11,7 @@ const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) }
 const prefix = randomUUID();
 const users: string[] = [];
 const rates: string[] = [];
+let invitationOrg: string | undefined;
 try {
   const passwordHash = await hashPassword("Original123");
   const a = await db.user.create({ data: { username: `a-${prefix}`, name: "Security test A", passwordHash } }); users.push(a.id);
@@ -56,6 +57,27 @@ try {
   await db.user.update({ where: { id: a.id }, data: { active: false } });
   assert.equal(await consumeAccountToken(db, disabled.token, "RESET_PASSWORD", changedHash), null);
 
+  const invited = await db.user.create({ data: { username: `invite-${prefix}`, name: "Invite test", passwordHash, pendingEmail: `invite-${prefix}@example.com` } }); users.push(invited.id);
+  const organization = await db.organization.create({ data: { name: "Invitation test", slug: `invite-${prefix}` } }); invitationOrg = organization.id;
+  const membership = await db.organizationMembership.create({ data: { userId: invited.id, organizationId: organization.id, status: "INVITED" } });
+  const invite = await issueAccountToken(db, invited.id, "ACCEPT_INVITE", invited.pendingEmail!); assert.ok(invite);
+  assert.equal(await consumeAccountToken(db, invite.token, "VERIFY_EMAIL"), null);
+  assert.equal(await consumeAccountToken(db, invite.token, "RESET_PASSWORD", changedHash), null);
+  assert.equal(await consumeAccountToken(db, invite.token, "ACCEPT_INVITE"), null);
+  const renewed = await issueAccountToken(db, invited.id, "ACCEPT_INVITE", invited.pendingEmail!); assert.ok(renewed);
+  assert.equal(await consumeAccountToken(db, invite.token, "ACCEPT_INVITE", changedHash), null);
+  await db.organizationMembership.update({ where: { id: membership.id }, data: { status: "SUSPENDED" } });
+  assert.equal(await consumeAccountToken(db, renewed.token, "ACCEPT_INVITE", changedHash), null);
+  await db.organizationMembership.update({ where: { id: membership.id }, data: { status: "INVITED" } });
+  const acceptance = await Promise.all(Array.from({ length: 4 }, () => consumeAccountToken(db, renewed.token, "ACCEPT_INVITE", changedHash)));
+  assert.equal(acceptance.filter(Boolean).length, 1);
+  const accepted = await db.user.findUniqueOrThrow({ where: { id: invited.id } });
+  assert.equal(accepted.email, invited.pendingEmail); assert.ok(accepted.emailVerifiedAt); assert.equal(accepted.pendingEmail, null);
+  assert.equal(await verifyPassword("Changed456", accepted.passwordHash), true);
+  assert.equal((await db.organizationMembership.findUniqueOrThrow({ where: { id: membership.id } })).status, "ACTIVE");
+  assert.equal(await issueAccountToken(db, invited.id, "ACCEPT_INVITE", accepted.email!), null);
+  assert.ok(await db.accountSecurityEvent.count({ where: { userId: invited.id, action: "INVITATION_ACCEPTED" } }));
+
   const rateKey = `test-${prefix}`; rates.push(rateKey);
   const allowed = await Promise.all(Array.from({ length: 20 }, () => consumeAuthRate(db, rateKey, 3, 60_000)));
   assert.equal(allowed.filter(Boolean).length, 3, "limite atômico entre requisições concorrentes");
@@ -64,6 +86,10 @@ try {
   assert.ok(await db.accountSecurityEvent.count({ where: { userId: a.id, action: "PASSWORD_RESET_COMPLETED" } }));
   console.log("PASS: confirmação, troca, expiração, finalidade, revogação, isolamento de contas, duplicidade, concorrência e rate limit no PostgreSQL.");
 } finally {
+  if (invitationOrg) {
+    await db.organizationMembership.deleteMany({ where: { organizationId: invitationOrg } });
+    await db.organization.delete({ where: { id: invitationOrg } });
+  }
   await db.user.deleteMany({ where: { id: { in: users } } });
   await db.authRateBucket.deleteMany({ where: { key: { in: rates } } });
   await db.$disconnect();
