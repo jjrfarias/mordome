@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { BookOpen, Boxes, Building2, FlaskConical, LayoutGrid, ListTree, Plug, Users, Wallet, Ban, Clock, Ticket, User, Landmark, ShieldCheck, ClipboardList, FileText, Palette } from "lucide-react";
+import { BookOpen, Boxes, Building2, FlaskConical, LayoutGrid, ListTree, Plug, Users, Ban, Clock, Ticket, User, Landmark, ShieldCheck, ClipboardList, FileText, Palette } from "lucide-react";
 import { BrandingManagement } from "@/components/admin/BrandingManagement";
 import { CatalogManagement } from "@/components/admin/CatalogManagement";
 import { EstablishmentsManagement } from "@/components/admin/EstablishmentsManagement";
@@ -9,7 +9,6 @@ import { UsersManagement } from "@/components/admin/UsersManagement";
 import { IntegrationsManagement } from "@/components/admin/IntegrationsManagement";
 import { StationsManagement } from "@/components/admin/StationsManagement";
 import { SalonManagement } from "@/components/admin/SalonManagement";
-import { FinanceManagement } from "@/components/admin/FinanceManagement";
 import { CancellationReasonsManagement } from "@/components/admin/CancellationReasonsManagement";
 import { WorkShiftsManagement } from "@/components/admin/WorkShiftsManagement";
 import { CouponsManagement } from "@/components/admin/CouponsManagement";
@@ -19,7 +18,7 @@ import { FiscalConfigManagement } from "@/components/admin/FiscalConfigManagemen
 import { ProductFiscalManagement } from "@/components/admin/ProductFiscalManagement";
 import { FiscalDocumentsManagement } from "@/components/admin/FiscalDocumentsManagement";
 
-type SettingsSection = "branding" | "catalog" | "inventory" | "recipes" | "establishments" | "users" | "integrations" | "stations" | "salon" | "finance" | "cancellationReasons" | "workShifts" | "coupons" | "customers" | "cashFronts" | "fiscalConfig" | "productFiscal" | "fiscalDocuments";
+type SettingsSection = "branding" | "catalog" | "inventory" | "recipes" | "establishments" | "users" | "integrations" | "stations" | "salon" | "cancellationReasons" | "workShifts" | "coupons" | "customers" | "cashFronts" | "fiscalConfig" | "productFiscal" | "fiscalDocuments";
 
 type SettingsWorkspaceProps = {
   activeEstablishmentId: string;
@@ -35,17 +34,13 @@ type SettingsWorkspaceProps = {
   canManageRoles: boolean;
   canManageIntegrations: boolean;
   canManageFloor: boolean;
-  canManageFinance: boolean;
-  canManageFinanceEntries: boolean;
-  canViewFinanceCashflow: boolean;
-  canManageSettlements: boolean;
   canManageCustomers: boolean;
   canManageFiscal: boolean;
   onChanged: () => Promise<void>;
 };
 
-export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentName, canManageEstablishments, canManageCatalog, canManageStock, canManageRecipes, canViewUsers, canCreateUsers, canDisableUsers, canResetUserPassword, canManageRoles, canManageIntegrations, canManageFloor, canManageFinance, canManageFinanceEntries, canViewFinanceCashflow, canManageSettlements, canManageCustomers, canManageFiscal, onChanged }: SettingsWorkspaceProps) {
-  const initialSection: SettingsSection = canManageCatalog ? "catalog" : canManageStock ? "inventory" : canManageRecipes ? "recipes" : canManageFloor ? "salon" : (canManageFinance || canManageFinanceEntries || canViewFinanceCashflow || canManageSettlements) ? "finance" : canManageEstablishments ? "establishments" : canViewUsers || canManageRoles ? "users" : "integrations";
+export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentName, canManageEstablishments, canManageCatalog, canManageStock, canManageRecipes, canViewUsers, canCreateUsers, canDisableUsers, canResetUserPassword, canManageRoles, canManageIntegrations, canManageFloor, canManageCustomers, canManageFiscal, onChanged }: SettingsWorkspaceProps) {
+  const initialSection: SettingsSection = canManageCatalog ? "catalog" : canManageStock ? "inventory" : canManageRecipes ? "recipes" : canManageFloor ? "salon" : canManageEstablishments ? "establishments" : canViewUsers || canManageRoles ? "users" : canManageCustomers ? "customers" : canManageFiscal ? "fiscalConfig" : "integrations";
   const [section, setSection] = useState<SettingsSection>(initialSection);
 
   return <div className="settings-workspace">
@@ -57,7 +52,6 @@ export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentNa
       {canManageCatalog && <button className={section === "coupons" ? "active" : ""} onClick={() => setSection("coupons")}><Ticket />Cupons de desconto</button>}
       {canManageCustomers && <button className={section === "customers" ? "active" : ""} onClick={() => setSection("customers")}><User />Clientes</button>}
       {canManageFloor && <button className={section === "salon" ? "active" : ""} onClick={() => setSection("salon")}><LayoutGrid />Salão</button>}
-      {(canManageFinance || canManageFinanceEntries || canViewFinanceCashflow || canManageSettlements) && <button className={section === "finance" ? "active" : ""} onClick={() => setSection("finance")}><Wallet />Financeiro</button>}
       {canManageEstablishments && <button className={section === "establishments" ? "active" : ""} onClick={() => setSection("establishments")}><Building2 />Estabelecimentos</button>}
       {canManageEstablishments && <button className={section === "branding" ? "active" : ""} onClick={() => setSection("branding")}><Palette />Identidade visual</button>}
       {canManageEstablishments && <button className={section === "cancellationReasons" ? "active" : ""} onClick={() => setSection("cancellationReasons")}><Ban />Motivos de cancelamento</button>}
@@ -86,6 +80,5 @@ export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentNa
     {section === "stations" && canManageCatalog && <StationsManagement activeEstablishmentId={activeEstablishmentId} />}
     {section === "coupons" && canManageCatalog && <CouponsManagement />}
     {section === "customers" && canManageCustomers && <CustomersManagement />}
-    {section === "finance" && (canManageFinance || canManageFinanceEntries || canViewFinanceCashflow || canManageSettlements) && <FinanceManagement activeEstablishmentId={activeEstablishmentId} canManageFinance={canManageFinance} canManageFinanceEntries={canManageFinanceEntries} canViewFinanceCashflow={canViewFinanceCashflow} canManageSettlements={canManageSettlements} />}
   </div>;
 }
