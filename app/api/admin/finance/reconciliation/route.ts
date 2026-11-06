@@ -1,9 +1,10 @@
 import { MembershipStatus, Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
+import { cents } from "@/lib/finance-ledger";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
-import { listLocalBankAccounts, listLocalFinancialEntriesForReconciliation, reconcileLocalFinancialEntry } from "@/lib/local-finance";
+import { listLocalBankAccounts, listLocalFinancialEntries, listLocalFinancialEntriesForReconciliation, reconcileLocalFinancialEntry } from "@/lib/local-finance";
 
 const patchSchema = z.object({
   entryId: z.string().min(1).optional(),
@@ -23,11 +24,11 @@ function totals(entries: { amount: number | Prisma.Decimal; reconciled: boolean 
   let launched = 0;
   let reconciled = 0;
   for (const entry of entries) {
-    const amount = Number(entry.amount);
+    const amount = cents(entry.amount);
     launched += amount;
     if (entry.reconciled) reconciled += amount;
   }
-  return { launched, reconciled, pending: launched - reconciled };
+  return { launched: launched / 100, reconciled: reconciled / 100, pending: (launched - reconciled) / 100 };
 }
 
 export async function GET(request: Request) {
@@ -72,12 +73,15 @@ export async function PATCH(request: Request) {
   const parsed = patchSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Dados inválidos." }, { status: 400 });
   const data = parsed.data;
-  const ids = data.entryIds ?? [data.entryId!];
+  const ids = [...new Set(data.entryIds ?? [data.entryId!])].sort();
 
   if (isLocalAuthEnabled()) {
     const session = await getLocalSession();
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
     if (!session.canManageFinanceEntries) return Response.json({ error: "Acesso negado." }, { status: 403 });
+    const current = listLocalFinancialEntries(session.establishment.id).filter(e => ids.includes(e.id));
+    if (current.length !== ids.length) return Response.json({ error: "Lançamento não encontrado." }, { status: 404 });
+    if (data.reconciled && current.some(e => e.status !== "PAID" || !e.paidAt || !e.bankAccountId)) return Response.json({ error: "Somente baixas com conta e data efetiva podem ser conciliadas." }, { status: 409 });
     const updated = [];
     for (const entryId of ids) {
       const result = reconcileLocalFinancialEntry(session.establishment.id, entryId, data.reconciled, session.user.id);
@@ -89,11 +93,13 @@ export async function PATCH(request: Request) {
 
   const actor = await resolveActor();
   if (!actor) return Response.json({ error: "Acesso negado." }, { status: 403 });
-  const current = await db.financialEntry.findMany({ where: { id: { in: ids }, establishmentId: actor.establishment.id } });
-  if (current.length !== ids.length) return Response.json({ error: "Lançamento não encontrado." }, { status: 404 });
-
   try {
-    const updated = await db.$transaction(current.map(entry => db.financialEntry.update({
+    const updated = await db.$transaction(async tx => {
+    await tx.$queryRaw(Prisma.sql`SELECT "id" FROM "FinancialEntry" WHERE "id" IN (${Prisma.join(ids)}) AND "establishmentId" = ${actor.establishment.id} AND "organizationId" = ${actor.organization.id} ORDER BY "id" FOR UPDATE`);
+    const current = await tx.financialEntry.findMany({ where: { id: { in: ids }, establishmentId: actor.establishment.id, organizationId: actor.organization.id } });
+    if (current.length !== ids.length) throw new Error("Lançamento não encontrado.");
+    if (data.reconciled && current.some(e => e.status !== "PAID" || !e.paidAt || !e.bankAccountId)) throw new Error("Somente baixas com conta e data efetiva podem ser conciliadas.");
+    const result = await Promise.all(current.map(entry => tx.financialEntry.update({
       where: { id: entry.id },
       data: {
         reconciled: data.reconciled,
@@ -101,15 +107,18 @@ export async function PATCH(request: Request) {
         reconciledById: data.reconciled ? actor.user.id : null,
       },
     })));
-    await db.auditEvent.createMany({
+    await tx.auditEvent.createMany({
       data: current.map(entry => ({
         organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "UPDATE" as const,
         entityType: "FinancialEntry", entityId: entry.id,
         reason: `Lançamento "${entry.description}" marcado como ${data.reconciled ? "conciliado" : "não conciliado"}`,
       })),
     });
+    return result;
+    });
     return Response.json({ entries: updated });
   } catch (error) {
+    if (error instanceof Error && ["Lançamento não encontrado.", "Somente baixas com conta e data efetiva podem ser conciliadas."].includes(error.message)) return Response.json({ error: error.message }, { status: error.message === "Lançamento não encontrado." ? 404 : 409 });
     if (error instanceof Prisma.PrismaClientKnownRequestError) return Response.json({ error: "Não foi possível atualizar a conciliação." }, { status: 400 });
     return Response.json({ error: "Não foi possível atualizar a conciliação." }, { status: 500 });
   }

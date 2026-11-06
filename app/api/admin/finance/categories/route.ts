@@ -84,6 +84,7 @@ export async function PATCH(request: Request) {
   if (!actor) return Response.json({ error: "Acesso negado." }, { status: 403 });
   const current = await db.financialCategory.findFirst({ where: { id: data.categoryId, organizationId: actor.organization.id } });
   if (!current) return Response.json({ error: "Categoria não encontrada." }, { status: 404 });
+  if (data.kind && data.kind !== current.kind && await db.financialEntry.count({ where: { categoryId: current.id } })) return Response.json({ error: "Categorias com lançamentos não podem mudar entre receita e despesa. Crie outra categoria." }, { status: 409 });
 
   try {
     const category = await db.financialCategory.update({ where: { id: current.id }, data: { name: data.name, kind: data.kind, active: data.active } });

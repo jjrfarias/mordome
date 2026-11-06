@@ -13,7 +13,7 @@ type FinancialCategoryKind = "INCOME" | "EXPENSE";
 type FinancialEntryStatus = "PENDING" | "PAID";
 
 type LocalFinancialCategory = { id: string; organizationId: string; name: string; kind: FinancialCategoryKind; active: boolean; createdAt: string };
-type LocalBankAccount = { id: string; establishmentId: string; name: string; bank: string; agency: string | null; accountNumber: string | null; initialBalance: number; active: boolean; createdAt: string };
+type LocalBankAccount = { id: string; establishmentId: string; name: string; bank: string; agency: string | null; accountNumber: string | null; initialBalance: number; balanceAsOf?: string | null; active: boolean; createdAt: string };
 type LocalPaymentMethodConfig = { id: string; establishmentId: string; name: string; kind: string; feeRate: number | null; settlementDays: number | null; active: boolean; createdAt: string };
 type LocalSupplier = { id: string; organizationId: string; name: string; tradeName: string | null; document: string | null; phone: string | null; email: string | null; notes: string | null; active: boolean; createdAt: string };
 type LocalFinancialEntry = {
@@ -51,6 +51,7 @@ export function updateLocalFinancialCategory(organizationId: string, categoryId:
   if (!category) return "NOT_FOUND" as const;
   const nextName = data.name ?? category.name;
   const nextKind = data.kind ?? category.kind;
+  if (nextKind !== category.kind && [...entriesByEstablishment.values()].some(entries => entries.some(e => e.categoryId === category.id))) return "DUPLICATE" as const;
   if (list.some(item => item.id !== categoryId && sameName(item.name, nextName) && item.kind === nextKind)) return "DUPLICATE" as const;
   Object.assign(category, Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)));
   return { ...category };
@@ -60,14 +61,14 @@ export function updateLocalFinancialCategory(organizationId: string, categoryId:
 export function listLocalBankAccounts(establishmentId: string) {
   return bucket(bankAccountsByEstablishment, establishmentId).map(item => ({ ...item }));
 }
-export function createLocalBankAccount(establishmentId: string, data: { name: string; bank: string; agency?: string | null; accountNumber?: string | null; initialBalance?: number }) {
+export function createLocalBankAccount(establishmentId: string, data: { name: string; bank: string; agency?: string | null; accountNumber?: string | null; initialBalance?: number; balanceAsOf?: string | null }) {
   const list = bucket(bankAccountsByEstablishment, establishmentId);
   if (list.some(item => sameName(item.name, data.name))) return "DUPLICATE" as const;
-  const account: LocalBankAccount = { id: `local-bank-${randomUUID()}`, establishmentId, name: data.name, bank: data.bank, agency: data.agency ?? null, accountNumber: data.accountNumber ?? null, initialBalance: data.initialBalance ?? 0, active: true, createdAt: new Date().toISOString() };
+  const account: LocalBankAccount = { id: `local-bank-${randomUUID()}`, establishmentId, name: data.name, bank: data.bank, agency: data.agency ?? null, accountNumber: data.accountNumber ?? null, initialBalance: data.initialBalance ?? 0, balanceAsOf: data.balanceAsOf ?? null, active: true, createdAt: new Date().toISOString() };
   list.push(account);
   return { ...account };
 }
-export function updateLocalBankAccount(establishmentId: string, accountId: string, data: { name?: string; bank?: string; agency?: string | null; accountNumber?: string | null; initialBalance?: number; active?: boolean }) {
+export function updateLocalBankAccount(establishmentId: string, accountId: string, data: { name?: string; bank?: string; agency?: string | null; accountNumber?: string | null; initialBalance?: number; balanceAsOf?: string | null; active?: boolean }) {
   const list = bucket(bankAccountsByEstablishment, establishmentId);
   const account = list.find(item => item.id === accountId);
   if (!account) return "NOT_FOUND" as const;
@@ -134,13 +135,14 @@ export function createLocalFinancialEntry(organizationId: string, establishmentI
   bucket(entriesByEstablishment, establishmentId).push(entry);
   return { ...entry };
 }
-export function updateLocalFinancialEntry(establishmentId: string, entryId: string, data: { description?: string; amount?: number; dueDate?: string; categoryId?: string; bankAccountId?: string | null; paymentMethodId?: string | null; supplierId?: string | null; notes?: string | null; status?: FinancialEntryStatus }) {
+export function updateLocalFinancialEntry(establishmentId: string, entryId: string, data: { description?: string; amount?: number; dueDate?: string; categoryId?: string; bankAccountId?: string | null; paymentMethodId?: string | null; supplierId?: string | null; notes?: string | null; status?: FinancialEntryStatus; paidAt?: string | null }) {
   const list = bucket(entriesByEstablishment, establishmentId);
   const entry = list.find(item => item.id === entryId);
   if (!entry) return "NOT_FOUND" as const;
   Object.assign(entry, Object.fromEntries(Object.entries(data).filter(([, value]) => value !== undefined)));
   if (data.status === "PAID" && !entry.paidAt) entry.paidAt = new Date().toISOString();
   if (data.status === "PENDING") entry.paidAt = null;
+  entry.reconciled = false; entry.reconciledAt = null; entry.reconciledById = null;
   return { ...entry };
 }
 
