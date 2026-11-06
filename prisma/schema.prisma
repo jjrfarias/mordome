@@ -160,6 +160,8 @@ enum AuditAction {
 }
 
 model User {
+  receiptBatchesCreated ReceiptBatch[] @relation("ReceiptBatchCreated")
+  receiptBatchesReversed ReceiptBatch[] @relation("ReceiptBatchReversed")
   id             String                   @id @default(cuid())
   name           String
   username       String                   @unique
@@ -295,6 +297,7 @@ model Session {
 }
 
 model Organization {
+  receiptBatches ReceiptBatch[]
   posReceiptRules PosReceiptRule[]
   id             String                   @id @default(cuid())
   name           String
@@ -324,6 +327,7 @@ model Organization {
 }
 
 model Establishment {
+  receiptBatches ReceiptBatch[]
   posReceiptRules PosReceiptRule[]
   customerAccounts CustomerAccount[]
   customerSessions CustomerSession[]
@@ -1394,6 +1398,7 @@ model CouponRedemption {
 }
 
 model BankAccount {
+  receiptBatches ReceiptBatch[]
   posReceiptRules PosReceiptRule[]
   id              String           @id @default(cuid())
   establishmentId String
@@ -1436,6 +1441,12 @@ enum FinancialEntryStatus {
 }
 
 model FinancialEntry {
+  receiptBatchId String?
+  isReceiptBatchAdjustment Boolean @default(false)
+  receiptBatch ReceiptBatch? @relation(fields: [receiptBatchId], references: [id], onDelete: Restrict)
+  receiptBatchItems ReceiptBatchItem[]
+  @@unique([id, organizationId, establishmentId])
+  @@index([receiptBatchId])
   sourcePaymentId String? @unique
   sourceRefundPaymentId String? @unique
   reversalOfId String? @unique
@@ -1761,4 +1772,54 @@ model PosReceiptRule {
   bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
   @@unique([establishmentId, method])
   @@index([organizationId, establishmentId])
+}
+
+enum ReceiptBatchStatus {
+  ACTIVE
+  REVERSED
+}
+model ReceiptBatch {
+  id String @id @default(cuid())
+  organizationId String
+  establishmentId String
+  bankAccountId String
+  idempotencyKey String @unique
+  requestFingerprint String
+  expectedAmount Decimal @db.Decimal(12, 2)
+  receivedAmount Decimal @db.Decimal(12, 2)
+  differenceAmount Decimal @db.Decimal(12, 2)
+  receivedDate DateTime @db.Date
+  reason String?
+  status ReceiptBatchStatus @default(ACTIVE)
+  createdById String
+  createdAt DateTime @default(now())
+  reversedById String?
+  reversedAt DateTime?
+  reversalReason String?
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  establishment Establishment @relation(fields: [establishmentId], references: [id], onDelete: Restrict)
+  bankAccount BankAccount @relation(fields: [bankAccountId], references: [id], onDelete: Restrict)
+  createdBy User @relation("ReceiptBatchCreated", fields: [createdById], references: [id], onDelete: Restrict)
+  reversedBy User? @relation("ReceiptBatchReversed", fields: [reversedById], references: [id], onDelete: Restrict)
+  entries FinancialEntry[]
+  items ReceiptBatchItem[]
+  @@unique([id, organizationId, establishmentId])
+  @@index([organizationId, establishmentId, receivedDate])
+  @@index([bankAccountId, receivedDate])
+}
+model ReceiptBatchItem {
+  id String @id @default(cuid())
+  batchId String
+  entryId String
+  organizationId String
+  establishmentId String
+  description String
+  expectedAmount Decimal @db.Decimal(12, 2)
+  previousStatus FinancialEntryStatus
+  previousPaidAt DateTime?
+  previousBankAccountId String?
+  batch ReceiptBatch @relation(fields: [batchId, organizationId, establishmentId], references: [id, organizationId, establishmentId], onDelete: Restrict)
+  entry FinancialEntry @relation(fields: [entryId, organizationId, establishmentId], references: [id, organizationId, establishmentId], onDelete: Restrict)
+  @@unique([batchId, entryId])
+  @@index([entryId, organizationId, establishmentId])
 }
