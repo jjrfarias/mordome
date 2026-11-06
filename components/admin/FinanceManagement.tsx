@@ -33,7 +33,7 @@ function FinanceSettings({ activeEstablishmentId, canManageFinance, canManageFin
       </div>
       <p className="section-note">Categorias, contas, fornecedores, formas de pagamento, acertos e conciliação manual. Use as abas principais para acompanhar pagamentos e recebimentos.</p>
       <nav className="settings-tabs" aria-label="Seções do financeiro">
-        {canManageFinance && <button className={section === "pos" ? "active" : ""} onClick={() => setSection("pos")}>Recebimentos do PDV</button>}
+        {canManageFinance && <button className={section === "pos" ? "active" : ""} onClick={() => setSection("pos")}>Recebimentos de vendas</button>}
         {canManageFinance && <button className={section === "categories" ? "active" : ""} onClick={() => setSection("categories")}>Categorias</button>}
         {canManageFinance && <button className={section === "accounts" ? "active" : ""} onClick={() => setSection("accounts")}>Contas bancárias</button>}
         {canManageFinance && <button className={section === "methods" ? "active" : ""} onClick={() => setSection("methods")}>Formas de pagamento</button>}

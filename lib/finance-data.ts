@@ -12,8 +12,8 @@ export async function financeOverview(organizationId: string, establishmentId: s
       tx.bankAccount.findMany({ where: { establishmentId, establishment: { organizationId } }, orderBy: { name: "asc" } }),
       tx.financialEntry.findMany({ where: { organizationId, establishmentId, voidedAt: null }, include: { category: true }, orderBy: { dueDate: "asc" } }),
     ]);
-    const unconfiguredPosPayments = await tx.payment.count({ where: { financialEntry: null, sale: { organizationId, establishmentId, financeTracked: true, channel: "POS", status: { not: "CANCELLED" } } } });
-    const unconfiguredPosRefunds = await tx.refundPayment.count({ where: { financialEntry: null, refund: { sale: { organizationId, establishmentId, financeTracked: true, channel: "POS", status: { not: "CANCELLED" } } } } });
+    const unconfiguredPosPayments = await tx.payment.count({ where: { financialEntry: null, sale: { organizationId, establishmentId, financeTracked: true, status: { not: "CANCELLED" } } } });
+    const unconfiguredPosRefunds = await tx.refundPayment.count({ where: { financialEntry: null, refund: { sale: { organizationId, establishmentId, financeTracked: true, status: { not: "CANCELLED" } } } } });
     return { unconfiguredPosPayments, unconfiguredPosRefunds, ...buildFinanceOverview(accounts.map(a => ({ id: a.id, name: a.name, active: a.active, initialBalance: a.initialBalance.toString(), balanceAsOf: a.balanceAsOf?.toISOString() ?? null })), entries.map(e => ({ id: e.id, description: e.description, amount: e.amount.toString(), bankAccountId: e.bankAccountId, kind: e.category.kind, dueDate: e.dueDate.toISOString(), paidAt: e.paidAt?.toISOString() ?? null, status: e.status })), businessDay(), horizon, accountId) };
   }, { isolationLevel: "RepeatableRead" });
 }
