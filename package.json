@@ -20,6 +20,7 @@
     "test:account-security:postgres": "tsx scripts/check-account-security-postgres.ts",
     "test:pos-finance:postgres": "tsx scripts/check-pos-finance-postgres.ts",
     "test:finance:postgres": "tsx scripts/check-finance-postgres.ts",
+    "test:receipts:postgres": "tsx scripts/check-receipt-batches-postgres.ts",
     "security:cleanup": "tsx scripts/cleanup-account-security.ts"
   },
   "dependencies": {

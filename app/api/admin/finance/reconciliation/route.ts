@@ -99,6 +99,7 @@ export async function PATCH(request: Request) {
     const current = await tx.financialEntry.findMany({ where: { id: { in: ids }, establishmentId: actor.establishment.id, organizationId: actor.organization.id } });
     if (current.length !== ids.length) throw new Error("Lançamento não encontrado.");
     if (data.reconciled && current.some(e => e.status !== "PAID" || !e.paidAt || !e.bankAccountId)) throw new Error("Somente baixas com conta e data efetiva podem ser conciliadas.");
+    if (current.some(e => e.receiptBatchId)) throw new Error("Este recebimento pertence a um lote. Gerencie o lote em Recebimentos do dia.");
     if (current.some(e => e.voidedAt)) throw new Error("Somente baixas com conta e data efetiva podem ser conciliadas.");
     const result = await Promise.all(current.map(entry => tx.financialEntry.update({
       where: { id: entry.id },
@@ -119,7 +120,7 @@ export async function PATCH(request: Request) {
     });
     return Response.json({ entries: updated });
   } catch (error) {
-    if (error instanceof Error && ["Lançamento não encontrado.", "Somente baixas com conta e data efetiva podem ser conciliadas."].includes(error.message)) return Response.json({ error: error.message }, { status: error.message === "Lançamento não encontrado." ? 404 : 409 });
+    if (error instanceof Error && ["Este recebimento pertence a um lote. Gerencie o lote em Recebimentos do dia.", "Lançamento não encontrado.", "Somente baixas com conta e data efetiva podem ser conciliadas."].includes(error.message)) return Response.json({ error: error.message }, { status: error.message === "Lançamento não encontrado." ? 404 : 409 });
     if (error instanceof Prisma.PrismaClientKnownRequestError) return Response.json({ error: "Não foi possível atualizar a conciliação." }, { status: 400 });
     return Response.json({ error: "Não foi possível atualizar a conciliação." }, { status: 500 });
   }
