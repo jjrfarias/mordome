@@ -472,3 +472,10 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 @media(max-width:760px){.whatsapp-connection-note{display:grid;gap:5px}.whatsapp-qr{display:grid}.whatsapp-qr img{width:180px;height:180px}.automation-list{grid-template-columns:1fr}.automation-actions .primary{width:100%}}
 
 .whatsapp-ordering-toggle{display:flex;gap:11px;align-items:flex-start;margin-top:16px;padding:13px 15px;border:1px solid var(--line);border-radius:12px;background:#fafaf7;cursor:pointer}.whatsapp-ordering-toggle input{width:17px;height:17px;margin:2px 0 0;accent-color:var(--green)}.whatsapp-ordering-toggle span{display:grid;gap:3px;font-size:12px}.whatsapp-ordering-toggle small{color:var(--muted);font-size:11px;line-height:1.45}.whatsapp-ordering-toggle:has(input:disabled){opacity:.58;cursor:not-allowed}
+
+/* Acesso pessoal único, alinhado às ações do cabeçalho. */
+.header-actions .account-access{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:10px 13px;border:1px solid var(--line,#d7dfd7);border-radius:12px;background:var(--surface,#fff);color:var(--brand-primary,#173f35);text-decoration:none;font-size:12px;font-weight:600;white-space:nowrap}
+.header-actions .account-access:visited{color:var(--brand-primary,#173f35)}
+.header-actions .account-access:hover{background:#edf4ef}
+.header-actions .account-access:focus-visible{outline:3px solid #e97c4b;outline-offset:3px}
+@media(max-width:650px){.header-actions .account-access{padding:10px;min-width:42px}.header-actions .account-access span{display:none}}

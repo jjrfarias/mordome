@@ -1,23 +1,20 @@
+import { after } from "next/server";
+import { createManagedUserSchema as createSchema } from "@/lib/user-management-validation";
+import { securityMailConfig } from "@/lib/security-mail";
+import { deliverAccountToken } from "@/lib/account-security-delivery";
+import { securityRate } from "@/lib/account-security-http";
 import { MembershipStatus, Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getCurrentSession, isSameOrigin, normalizeUsername } from "@/lib/auth";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
-import { usernameSchema, passwordSchema } from "@/lib/auth-validation";
+import { passwordSchema } from "@/lib/auth-validation";
 import { hashPassword } from "@/lib/password";
 import { ESTABLISHMENTS_MANAGE } from "@/lib/permissions";
 import { createLocalUser, listLocalRoles, listLocalUsers, localPermissionCatalog, updateLocalUser } from "@/lib/local-access-control";
 import { listLocalEstablishments } from "@/lib/local-auth";
 import { recordLocalAudit } from "@/lib/local-audit";
 import { requestAuditMetadata } from "@/lib/audit";
-
-const createSchema = z.object({
-  name: z.string().trim().min(2).max(100),
-  username: usernameSchema,
-  password: passwordSchema,
-  establishmentIds: z.array(z.string().min(1)).min(1),
-  roleIds: z.array(z.string().min(1)).default([]),
-});
 
 const overrideSchema = z.object({ permissionKey: z.string().min(1), effect: z.enum(["ALLOW", "DENY"]) });
 
@@ -57,7 +54,7 @@ export async function GET(request: Request) {
 
   const [memberships, establishments] = await Promise.all([db.organizationMembership.findMany({
     where: { organizationId: actor.session.organization.id },
-    include: { user: { select: { id: true, name: true, username: true, active: true } }, accesses: { select: { establishmentId: true } }, roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } }, overrides: { include: { permission: true } } },
+    include: { user: { select: { id: true, name: true, username: true, active: true, email: true, pendingEmail: true, emailVerifiedAt: true } }, accesses: { select: { establishmentId: true } }, roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } }, overrides: { include: { permission: true } } },
     orderBy: { createdAt: "asc" },
   }), db.establishment.findMany({ where: { organizationId: actor.session.organization.id }, select: { id: true, name: true, active: true }, orderBy: { name: "asc" } })]);
   return Response.json({
@@ -67,6 +64,7 @@ export async function GET(request: Request) {
       userId: membership.user.id,
       name: membership.user.name,
       username: membership.user.username,
+      email: membership.user.email, pendingEmail: membership.user.pendingEmail, emailVerified: Boolean(membership.user.emailVerifiedAt),
       userActive: membership.user.active,
       status: membership.status,
       establishmentIds: membership.accesses.map(access => access.establishmentId),
@@ -95,7 +93,7 @@ export async function POST(request: Request) {
     const user = createLocalUser({ ...localParsed.data, username: normalizeUsername(localParsed.data.username) });
     if (!user) return Response.json({ error: "Já existe um usuário com esse nome de usuário." }, { status: 409 });
     recordLocalAudit({ organizationId: localSession.organization.id, establishmentId: null, actorId: localSession.user.id, actorName: localSession.user.name, actorUsername: localSession.user.username, action: "CREATE", entityType: "User", entityId: user.userId, reason: `Usuário "${user.name}" criado`, after: { ...user, password: undefined }, ...requestAuditMetadata(request) });
-    return Response.json({ user }, { status: 201 });
+    return Response.json({ user, message: "Usuário criado no ambiente de demonstração. Nenhum e-mail foi enviado." }, { status: 201 });
   }
   const actor = await resolveActor();
   if (!actor) return Response.json({ error: "Acesso negado." }, { status: 403 });
@@ -104,6 +102,11 @@ export async function POST(request: Request) {
   const parsed = createSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: parsed.error.issues[0]?.message ?? "Dados inválidos." }, { status: 400 });
   const data = parsed.data;
+
+  try {
+    securityMailConfig();
+    if (!await securityRate(request, "user-create-email", data.email, 3)) return Response.json({ error: "Muitas solicitações. Aguarde antes de tentar novamente." }, { status: 429 });
+  } catch { return Response.json({ error: "O envio de confirmação está indisponível. Tente novamente mais tarde." }, { status: 503 }); }
 
   const [establishments, roles] = await Promise.all([
     db.establishment.findMany({ where: { id: { in: data.establishmentIds }, organizationId: actor.session.organization.id } }),
@@ -116,12 +119,13 @@ export async function POST(request: Request) {
   try {
     const passwordHash = await hashPassword(data.password);
     const membership = await db.$transaction(async tx => {
-      const user = await tx.user.create({ data: { name: data.name, username: normalizeUsername(data.username), passwordHash } });
+      const user = await tx.user.create({ data: { name: data.name, username: normalizeUsername(data.username), passwordHash, pendingEmail: data.email } });
       const created = await tx.organizationMembership.create({ data: { organizationId: actor.session.organization.id, userId: user.id, status: "ACTIVE", accesses: { create: data.establishmentIds.map(establishmentId => ({ establishmentId })) }, roles: { create: data.roleIds.map(roleId => ({ roleId })) } } });
       await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, actorId: actor.session.user.id, action: "CREATE", entityType: "User", entityId: user.id, reason: `Usuário "${user.name}" criado`, after: { name: user.name, username: user.username, establishmentIds: data.establishmentIds, roleIds: data.roleIds } } });
       return { ...created, user };
     });
-    return Response.json({ user: { membershipId: membership.id, userId: membership.user.id, name: membership.user.name, username: membership.user.username, userActive: true, status: membership.status, establishmentIds: data.establishmentIds, roleIds: data.roleIds, isSelf: false } }, { status: 201 });
+    after(() => deliverAccountToken(membership.user.id, "VERIFY_EMAIL", data.email, membership.user.passwordHash));
+    return Response.json({ message: "Usuário criado. Solicitamos o envio da confirmação para o e-mail informado.", user: { membershipId: membership.id, userId: membership.user.id, name: membership.user.name, username: membership.user.username, userActive: true, status: membership.status, establishmentIds: data.establishmentIds, roleIds: data.roleIds, isSelf: false } }, { status: 201 });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return Response.json({ error: "Já existe um usuário com esse nome de usuário." }, { status: 409 });
     return Response.json({ error: "Não foi possível criar o usuário." }, { status: 500 });

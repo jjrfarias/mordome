@@ -3,7 +3,7 @@
 import Link from "next/link";
 
 import { useEffect, useState, type CSSProperties } from "react";
-import { BarChart3, Bell, Bike, Check, ChefHat, ChevronDown, CircleDollarSign, FileBarChart, FileClock, LayoutDashboard, LayoutGrid, LogOut, Minus, Navigation, Plus, Printer, Receipt, Search, Settings, ShoppingBag, Sparkles, UtensilsCrossed, X } from "lucide-react";
+import { BarChart3, Bell, Bike, Check, ChefHat, ChevronDown, CircleDollarSign, FileBarChart, FileClock, LayoutDashboard, LayoutGrid, LogOut, Minus, Navigation, Plus, Printer, Receipt, Search, Settings, ShieldCheck, ShoppingBag, Sparkles, UtensilsCrossed, X } from "lucide-react";
 import { money, OrderItem, products, SelectedIngredientOption } from "@/lib/domain";
 import { IngredientPicker, productHasIngredientChoices } from "@/components/operations/IngredientPicker";
 import { Brand, MetricCard, NavItem } from "@/components/ui";
@@ -113,12 +113,11 @@ export default function Home() {
           </div>
           <small>{switchingUnit ? "Trocando unidade…" : session.establishments.length > 1 ? `${session.establishments.length} unidades disponíveis` : "Unidade principal"}</small>
         </div>
-        <div className="user-card"><div className="avatar">{session.user.name.split(" ").slice(0, 2).map(part => part[0]).join("").toUpperCase()}</div><div><b>{session.user.name}</b><span>@{session.user.username}</span><Link href="/minha-conta" style={{ fontSize: 12 }}>Segurança da conta</Link></div><button aria-label="Sair" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); setSession(null); }}><LogOut /></button></div>
+        <div className="user-card"><div className="avatar">{session.user.name.split(" ").slice(0, 2).map(part => part[0]).join("").toUpperCase()}</div><div><b>{session.user.name}</b><span>@{session.user.username}</span></div><button aria-label="Sair" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); setSession(null); }}><LogOut /></button></div>
       </div>
     </aside>
     <main>
-      <div style={{ padding: "8px 20px", textAlign: "right" }}><Link href="/minha-conta">Segurança da conta</Link></div>
-      <header><div><span className="header-date">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span><h1>{view === "pdv" ? "PDV rápido" : view === "salão" ? "Gestão do salão" : view === "cozinha" ? "Cozinha" : view === "delivery" ? "Delivery" : view === "entregas" ? "Minhas entregas" : view === "caixa" ? "Caixa" : view === "vendas" ? "Vendas" : view === "historico" ? "Histórico" : view === "relatorios" ? "Relatórios" : view === "dashboards" ? "Dashboards" : view === "config" ? "Configurações" : "Resumo do dia"}</h1></div><div className="header-actions"><span className="sync-state"><i /> Sincronizado agora</span><button className="icon-button" aria-label="Notificações"><Bell /></button><button className={`open-pill ${cashOpen ? "" : "closed"}`} onClick={() => setView("caixa")}><span /> {cashOpen ? "Caixa aberto" : "Caixa fechado"}</button></div></header>
+      <header><div><span className="header-date">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span><h1>{view === "pdv" ? "PDV rápido" : view === "salão" ? "Gestão do salão" : view === "cozinha" ? "Cozinha" : view === "delivery" ? "Delivery" : view === "entregas" ? "Minhas entregas" : view === "caixa" ? "Caixa" : view === "vendas" ? "Vendas" : view === "historico" ? "Histórico" : view === "relatorios" ? "Relatórios" : view === "dashboards" ? "Dashboards" : view === "config" ? "Configurações" : "Resumo do dia"}</h1></div><div className="header-actions"><Link href="/minha-conta" className="account-access" aria-label="Minha conta e segurança" title="Minha conta e segurança"><ShieldCheck size={18} /><span>Minha conta</span></Link><span className="sync-state"><i /> Sincronizado agora</span><button className="icon-button" aria-label="Notificações"><Bell /></button><button className={`open-pill ${cashOpen ? "" : "closed"}`} onClick={() => setView("caixa")}><span /> {cashOpen ? "Caixa aberto" : "Caixa fechado"}</button></div></header>
       {view === "pdv" && <Pos establishmentId={session.establishment.id} onFinish={async (items, checkout) => {
         const saleItems = items.map(item => ({ id: item.id, quantity: item.quantity, selectedOptions: item.optionSelections }));
         const { ok, fiscal } = await completeSale(saleItems, checkout, "POS");

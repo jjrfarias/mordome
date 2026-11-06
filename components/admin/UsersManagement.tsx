@@ -1,42 +1,15 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+
+import { Plus, Search, Users, ShieldCheck, X, ChevronRight } from "lucide-react";
+import { PermissionPicker } from "./PermissionPicker";
+import { permissionLabel, permissionModule } from "@/lib/permission-presentation";
+import styles from "./users-management.module.css";
 
 type Permission = { key: string; module: string; description: string };
 type Role = { id: string; name: string; active: boolean; systemTemplate: boolean; permissionKeys: string[] };
 type OverrideEffect = "INHERIT" | "ALLOW" | "DENY";
-type UserRow = { membershipId: string; userId: string; name: string; username: string; userActive: boolean; status: "ACTIVE" | "INVITED" | "SUSPENDED"; establishmentIds: string[]; roleIds: string[]; overrides?: { permissionKey: string; effect: "ALLOW" | "DENY"; reason: string }[]; effectivePermissionKeys?: string[]; isSelf: boolean };
+type UserRow = { membershipId: string; userId: string; name: string; username: string; email?: string | null; pendingEmail?: string | null; emailVerified?: boolean; userActive: boolean; status: "ACTIVE" | "INVITED" | "SUSPENDED"; establishmentIds: string[]; roleIds: string[]; overrides?: { permissionKey: string; effect: "ALLOW" | "DENY"; reason: string }[]; effectivePermissionKeys?: string[]; isSelf: boolean };
 type Establishment = { id: string; name: string; active: boolean };
-
-const permissionLabels: Record<string, string> = {
-  "establishments.manage": "Gerenciar estabelecimentos",
-  "catalog.manage": "Gerenciar cardápio",
-  "recipes.manage": "Gerenciar fichas técnicas",
-  "stock.manage": "Gerenciar estoque",
-  "pos.sell": "Vender no PDV",
-  "pos.cancel_sale": "Cancelar vendas concluídas",
-  "floor.operate": "Operar o salão",
-  "floor.manage": "Configurar mesas, áreas e garçons",
-  "delivery.operate": "Operar o delivery",
-  "delivery.deliver": "Fazer entregas (app do entregador)",
-  "tabs.cancel_item": "Cancelar itens enviados",
-  "cash.open": "Abrir caixa",
-  "cash.move": "Registrar suprimento e sangria",
-  "cash.close": "Fechar caixa",
-  "cash.history.view": "Ver histórico de caixa",
-  "audit.view": "Ver histórico de auditoria",
-  "finance.summary.view": "Ver resumo financeiro",
-  "users.view": "Ver usuários e acessos",
-  "users.invite": "Criar novos usuários",
-  "users.disable": "Suspender e reativar usuários",
-  "users.password.reset": "Redefinir senhas",
-  "roles.manage": "Criar e editar perfis",
-};
-const moduleLabels: Record<string, string> = { establishments: "Estabelecimentos", catalog: "Cardápio", recipes: "Fichas técnicas", stock: "Estoque", pos: "PDV", floor: "Salão", delivery: "Delivery", cash: "Caixa", finance: "Financeiro", audit: "Auditoria", users: "Usuários", roles: "Perfis" };
-
-function groupByModule(permissions: Permission[]) {
-  const groups = new Map<string, Permission[]>();
-  for (const permission of permissions) groups.set(permission.module, [...(groups.get(permission.module) ?? []), permission]);
-  return [...groups.entries()];
-}
 
 type UsersManagementProps = {
   activeEstablishmentId: string;
@@ -49,6 +22,15 @@ type UsersManagementProps = {
 };
 
 export function UsersManagement({ activeEstablishmentId, canViewUsers, canCreateUsers, canDisableUsers, canResetUserPassword, canManageRoles, onAccessChanged }: UsersManagementProps) {
+  const [tab, setTab] = useState<"users" | "roles">(canViewUsers ? "users" : "roles");
+  const [query, setQuery] = useState("");
+  const [statusFilter, setStatusFilter] = useState("all");
+  const [showCreateUser, setShowCreateUser] = useState(false);
+  const [showCreateRole, setShowCreateRole] = useState(false);
+  const [selectedUser, setSelectedUser] = useState<string | null>(null);
+  const [selectedRole, setSelectedRole] = useState<string | null>(null);
+  const [message, setMessage] = useState("");
+  const [roleBusy, setRoleBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [permissions, setPermissions] = useState<Permission[]>([]);
@@ -61,7 +43,7 @@ export function UsersManagement({ activeEstablishmentId, canViewUsers, canCreate
   const [savingRole, setSavingRole] = useState(false);
   const [roleEdits, setRoleEdits] = useState<Record<string, string[]>>({});
 
-  const [userForm, setUserForm] = useState({ name: "", username: "", password: "", establishmentIds: [] as string[], roleIds: [] as string[] });
+  const [userForm, setUserForm] = useState({ name: "", username: "", email: "", password: "", establishmentIds: [] as string[], roleIds: [] as string[] });
   const [savingUser, setSavingUser] = useState(false);
   const [userEdits, setUserEdits] = useState<Record<string, { establishmentIds: string[]; roleIds: string[] }>>({});
   const [savingUserId, setSavingUserId] = useState("");
@@ -69,12 +51,12 @@ export function UsersManagement({ activeEstablishmentId, canViewUsers, canCreate
   const [overrideEdits, setOverrideEdits] = useState<Record<string, Record<string, OverrideEffect>>>({});
   const [overrideReasons, setOverrideReasons] = useState<Record<string, string>>({});
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const [rolesResponse, usersResponse] = await Promise.all([
         fetch("/api/admin/roles", { cache: "no-store" }),
-        fetch("/api/admin/users", { cache: "no-store" }),
+        canViewUsers ? fetch("/api/admin/users", { cache: "no-store" }) : Promise.resolve(new Response(JSON.stringify({ users: [], establishments: [] }))),
       ]);
       const rolesData = await rolesResponse.json().catch(() => ({}));
       const usersData = await usersResponse.json().catch(() => ({}));
@@ -92,8 +74,8 @@ export function UsersManagement({ activeEstablishmentId, canViewUsers, canCreate
     } finally {
       setLoading(false);
     }
-  };
-  useEffect(() => { queueMicrotask(() => { void load(); }); }, [activeEstablishmentId]);
+  }, [canViewUsers]);
+  useEffect(() => { queueMicrotask(() => { void load(); }); }, [activeEstablishmentId, load]);
 
   const togglePermission = (key: string, list: string[], setList: (next: string[]) => void) => {
     setList(list.includes(key) ? list.filter(item => item !== key) : [...list, key]);
@@ -107,32 +89,36 @@ export function UsersManagement({ activeEstablishmentId, canViewUsers, canCreate
       const response = await fetch("/api/admin/roles", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: roleName.trim(), permissionKeys: rolePermissions }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível criar o perfil.");
-      setRoleName(""); setRolePermissions([]);
+      setRoleName(""); setRolePermissions([]); setShowCreateRole(false); setMessage("Perfil criado.");
       await load();
       await onAccessChanged();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível criar o perfil."); } finally { setSavingRole(false); }
   };
 
   const saveRolePermissions = async (roleId: string) => {
-    setError("");
+    if (roleBusy) return;
+    setRoleBusy(true); setError("");
     try {
       const response = await fetch("/api/admin/roles", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ roleId, permissionKeys: roleEdits[roleId] ?? [] }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível atualizar o perfil.");
       await load();
+      setMessage("Perfil atualizado.");
       await onAccessChanged();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o perfil."); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o perfil."); } finally { setRoleBusy(false); }
   };
 
   const toggleRoleActive = async (role: Role) => {
-    setError("");
+    if (roleBusy) return;
+    setRoleBusy(true); setError("");
     try {
       const response = await fetch("/api/admin/roles", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ roleId: role.id, active: !role.active }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível atualizar o perfil.");
       await load();
+      setMessage("Perfil atualizado.");
       await onAccessChanged();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o perfil."); }
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o perfil."); } finally { setRoleBusy(false); }
   };
 
   const createUser = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -140,10 +126,11 @@ export function UsersManagement({ activeEstablishmentId, canViewUsers, canCreate
     if (!userForm.name.trim() || !userForm.username.trim() || !userForm.password || !userForm.establishmentIds.length || savingUser) return;
     setSavingUser(true); setError("");
     try {
-      const response = await fetch("/api/admin/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: userForm.name.trim(), username: userForm.username.trim(), password: userForm.password, establishmentIds: userForm.establishmentIds, roleIds: userForm.roleIds }) });
+      const response = await fetch("/api/admin/users", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: userForm.name.trim(), username: userForm.username.trim(), password: userForm.password, email: userForm.email.trim(), establishmentIds: userForm.establishmentIds, roleIds: userForm.roleIds }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível criar o usuário.");
-      setUserForm({ name: "", username: "", password: "", establishmentIds: [], roleIds: [] });
+      setShowCreateUser(false); setMessage(data.message ?? "Usuário criado. A confirmação de e-mail foi solicitada.");
+      setUserForm({ name: "", username: "", email: "", password: "", establishmentIds: [], roleIds: [] });
       await load();
       await onAccessChanged();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível criar o usuário."); } finally { setSavingUser(false); }
@@ -158,6 +145,7 @@ export function UsersManagement({ activeEstablishmentId, canViewUsers, canCreate
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível atualizar o usuário.");
       await load();
+      setMessage("Acesso do usuário atualizado.");
       await onAccessChanged();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o usuário."); } finally { setSavingUserId(""); }
   };
@@ -169,6 +157,7 @@ export function UsersManagement({ activeEstablishmentId, canViewUsers, canCreate
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível atualizar o usuário.");
       await load();
+      setMessage("Acesso do usuário atualizado.");
       await onAccessChanged();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o usuário."); } finally { setSavingUserId(""); }
   };
@@ -181,7 +170,7 @@ export function UsersManagement({ activeEstablishmentId, canViewUsers, canCreate
       const response = await fetch("/api/admin/users", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ membershipId, password }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível redefinir a senha.");
-      setPasswordEdits(current => ({ ...current, [membershipId]: "" }));
+      setPasswordEdits(current => ({ ...current, [membershipId]: "" })); setMessage("Senha redefinida e sessões anteriores encerradas.");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível redefinir a senha."); } finally { setSavingUserId(""); }
   };
 
@@ -201,99 +190,56 @@ export function UsersManagement({ activeEstablishmentId, canViewUsers, canCreate
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível salvar as exceções."); } finally { setSavingUserId(""); }
   };
 
-  const grouped = groupByModule(permissions);
+  const currentUser = users.find(user => user.membershipId === selectedUser);
+  const currentRole = roles.find(role => role.id === selectedRole);
+  const matches = (value: string) => value.toLocaleLowerCase("pt-BR").includes(query.trim().toLocaleLowerCase("pt-BR"));
+  const filteredUsers = users.filter(user => matches(`${user.name} ${user.username} ${user.email ?? user.pendingEmail ?? ""}`) && (statusFilter === "all" || (statusFilter === "active" ? user.userActive && user.status === "ACTIVE" : !user.userActive || user.status !== "ACTIVE")));
+  const filteredRoles = roles.filter(role => matches(role.name));
+  const roleNames = (ids: string[]) => roles.filter(role => ids.includes(role.id)).map(role => role.name).join(", ") || "Sem perfil";
+  const unitNames = (ids: string[]) => establishments.filter(unit => ids.includes(unit.id)).map(unit => unit.name).join(", ") || "Sem unidade";
+  const emailStatus = (user: UserRow) => user.emailVerified ? "Confirmado" : user.pendingEmail ? "Aguardando confirmação" : "Não cadastrado";
+  const accessChoices = (values: { establishmentIds: string[]; roleIds: string[] }, change: (next: typeof values) => void, disabled = false) => <div className={styles.accessColumns}>
+    <fieldset><legend>Unidades de acesso</legend>{establishments.filter(unit => unit.active || values.establishmentIds.includes(unit.id)).map(unit => <label className={styles.check} key={unit.id}><input type="checkbox" disabled={disabled || (!unit.active && !values.establishmentIds.includes(unit.id))} checked={values.establishmentIds.includes(unit.id)} onChange={() => togglePermission(unit.id, values.establishmentIds, next => change({ ...values, establishmentIds: next }))} /><span>{unit.name}{!unit.active && " (inativa)"}</span></label>)}</fieldset>
+    <fieldset><legend>Perfis de acesso</legend>{roles.filter(role => role.active || values.roleIds.includes(role.id)).map(role => <label className={styles.check} key={role.id}><input type="checkbox" disabled={disabled || (!role.active && !values.roleIds.includes(role.id))} checked={values.roleIds.includes(role.id)} onChange={() => togglePermission(role.id, values.roleIds, next => change({ ...values, roleIds: next }))} /><span>{role.name}{!role.active && " (inativo)"}</span></label>)}</fieldset>
+  </div>;
 
-  return <section className="page-content">
-    {canManageRoles && <section className="panel settings-shell">
-      <div className="settings-shell-header">
-        <div><span className="section-kicker">Controle de acesso</span><h2>Perfis de permissão</h2></div>
-        <div className="settings-summary"><span><i /> Perfis</span><strong>{roles.length}</strong></div>
-      </div>
-      <form onSubmit={createRole} className="settings-form role-form">
-        <label className="field"><span>Novo perfil</span><input value={roleName} onChange={event => setRoleName(event.target.value)} placeholder="Ex.: Atendente de salão" /></label>
-        <div className="permission-groups">
-          {grouped.map(([moduleKey, items]) => <div key={moduleKey} className="permission-group">
-            <small>{moduleLabels[moduleKey] ?? moduleKey}</small>
-            {items.map(permission => <label key={permission.key} className="permission-check"><input type="checkbox" checked={rolePermissions.includes(permission.key)} onChange={() => togglePermission(permission.key, rolePermissions, setRolePermissions)} />{permissionLabels[permission.key] ?? permission.key}</label>)}
-          </div>)}
-        </div>
-        <button type="submit" className="primary" disabled={!roleName.trim() || !rolePermissions.length || savingRole}>{savingRole ? "Criando…" : "Criar perfil"}</button>
-      </form>
-    </section>}
-
-    {loading ? <div className="empty"><span>Carregando…</span></div> : null}
-    {error && <div className="auth-error">{error}</div>}
-
-    {!loading && canManageRoles && roles.length > 0 && <section className="panel settings-shell">
-      <div className="settings-shell-header"><div><span className="section-kicker">Perfis existentes</span><h2>Editar permissões</h2></div></div>
-      <div className="role-list">
-        {roles.map(role => <article key={role.id} className="role-card">
-          <div className="role-card-head">
-            <div><b>{role.name}</b>{role.systemTemplate && <span className="status-pill status-active">Padrão do sistema</span>}</div>
-            {!role.systemTemplate && <button type="button" className={`secondary ${role.active ? "warn" : ""}`} onClick={() => toggleRoleActive(role)}>{role.active ? "Desativar" : "Ativar"}</button>}
-          </div>
-          <div className="permission-groups">
-            {grouped.map(([moduleKey, items]) => <div key={moduleKey} className="permission-group">
-              <small>{moduleLabels[moduleKey] ?? moduleKey}</small>
-              {items.map(permission => <label key={permission.key} className="permission-check"><input type="checkbox" disabled={role.systemTemplate} checked={(roleEdits[role.id] ?? []).includes(permission.key)} onChange={() => togglePermission(permission.key, roleEdits[role.id] ?? [], next => setRoleEdits(current => ({ ...current, [role.id]: next })))} />{permissionLabels[permission.key] ?? permission.key}</label>)}
-            </div>)}
-          </div>
-          {!role.systemTemplate && <button type="button" className="secondary" onClick={() => saveRolePermissions(role.id)}>Salvar permissões</button>}
-        </article>)}
-      </div>
-    </section>}
-
-    {canViewUsers && canCreateUsers && <section className="panel settings-shell">
-      <div className="settings-shell-header">
-        <div><span className="section-kicker">Equipe</span><h2>Usuários</h2></div>
-        <div className="settings-summary"><span><i /> Usuários</span><strong>{users.length}</strong></div>
-      </div>
-      <form onSubmit={createUser} className="settings-form user-form">
-        <label className="field"><span>Nome</span><input value={userForm.name} onChange={event => setUserForm(current => ({ ...current, name: event.target.value }))} placeholder="Nome completo" /></label>
-        <label className="field"><span>Usuário</span><input value={userForm.username} onChange={event => setUserForm(current => ({ ...current, username: event.target.value }))} placeholder="usuario.login" /></label>
-        <label className="field"><span>Senha inicial</span><input type="password" value={userForm.password} onChange={event => setUserForm(current => ({ ...current, password: event.target.value }))} placeholder="Mínimo 8 caracteres" /></label>
-        <div className="field access-picker">
-          <span>Unidades</span>
-          <div className="permission-groups inline">{establishments.map(establishment => <label key={establishment.id} className="permission-check"><input type="checkbox" checked={userForm.establishmentIds.includes(establishment.id)} onChange={() => togglePermission(establishment.id, userForm.establishmentIds, next => setUserForm(current => ({ ...current, establishmentIds: next })))} />{establishment.name}</label>)}</div>
-        </div>
-        <div className="field access-picker">
-          <span>Perfis</span>
-          <div className="permission-groups inline">{roles.filter(role => role.active).map(role => <label key={role.id} className="permission-check"><input type="checkbox" checked={userForm.roleIds.includes(role.id)} onChange={() => togglePermission(role.id, userForm.roleIds, next => setUserForm(current => ({ ...current, roleIds: next })))} />{role.name}</label>)}</div>
-        </div>
-        <button className="primary" type="submit" disabled={!userForm.name.trim() || !userForm.username.trim() || !userForm.password || !userForm.establishmentIds.length || savingUser}>{savingUser ? "Criando…" : "Criar usuário"}</button>
-      </form>
-    </section>}
-
-    {!loading && canViewUsers && users.length > 0 && <section className="panel settings-shell">
-      <div className="settings-shell-header"><div><span className="section-kicker">Equipe</span><h2>Acesso por usuário</h2></div></div>
-      <div className="role-list">
-        {users.map(user => { const edit = userEdits[user.membershipId] ?? { establishmentIds: user.establishmentIds, roleIds: user.roleIds }; const isOwner = roles.some(role => role.systemTemplate && user.roleIds.includes(role.id)); return <article key={user.membershipId} className="role-card">
-          <div className="role-card-head">
-            <div><b>{user.name}</b><span className={`status-pill ${user.status === "SUSPENDED" ? "status-inactive" : "status-active"}`}>{user.status === "SUSPENDED" ? "Suspenso" : "Ativo"}</span></div>
-            {!user.isSelf && canDisableUsers && <button type="button" className={`secondary ${user.status !== "SUSPENDED" ? "warn" : ""}`} disabled={savingUserId === user.membershipId} onClick={() => toggleUserStatus(user)}>{user.status === "SUSPENDED" ? "Reativar" : "Suspender"}</button>}
-          </div>
-          <small>@{user.username}</small>
-          <div className="effective-access"><span>Acesso efetivo</span><div>{(user.effectivePermissionKeys ?? []).map(key => { const individual = user.overrides?.find(item => item.permissionKey === key && item.effect === "ALLOW"); const sources = roles.filter(role => user.roleIds.includes(role.id) && role.permissionKeys.includes(key)).map(role => role.name); return <small key={key} title={individual ? `Liberado individualmente: ${individual.reason}` : `Herdado de: ${sources.join(", ")}`}>{permissionLabels[key] ?? key}<em>{individual ? "Liberado individualmente" : `Perfil: ${sources.join(" + ")}`}</em></small>; })}{user.overrides?.filter(item => item.effect === "DENY").map(item => <small className="blocked" key={`blocked-${item.permissionKey}`} title={item.reason}>{permissionLabels[item.permissionKey] ?? item.permissionKey}<em>Bloqueado individualmente</em></small>)}</div></div>
-          <div className="field access-picker">
-            <span>Unidades</span>
-            <div className="permission-groups inline">{establishments.map(establishment => <label key={establishment.id} className="permission-check"><input type="checkbox" disabled={!canManageRoles} checked={edit.establishmentIds.includes(establishment.id)} onChange={() => togglePermission(establishment.id, edit.establishmentIds, next => setUserEdits(current => ({ ...current, [user.membershipId]: { ...edit, establishmentIds: next } })))} />{establishment.name}</label>)}</div>
-          </div>
-          <div className="field access-picker">
-            <span>Perfis</span>
-            <div className="permission-groups inline">{roles.filter(role => role.active).map(role => <label key={role.id} className="permission-check"><input type="checkbox" disabled={!canManageRoles} checked={edit.roleIds.includes(role.id)} onChange={() => togglePermission(role.id, edit.roleIds, next => setUserEdits(current => ({ ...current, [user.membershipId]: { ...edit, roleIds: next } })))} />{role.name}</label>)}</div>
-          </div>
-          {canManageRoles && <button type="button" className="secondary" disabled={savingUserId === user.membershipId} onClick={() => saveUserAccess(user.membershipId)}>{savingUserId === user.membershipId ? "Salvando…" : "Salvar acesso"}</button>}
-          {canManageRoles && !isOwner && <details className="override-panel">
-            <summary>Exceções individuais <span>{user.overrides?.length ?? 0}</span></summary>
-            <p>Use somente quando este usuário precisar fugir dos perfis. Bloquear sempre prevalece sobre liberar.</p>
-            <div className="override-grid">{permissions.map(permission => <label key={permission.key}><span>{permissionLabels[permission.key] ?? permission.key}<small>{moduleLabels[permission.module] ?? permission.module}</small></span><select value={overrideEdits[user.membershipId]?.[permission.key] ?? "INHERIT"} onChange={event => setOverrideEdits(current => ({ ...current, [user.membershipId]: { ...(current[user.membershipId] ?? {}), [permission.key]: event.target.value as OverrideEffect } }))}><option value="INHERIT">Herdar dos perfis</option><option value="ALLOW">Liberar só para ele</option><option value="DENY">Bloquear só para ele</option></select></label>)}</div>
-            <label className="field override-reason"><span>Justificativa da alteração</span><input value={overrideReasons[user.membershipId] ?? ""} onChange={event => setOverrideReasons(current => ({ ...current, [user.membershipId]: event.target.value }))} placeholder="Ex.: auxilia no fechamento às sextas-feiras" /></label>
-            <button type="button" className="secondary" disabled={savingUserId === user.membershipId} onClick={() => saveUserOverrides(user.membershipId)}>{savingUserId === user.membershipId ? "Salvando…" : "Salvar exceções"}</button>
-          </details>}
-          {canManageRoles && isOwner && <small className="owner-protection">O perfil Proprietário mantém acesso integral para evitar bloqueio administrativo.</small>}
-          {canResetUserPassword && !user.isSelf && <div className="password-reset-row"><input type="password" value={passwordEdits[user.membershipId] ?? ""} onChange={event => setPasswordEdits(current => ({ ...current, [user.membershipId]: event.target.value }))} placeholder="Nova senha (mín. 8)" /><button type="button" className="secondary" disabled={savingUserId === user.membershipId || (passwordEdits[user.membershipId]?.length ?? 0) < 8} onClick={() => resetPassword(user.membershipId)}>Redefinir senha</button></div>}
-        </article>; })}
-      </div>
-    </section>}
+  return <section className={styles.workspace} aria-label="Gestão da equipe">
+    <div className={styles.heading}><div><span className={styles.kicker}>CONTROLE DE ACESSO</span><h2>Equipe e perfis</h2><p>Organize quem acessa cada unidade e o que pode fazer.</p></div><div className={styles.metrics}><span><strong>{users.filter(user => user.userActive && user.status === "ACTIVE").length}</strong> usuários ativos</span><span><strong>{roles.filter(role => role.active).length}</strong> perfis ativos</span></div></div>
+    <nav className={styles.tabs} aria-label="Gestão de acessos">{canViewUsers && <button type="button" aria-pressed={tab === "users"} onClick={() => { setTab("users"); setQuery(""); }}><Users size={18} />Usuários <span>{users.length}</span></button>}{canManageRoles && <button type="button" aria-pressed={tab === "roles"} onClick={() => { setTab("roles"); setQuery(""); }}><ShieldCheck size={18} />Perfis <span>{roles.length}</span></button>}</nav>
+    {error && <div className={styles.error} role="alert">{error}<button type="button" onClick={() => void load()}>Atualizar dados</button></div>}
+    {message && <div className={styles.notice} role="status">{message}<button type="button" aria-label="Fechar aviso" onClick={() => setMessage("")}><X size={16} /></button></div>}
+    {loading ? <p role="status" className={styles.empty}>Carregando equipe e perfis…</p> : <>
+      <div className={styles.toolbar}><label className={styles.search}><Search size={18} /><input type="search" aria-label={tab === "users" ? "Buscar usuário" : "Buscar perfil"} value={query} onChange={event => setQuery(event.target.value)} placeholder={tab === "users" ? "Buscar por nome, usuário ou e-mail" : "Buscar perfil"} /></label>{tab === "users" && <select aria-label="Filtrar situação" value={statusFilter} onChange={event => setStatusFilter(event.target.value)}><option value="all">Todos os usuários</option><option value="active">Ativos</option><option value="inactive">Suspensos ou inativos</option></select>}{tab === "users" ? canCreateUsers && <button type="button" className="primary" onClick={() => { setShowCreateUser(true); setSelectedUser(null); setError(""); }}><Plus size={18} />Novo usuário</button> : <button type="button" className="primary" onClick={() => { setShowCreateRole(true); setSelectedRole(null); setError(""); }}><Plus size={18} />Novo perfil</button>}</div>
+      {tab === "users" && showCreateUser && <section className={styles.editor} aria-labelledby="new-user-title"><div className={styles.editorHead}><div><h3 id="new-user-title">Novo usuário</h3><p>Cadastre os dados e escolha os acessos. O e-mail precisa ser confirmado pelo usuário.</p></div><button type="button" className={styles.close} aria-label="Fechar cadastro" onClick={() => setShowCreateUser(false)}><X /></button></div>
+        <form onSubmit={createUser}><div className={styles.fields}><label>Nome completo<input required minLength={2} maxLength={100} autoComplete="off" value={userForm.name} onChange={event => setUserForm(current => ({ ...current, name: event.target.value }))} /></label><label>E-mail<input type="email" required maxLength={254} autoComplete="off" value={userForm.email} onChange={event => setUserForm(current => ({ ...current, email: event.target.value }))} /></label><label>Nome de usuário<input required minLength={3} maxLength={40} pattern="[A-Za-z0-9._\-]+" autoComplete="off" value={userForm.username} onChange={event => setUserForm(current => ({ ...current, username: event.target.value }))} /><small>Sem espaços. Use letras, números, ponto ou hífen.</small></label><label>Senha inicial<input type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={userForm.password} onChange={event => setUserForm(current => ({ ...current, password: event.target.value }))} /><small>Pelo menos 8 caracteres, com letra e número.</small></label></div>
+          {accessChoices(userForm, next => setUserForm(current => ({ ...current, ...next })))}
+          <div className={styles.actions}><button type="submit" className="primary" disabled={savingUser || !userForm.roleIds.length || !userForm.establishmentIds.length}>{savingUser ? "Criando…" : "Criar usuário e solicitar confirmação"}</button><button type="button" className="secondary" onClick={() => setShowCreateUser(false)}>Cancelar</button></div></form>
+      </section>}
+      {tab === "users" && currentUser && (() => {
+        const user = currentUser;
+        const edit = userEdits[user.membershipId] ?? { establishmentIds: user.establishmentIds, roleIds: user.roleIds };
+        const owner = roles.some(role => role.systemTemplate && user.roleIds.includes(role.id));
+        return <section className={styles.editor} aria-labelledby="edit-user-title"><div className={styles.editorHead}><div><h3 id="edit-user-title">{user.name}</h3><p>@{user.username} · {user.email ?? user.pendingEmail ?? "E-mail não cadastrado"} · {emailStatus(user)}</p></div><button type="button" className={styles.close} aria-label="Fechar edição do usuário" onClick={() => setSelectedUser(null)}><X /></button></div>
+          {accessChoices(edit, next => setUserEdits(current => ({ ...current, [user.membershipId]: next })), !canManageRoles)}
+          <div className={styles.actions}>{canManageRoles && <button type="button" className="primary" disabled={savingUserId === user.membershipId} onClick={() => void saveUserAccess(user.membershipId)}>Salvar acessos</button>}{!user.isSelf && canDisableUsers && <button type="button" className="secondary" disabled={savingUserId === user.membershipId} onClick={() => { if (window.confirm(user.status === "SUSPENDED" ? `Reativar o acesso de ${user.name}?` : `Suspender o acesso de ${user.name}?`)) void toggleUserStatus(user); }}>{user.status === "SUSPENDED" ? "Reativar usuário" : "Suspender usuário"}</button>}</div>
+          {owner && <p className={styles.help}>O perfil Proprietário mantém acesso integral e não aceita exceções individuais.</p>}
+          <details className={styles.advanced}><summary>Acessos efetivos ({user.effectivePermissionKeys?.length ?? 0})</summary><div className={styles.effective}>{(user.effectivePermissionKeys ?? []).map(key => <span key={key}>{permissionLabel(permissions.find(p => p.key === key) ?? { key, description: key, module: "" })}</span>)}</div></details>
+          {canManageRoles && !owner && <details className={styles.advanced}><summary>Exceções individuais ({user.overrides?.length ?? 0})</summary><p>Use apenas quando os perfis não atenderem. Um bloqueio individual prevalece sobre a liberação.</p><div className={styles.overrides}>{permissions.map(permission => <label key={permission.key}><span>{permissionLabel(permission)}<small>{permissionModule(permission)}</small></span><select aria-label={`Exceção: ${permissionLabel(permission)}`} value={overrideEdits[user.membershipId]?.[permission.key] ?? "INHERIT"} onChange={event => setOverrideEdits(current => ({ ...current, [user.membershipId]: { ...(current[user.membershipId] ?? {}), [permission.key]: event.target.value as OverrideEffect } }))}><option value="INHERIT">Herdar dos perfis</option><option value="ALLOW">Liberar para este usuário</option><option value="DENY">Bloquear para este usuário</option></select></label>)}</div><label className={styles.reason}>Justificativa<input value={overrideReasons[user.membershipId] ?? ""} onChange={event => setOverrideReasons(current => ({ ...current, [user.membershipId]: event.target.value }))} /></label><button type="button" className="secondary" disabled={savingUserId === user.membershipId} onClick={() => void saveUserOverrides(user.membershipId)}>Salvar exceções</button></details>}
+          {canResetUserPassword && !user.isSelf && <details className={styles.advanced}><summary>Redefinir senha</summary><p>As sessões abertas serão encerradas. Informe a nova senha ao usuário por um canal seguro.</p><div className={styles.reset}><label>Nova senha<input type="password" autoComplete="new-password" value={passwordEdits[user.membershipId] ?? ""} onChange={event => setPasswordEdits(current => ({ ...current, [user.membershipId]: event.target.value }))} /></label><button type="button" className="secondary" disabled={savingUserId === user.membershipId || (passwordEdits[user.membershipId]?.length ?? 0) < 8} onClick={() => void resetPassword(user.membershipId)}>Redefinir senha</button></div></details>}
+        </section>;
+      })()}
+      {tab === "roles" && (showCreateRole || currentRole) && <section className={styles.editor}><div className={styles.editorHead}><div><h3>{showCreateRole ? "Novo perfil" : currentRole!.name}</h3><p>{currentRole?.systemTemplate && !showCreateRole ? "Perfil protegido do sistema. As permissões são somente para consulta." : "Escolha as áreas e permissões que fazem parte deste perfil."}</p></div><button type="button" className={styles.close} aria-label="Fechar edição do perfil" onClick={() => { setShowCreateRole(false); setSelectedRole(null); }}><X /></button></div>
+        <form onSubmit={event => { if (showCreateRole) void createRole(event); else { event.preventDefault(); void saveRolePermissions(currentRole!.id); } }}>
+          {showCreateRole && <label className={styles.reason}>Nome do perfil<input required minLength={2} maxLength={60} value={roleName} onChange={event => setRoleName(event.target.value)} placeholder="Ex.: Atendente de salão" /></label>}
+          <PermissionPicker key={showCreateRole ? "new" : currentRole!.id} permissions={permissions} selected={showCreateRole ? rolePermissions : roleEdits[currentRole!.id] ?? []} disabled={!showCreateRole && currentRole!.systemTemplate} onChange={next => showCreateRole ? setRolePermissions(next) : setRoleEdits(current => ({ ...current, [currentRole!.id]: next }))} />
+          {(showCreateRole || !currentRole!.systemTemplate) && <div className={styles.actions}><button type="submit" className="primary" disabled={savingRole || roleBusy || (showCreateRole && (!roleName.trim() || !rolePermissions.length))}>{savingRole || roleBusy ? "Salvando…" : showCreateRole ? "Criar perfil" : "Salvar permissões"}</button>{!showCreateRole && <button type="button" className="secondary" disabled={roleBusy} onClick={() => { if (window.confirm(currentRole!.active ? "Desativar este perfil? Os usuários deixam de receber as permissões dele." : "Reativar este perfil?")) void toggleRoleActive(currentRole!); }}>{currentRole!.active ? "Desativar perfil" : "Ativar perfil"}</button>}</div>}
+        </form>
+      </section>}
+      {tab === "users" ? <div className={styles.list}>
+        <div className={styles.listHeading}><span>USUÁRIO</span><span>ACESSOS</span><span>SITUAÇÃO</span><span /></div>
+        {filteredUsers.map(user => <article className={styles.userRow} key={user.membershipId}><div className={styles.identity}><div className={styles.avatar}>{user.name.slice(0, 1).toUpperCase()}</div><div><strong>{user.name}{user.isSelf && <small> · Você</small>}</strong><span>@{user.username}</span><span>{user.email ?? user.pendingEmail ?? "E-mail não cadastrado"}</span></div></div><div className={styles.rowAccess}><strong>{roleNames(user.roleIds)}</strong><span>{unitNames(user.establishmentIds)}</span></div><div className={styles.rowStatus}><span className={user.status === "ACTIVE" && user.userActive ? styles.active : styles.inactive}>{!user.userActive ? "Inativo" : user.status === "SUSPENDED" ? "Suspenso" : user.status === "INVITED" ? "Convidado" : "Ativo"}</span><small>{emailStatus(user)}</small></div><button type="button" className={styles.editButton} aria-label={`Gerenciar ${user.name}`} onClick={() => { setSelectedUser(user.membershipId); setShowCreateUser(false); setError(""); }}>Gerenciar<ChevronRight size={16} /></button></article>)}
+        {!filteredUsers.length && <p className={styles.empty}>{query || statusFilter !== "all" ? "Nenhum usuário encontrado para este filtro." : "Nenhum usuário cadastrado."}</p>}
+      </div> : <div className={styles.roleList}>{filteredRoles.map(role => <article className={styles.roleRow} key={role.id}><div className={styles.roleIcon}><ShieldCheck size={22} /></div><div><strong>{role.name}</strong><p>{role.systemTemplate ? "Acesso integral · protegido pelo sistema" : `${role.permissionKeys.length} permissões · ${users.filter(user => user.roleIds.includes(role.id)).length} usuários vinculados`}</p></div><span className={role.active ? styles.active : styles.inactive}>{role.active ? "Ativo" : "Inativo"}</span><button type="button" className={styles.editButton} aria-label={`${role.systemTemplate ? "Consultar" : "Editar"} perfil ${role.name}`} onClick={() => { setSelectedRole(role.id); setShowCreateRole(false); setError(""); }}>{role.systemTemplate ? "Consultar" : "Editar"}<ChevronRight size={16} /></button></article>)}{!filteredRoles.length && <p className={styles.empty}>Nenhum perfil encontrado.</p>}</div>}
+    </>}
   </section>;
 }
