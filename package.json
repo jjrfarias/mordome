@@ -18,6 +18,7 @@
     "test": "node --test --experimental-strip-types tests/*.test.ts",
     "prebuild": "npm run lint && npm test && npm run db:validate",
     "test:account-security:postgres": "tsx scripts/check-account-security-postgres.ts",
+    "test:pos-finance:postgres": "tsx scripts/check-pos-finance-postgres.ts",
     "test:finance:postgres": "tsx scripts/check-finance-postgres.ts",
     "security:cleanup": "tsx scripts/cleanup-account-security.ts"
   },
