@@ -778,6 +778,7 @@ model DeliveryOrderItem {
 }
 
 model Tab {
+  name            String        @default("")
   id              String        @id @default(cuid())
   establishmentId String
   tableId         String

@@ -479,3 +479,16 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 .header-actions .account-access:hover{background:#edf4ef}
 .header-actions .account-access:focus-visible{outline:3px solid #e97c4b;outline-offset:3px}
 @media(max-width:650px){.header-actions .account-access{padding:10px;min-width:42px}.header-actions .account-access span{display:none}}
+
+/* Comandas independentes por pessoa, dentro da mesma mesa. */
+.named-tab-controls{padding:16px;border-bottom:1px solid var(--line);display:grid;gap:10px}
+.named-tab-controls .field{margin:0;min-width:0}.named-tab-controls select{width:100%;min-width:0;padding:10px;border:1px solid var(--line);border-radius:8px;background:var(--paper);font:inherit}
+.named-tab-actions{display:flex;gap:8px;flex-wrap:wrap}.named-tab-actions button{font-size:12px;display:flex;align-items:center;gap:5px;padding:8px 10px}
+.tab-customer-name{display:block;font-size:15px;margin-top:5px;overflow-wrap:anywhere;color:var(--green)}
+.ticket .named-tab-controls,.ticket .ticket-title,.ticket .ticket-footer{flex-shrink:0}
+@media(max-width:760px){
+  .command-layout .ticket{bottom:68px;height:min(64dvh,520px);max-height:calc(100dvh - 150px)}
+  .command-layout .named-tab-controls{padding:10px 16px;gap:7px}
+  .command-layout .ticket-items{min-height:55px}
+  .command-layout .catalog{padding-bottom:calc(min(64dvh,520px) + 90px)}
+}

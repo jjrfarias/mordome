@@ -13,10 +13,10 @@ function printHtml(html: string) {
   doc.open(); doc.write(html); doc.close(); iframe.onload = () => { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); setTimeout(() => document.body.removeChild(iframe), 1000); };
 }
 
-export function buildReceiptHtml(input: { establishmentName: string; items: ReceiptLine[]; total: number; payment: string; channel: "POS" | "FLOOR"; table?: number }, template?: ReceiptTemplate) {
+export function buildReceiptHtml(input: { establishmentName: string; items: ReceiptLine[]; total: number; payment: string; channel: "POS" | "FLOOR"; table?: number; tabName?: string }, template?: ReceiptTemplate) {
   const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const rows = input.items.map(item => `<tr><td>${item.quantity}x ${escapeHtml(item.name)}</td><td class="right">${money(item.unitPrice * item.quantity)}</td></tr>`).join("");
-  const title = input.channel === "POS" ? "Venda direta" : `Mesa ${input.table ?? ""}`;
+  const title = input.channel === "POS" ? "Venda direta" : `Mesa ${input.table ?? ""}${input.tabName ? ` · ${input.tabName}` : ""}`;
   const widthPx = (template?.paperWidth ?? 80) === 58 ? 200 : 280;
   return `<!doctype html><html><head><meta charset="utf-8"><title>Recibo</title><style>
     body{font-family:'Courier New',monospace;width:${widthPx}px;margin:0 auto;padding:12px;color:#000}
@@ -42,7 +42,7 @@ export function buildReceiptHtml(input: { establishmentName: string; items: Rece
   </body></html>`;
 }
 
-export function printReceipt(input: { establishmentName: string; items: ReceiptLine[]; total: number; payment: string; channel: "POS" | "FLOOR"; table?: number }, template?: ReceiptTemplate) {
+export function printReceipt(input: { establishmentName: string; items: ReceiptLine[]; total: number; payment: string; channel: "POS" | "FLOOR"; table?: number; tabName?: string }, template?: ReceiptTemplate) {
   printHtml(buildReceiptHtml(input, template));
 }
 
