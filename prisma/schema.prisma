@@ -327,6 +327,7 @@ model Organization {
 }
 
 model Establishment {
+  kitchenPrintAgents KitchenPrintAgent[]
   receiptBatches ReceiptBatch[]
   posReceiptRules PosReceiptRule[]
   customerAccounts CustomerAccount[]
@@ -821,6 +822,7 @@ model TabItem {
 }
 
 model Order {
+  kitchenPrintJobs KitchenPrintJob[]
   id              String               @id @default(cuid())
   tabId           String
   status          OrderStatus          @default(RECEIVED)
@@ -1822,4 +1824,32 @@ model ReceiptBatchItem {
   entry FinancialEntry @relation(fields: [entryId, organizationId, establishmentId], references: [id, organizationId, establishmentId], onDelete: Restrict)
   @@unique([batchId, entryId])
   @@index([entryId, organizationId, establishmentId])
+}
+
+// One agent per physical kitchen printer. Tokens authorize this unit only.
+model KitchenPrintAgent {
+  id String @id @default(cuid())
+  establishmentId String
+  name String
+  tokenHash String @unique
+  active Boolean @default(true)
+  activatedAt DateTime @default(now())
+  lastSeenAt DateTime?
+  establishment Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+  jobs KitchenPrintJob[]
+  @@index([establishmentId, active])
+}
+
+model KitchenPrintJob {
+  id String @id @default(cuid())
+  agentId String
+  orderId String
+  status String @default("PENDING")
+  payload String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  agent KitchenPrintAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  @@unique([agentId, orderId])
+  @@index([agentId, status, createdAt])
 }
