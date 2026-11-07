@@ -1,9 +1,10 @@
-import { MembershipStatus } from "@/generated/prisma/client";
+import { MembershipStatus, Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
-import { listLocalCategories, setLocalCategoryOrder } from "@/lib/local-catalog";
+import { createLocalCategory, listLocalCategories, setLocalCategoryOrder } from "@/lib/local-catalog";
+import { slugify } from "@/lib/auth-validation";
 import { requestAuditMetadata } from "@/lib/audit";
 import { recordLocalAudit } from "@/lib/local-audit";
 import { isCompleteOrder } from "@/lib/category-order";
@@ -71,4 +72,36 @@ export async function PUT(request: Request) {
   });
   if (!categories) return Response.json({ error: "A lista de categorias mudou. Recarregue a página e tente novamente." }, { status: 409 });
   return Response.json({ categories: await listCategories(organizationId) });
+}
+
+export async function POST(request: Request) {
+  if (!isSameOrigin(request)) return Response.json({ error: "Origem inválida." }, { status: 403 });
+  const parsed = z.object({ name: z.string().trim().min(2).max(80).refine(name => slugify(name).length > 0) }).safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return Response.json({ error: "Informe um nome de categoria com 2 a 80 caracteres." }, { status: 400 });
+  const { name } = parsed.data;
+  if (isLocalAuthEnabled()) {
+    const session = await getLocalSession();
+    if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
+    if (!session.canManageCatalog) return Response.json({ error: "Acesso negado ao Cardápio." }, { status: 403 });
+    if (listLocalCategories().some(category => slugify(category.name) === slugify(name))) return Response.json({ error: "Já existe uma categoria com esse nome." }, { status: 409 });
+    const category = createLocalCategory(name);
+    if (!category) return Response.json({ error: "Já existe uma categoria com esse nome." }, { status: 409 });
+    recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "CREATE", entityType: "Category", entityId: category.id, reason: "Cadastro de categoria", after: category, ...requestAuditMetadata(request) });
+    return Response.json({ category }, { status: 201 });
+  }
+  const session = await resolveActor();
+  if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
+  if (!session.canManageCatalog) return Response.json({ error: "Acesso negado ao Cardápio." }, { status: 403 });
+  try {
+    const category = await db.$transaction(async tx => {
+      const last = await tx.category.aggregate({ where: { organizationId: session.organization.id }, _max: { sortOrder: true } });
+      const created = await tx.category.create({ data: { organizationId: session.organization.id, name, slug: slugify(name), sortOrder: (last._max.sortOrder ?? 0) + 1 } });
+      await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "CREATE", entityType: "Category", entityId: created.id, reason: "Cadastro de categoria", after: { name }, ...requestAuditMetadata(request) } });
+      return created;
+    });
+    return Response.json({ category: { id: category.id, name: category.name, productCount: 0 } }, { status: 201 });
+  } catch (error) {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return Response.json({ error: "Já existe uma categoria com esse nome." }, { status: 409 });
+    return Response.json({ error: "Não foi possível cadastrar a categoria." }, { status: 500 });
+  }
 }

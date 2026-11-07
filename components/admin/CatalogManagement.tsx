@@ -5,7 +5,7 @@ import { compareAtPriceError } from "@/lib/catalog-validation";
 import { compressImageFile } from "@/lib/image-compression";
 
 type Channel = "POS" | "FLOOR" | "ONLINE" | "DELIVERY";
-type CatalogProduct = { id: string; name: string; category: string; description: string | null; price: number; compareAtPrice: number | null; vegetarian: boolean; channels: Channel[]; active: boolean; imageUrl: string | null; isCombo: boolean };
+type CatalogProduct = { id: string; name: string; categoryId?: string | null; category: string; description: string | null; price: number; compareAtPrice: number | null; vegetarian: boolean; channels: Channel[]; active: boolean; imageUrl: string | null; isCombo: boolean };
 type CategoryItem = { id: string; name: string; productCount: number };
 
 const parseMoney = (value: string) => Number(value.replace(/\./g, "").replace(",", "."));
@@ -29,6 +29,9 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
   const [error, setError] = useState("");
   const [name, setName] = useState("");
   const [category, setCategory] = useState("");
+  const [categories, setCategories] = useState<CategoryItem[]>([]);
+  const [newCategory, setNewCategory] = useState("");
+  const [categorySaving, setCategorySaving] = useState(false);
   const [description, setDescription] = useState("");
   const [price, setPrice] = useState("");
   const [selectedChannels, setSelectedChannels] = useState<Channel[]>(["POS", "FLOOR"]);
@@ -40,7 +43,10 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
   const load = useCallback(async () => {
     setLoading(true); setError("");
     try {
-      const response = await fetch("/api/admin/catalog", { cache: "no-store" });
+      const [response, categoryResponse] = await Promise.all([fetch("/api/admin/catalog", { cache: "no-store" }), fetch("/api/admin/categories", { cache: "no-store" })]);
+      const categoryData = await categoryResponse.json().catch(() => ({}));
+      if (!categoryResponse.ok) throw new Error(categoryData.error ?? "Não foi possível carregar as categorias.");
+      setCategories(categoryData.categories);
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar o cardápio.");
       setProducts(data.products);
@@ -59,14 +65,14 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
   const numericPrice = parseMoney(price);
   const numericCompareAt = compareAt.trim() ? parseMoney(compareAt) : null;
   const compareError = Number.isFinite(numericPrice) ? compareAtPriceError(numericPrice, numericCompareAt) : null;
-  const canCreate = !compareError && name.trim().length >= 2 && category.trim().length >= 2 && Number.isFinite(numericPrice) && numericPrice >= 0 && selectedChannels.length > 0;
+  const canCreate = !compareError && name.trim().length >= 2 && categories.some(item => item.id === category) && Number.isFinite(numericPrice) && numericPrice >= 0 && selectedChannels.length > 0;
 
   const create = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!canCreate || saving) return;
     setSaving(true); setError("");
     try {
-      const response = await fetch("/api/admin/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), category: category.trim(), description: description.trim() || undefined, price: numericPrice, channels: selectedChannels, imageUrl: imageUrl ?? undefined, isCombo, vegetarian, compareAtPrice: numericCompareAt }) });
+      const response = await fetch("/api/admin/catalog", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), categoryId: category, description: description.trim() || undefined, price: numericPrice, channels: selectedChannels, imageUrl: imageUrl ?? undefined, isCombo, vegetarian, compareAtPrice: numericCompareAt }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível cadastrar o produto.");
       setName(""); setCategory(""); setDescription(""); setPrice(""); setSelectedChannels(["POS", "FLOOR"]); setImageUrl(null); setIsCombo(false); setVegetarian(false); setCompareAt("");
@@ -76,15 +82,31 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
     } finally { setSaving(false); }
   };
 
+  const createCategory = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (categorySaving || newCategory.trim().length < 2) return;
+    setCategorySaving(true); setError("");
+    try {
+      const response = await fetch("/api/admin/categories", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: newCategory.trim() }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível cadastrar a categoria.");
+      setCategories(current => [...current, data.category]); setCategory(data.category.id); setNewCategory("");
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao cadastrar categoria."); }
+    finally { setCategorySaving(false); }
+  };
   return <div className="catalog-admin">
     <section className="panel settings-shell catalog-intro">
       <div className="settings-shell-header">
         <div><span className="section-kicker">Oferta por unidade</span><h2>Cardápio</h2><span className="active-unit-label"><MapPin />{establishmentName}</span></div>
         <div className="settings-summary" aria-label={`${products.length} produtos cadastrados`}><span><i /> Nesta unidade</span><strong>{products.length}</strong></div>
       </div>
+      <form className="catalog-create-form" onSubmit={createCategory}>
+        <label className="field"><span>Nova categoria</span><input value={newCategory} onChange={event => setNewCategory(event.target.value)} minLength={2} maxLength={80} placeholder="Ex.: Pastéis especiais" /></label>
+        <button type="submit" className="secondary" disabled={categorySaving || newCategory.trim().length < 2}><Plus />{categorySaving ? "Cadastrando…" : "Cadastrar categoria"}</button>
+      </form>
       <form className="catalog-create-form" onSubmit={create}>
         <label className="field"><span>Produto</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Ex.: Cachorro-quente simples" /></label>
-        <label className="field"><span>Categoria</span><input value={category} onChange={event => setCategory(event.target.value)} placeholder="Ex.: Cachorros-quentes" /></label>
+        <label className="field"><span>Categoria</span><select aria-label="Categoria" value={category} onChange={event => setCategory(event.target.value)} required><option value="">Selecione uma categoria</option>{categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
         <label className="field catalog-description-field"><span>Descrição <small>(opcional)</small></span><textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={500} placeholder="Ex.: Pão brioche, carnes, cheddar e bacon." rows={2} /></label>
         <label className="field"><span>Preço</span><div className="money-input"><span>R$</span><input inputMode="decimal" value={price} onChange={event => setPrice(event.target.value)} placeholder="0,00" /></div></label>
         <label className="field"><span>Preço anterior <small>(opcional, “de”)</small></span><div className="money-input"><span>R$</span><input inputMode="decimal" value={compareAt} onChange={event => setCompareAt(event.target.value)} placeholder="0,00" aria-invalid={Boolean(compareError)} /></div>{compareError && <small className="field-error">{compareError}</small>}</label>
@@ -97,16 +119,17 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
     </section>
 
     {error && <div className="auth-error" role="alert">{error}</div>}
-    {!loading && products.length > 0 ? <CategoryOrderPanel key={[...new Set(products.map(product => product.category))].sort().join("|")} /> : null}
+    {!loading && products.length > 0 ? <CategoryOrderPanel key={categories.map(item => item.id).join("|")} /> : null}
     {loading ? <div className="empty"><span>Carregando cardápio…</span></div> : null}
     {!loading && products.length === 0 ? <div className="big-empty"><PackagePlus /><h2>Cardápio vazio</h2><p>Cadastre o primeiro produto vendido nesta operação.</p></div> : null}
-    {!loading && products.length > 0 ? <section className="catalog-list">{products.map(product => <CatalogRow key={product.id} product={product} onSaved={load} />)}</section> : null}
+    {!loading && products.length > 0 ? <section className="catalog-list">{products.map(product => <CatalogRow key={product.id} product={product} categories={categories} onSaved={load} />)}</section> : null}
   </div>;
 }
 
-function CatalogRow({ product, onSaved }: { product: CatalogProduct; onSaved: () => Promise<void> }) {
+function CatalogRow({ product, categories, onSaved }: { product: CatalogProduct; categories: CategoryItem[]; onSaved: () => Promise<void> }) {
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(product.name);
+  const [categoryId, setCategoryId] = useState(product.categoryId ?? categories.find(item => item.name === product.category)?.id ?? "");
   const [saving, setSaving] = useState(false);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [price, setPrice] = useState(product.price.toFixed(2).replace(".", ","));
@@ -127,7 +150,7 @@ function CatalogRow({ product, onSaved }: { product: CatalogProduct; onSaved: ()
     if (compareError) { setRowError(compareError); return; }
     setSaving(true); setRowError("");
     try {
-      const response = await fetch("/api/admin/catalog", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId: product.id, name: name.trim(), price: numericPrice, compareAtPrice: numericCompareAt, vegetarian, description: description.trim(), channels: selectedChannels, imageUrl: imageUrl ?? undefined }) });
+      const response = await fetch("/api/admin/catalog", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId: product.id, name: name.trim(), categoryId: categoryId || undefined, price: numericPrice, compareAtPrice: numericCompareAt, vegetarian, description: description.trim(), channels: selectedChannels, imageUrl: imageUrl ?? undefined }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) { setRowError(data.error ?? "Não foi possível salvar o produto."); return; }
       setEditing(false); await onSaved();
@@ -152,13 +175,13 @@ function CatalogRow({ product, onSaved }: { product: CatalogProduct; onSaved: ()
       <div className="catalog-channel-list">{channels.map(channel => <button type="button" disabled={!editing} key={channel.id} className={selectedChannels.includes(channel.id) ? "active" : ""} onClick={() => toggle(channel.id)}>{channel.label}</button>)}</div>
       <div className="catalog-row-price">{editing ? <div className="money-input compact"><span>R$</span><input inputMode="decimal" value={price} onChange={event => { setPrice(event.target.value); setRowError(""); }} /></div> : <>{product.compareAtPrice !== null && <s className="catalog-compare-price">{formatMoney(product.compareAtPrice)}</s>}<strong>{formatMoney(product.price)}</strong></>}</div>
       <div className="catalog-row-actions">
-        {editing ? <><button type="button" className="secondary" onClick={() => { setEditing(false); setName(product.name); setPrice(product.price.toFixed(2).replace(".", ",")); setDescription(product.description ?? ""); setSelectedChannels(product.channels); setImageUrl(product.imageUrl); setCompareAt(product.compareAtPrice !== null ? product.compareAtPrice.toFixed(2).replace(".", ",") : ""); setVegetarian(product.vegetarian); setRowError(""); }}>Cancelar</button><button type="button" className="primary" disabled={saving || selectedChannels.length === 0} onClick={() => void save()}><Save />Salvar</button></> : <button type="button" className="secondary" onClick={() => setEditing(true)}>Editar produto</button>}
+        {editing ? <><button type="button" className="secondary" onClick={() => { setEditing(false); setName(product.name); setCategoryId(product.categoryId ?? categories.find(item => item.name === product.category)?.id ?? ""); setPrice(product.price.toFixed(2).replace(".", ",")); setDescription(product.description ?? ""); setSelectedChannels(product.channels); setImageUrl(product.imageUrl); setCompareAt(product.compareAtPrice !== null ? product.compareAtPrice.toFixed(2).replace(".", ",") : ""); setVegetarian(product.vegetarian); setRowError(""); }}>Cancelar</button><button type="button" className="primary" disabled={saving || selectedChannels.length === 0} onClick={() => void save()}><Save />Salvar</button></> : <button type="button" className="secondary" onClick={() => setEditing(true)}>Editar produto</button>}
         <button type="button" className="secondary" disabled={saving} onClick={() => void remove()}><Trash2 />Excluir produto</button>
         <button type="button" className="secondary catalog-groups-toggle" onClick={() => setGroupsOpen(current => !current)}><ChevronDown style={{ transform: groupsOpen ? "rotate(180deg)" : undefined }} />{product.isCombo ? "Produtos do combo" : "Grupos de ingrediente"}</button>
       </div>
     </div>
     {rowError && <div className="auth-error" role="alert">{rowError}</div>}
-    {editing && <div className="catalog-row-image-edit"><label className="field"><span>Nome do produto</span><input value={name} onChange={event => setName(event.target.value)} minLength={2} maxLength={120} /><small className="field-hint">Vale para todas as unidades.</small></label><label className="field"><span>Preço anterior <small>(opcional, “de”)</small></span><div className="money-input compact"><span>R$</span><input inputMode="decimal" value={compareAt} onChange={event => { setCompareAt(event.target.value); setRowError(""); }} placeholder="Sem promoção" /></div><small className="field-hint">Aparece riscado no pedido online. Deixe vazio para remover.</small></label><label className="check-line catalog-combo-toggle"><input type="checkbox" checked={vegetarian} onChange={event => setVegetarian(event.target.checked)} /><span><strong>Vegetariano</strong><small>Vale para todas as unidades.</small></span></label><label className="field catalog-edit-description"><span>Descrição <small>(opcional)</small></span><textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={500} placeholder="Ingredientes e diferenciais do produto." rows={3} /></label><ProductImageField imageUrl={imageUrl} onChange={setImageUrl} /></div>}
+    {editing && <div className="catalog-row-image-edit"><label className="field"><span>Categoria do produto</span><select aria-label="Categoria do produto" value={categoryId} onChange={event => setCategoryId(event.target.value)}><option value="" disabled>Selecione uma categoria</option>{categories.map(item => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label><label className="field"><span>Nome do produto</span><input value={name} onChange={event => setName(event.target.value)} minLength={2} maxLength={120} /><small className="field-hint">Vale para todas as unidades.</small></label><label className="field"><span>Preço anterior <small>(opcional, “de”)</small></span><div className="money-input compact"><span>R$</span><input inputMode="decimal" value={compareAt} onChange={event => { setCompareAt(event.target.value); setRowError(""); }} placeholder="Sem promoção" /></div><small className="field-hint">Aparece riscado no pedido online. Deixe vazio para remover.</small></label><label className="check-line catalog-combo-toggle"><input type="checkbox" checked={vegetarian} onChange={event => setVegetarian(event.target.checked)} /><span><strong>Vegetariano</strong><small>Vale para todas as unidades.</small></span></label><label className="field catalog-edit-description"><span>Descrição <small>(opcional)</small></span><textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={500} placeholder="Ingredientes e diferenciais do produto." rows={3} /></label><ProductImageField imageUrl={imageUrl} onChange={setImageUrl} /></div>}
     {groupsOpen && (product.isCombo ? <ComboGroupsPanel productId={product.id} /> : <IngredientGroupsPanel productId={product.id} />)}
   </article>;
 }

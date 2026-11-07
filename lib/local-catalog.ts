@@ -73,9 +73,18 @@ export function listLocalCatalog(establishmentId: string) {
 // Ordem das categorias (ADR 0058) — no modo local a categoria é o próprio nome no produto; a ordem
 // vale para a organização inteira, como `Category.sortOrder` no modo Prisma.
 let categoryOrder: string[] = [];
+const registeredCategories: string[] = [];
+
+export function createLocalCategory(name: string) {
+  const cleaned = name.trim();
+  const key = (value: string) => value.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt-BR").trim();
+  if (listLocalCategories().some(category => key(category.name) === key(cleaned))) return null;
+  registeredCategories.push(cleaned);
+  return { id: cleaned, name: cleaned, productCount: 0 };
+}
 
 export function listLocalCategories() {
-  const names = [...new Set(catalogProducts.map(product => product.category))];
+  const names = [...new Set([...registeredCategories, ...catalogProducts.map(product => product.category)])];
   const ordered = [...categoryOrder.filter(name => names.includes(name)), ...names.filter(name => !categoryOrder.includes(name)).sort((a, b) => a.localeCompare(b, "pt-BR"))];
   return ordered.map(name => ({ id: name, name, productCount: catalogProducts.filter(product => product.category === name).length }));
 }
@@ -99,10 +108,11 @@ export function createLocalCatalogProduct(establishmentId: string, input: { name
   return { id: product.id, name: product.name, category: product.category, description: product.description, active: true, imageUrl: product.imageUrl, isCombo: product.isCombo, vegetarian: product.vegetarian, ...emptyFiscalInfo, price: input.price, compareAtPrice: input.compareAtPrice ?? null, channels: [...input.channels], ingredientGroups: [] };
 }
 
-export function updateLocalCatalogProduct(establishmentId: string, productId: string, input: { name?: string; price: number; channels: LocalCatalogChannel[]; description?: string | null; imageUrl?: string | null; vegetarian?: boolean; compareAtPrice?: number | null }) {
+export function updateLocalCatalogProduct(establishmentId: string, productId: string, input: { name?: string; category?: string; price: number; channels: LocalCatalogChannel[]; description?: string | null; imageUrl?: string | null; vegetarian?: boolean; compareAtPrice?: number | null }) {
   const product = catalogProducts.find(item => item.id === productId);
   if (!product || !product.active) return null;
   if (input.name !== undefined) product.name = input.name.trim();
+  if (input.category !== undefined) product.category = input.category;
   const previousCompareAt = product.offerings.get(establishmentId)?.compareAtPrice ?? null;
   const compareAtPrice = input.compareAtPrice !== undefined ? input.compareAtPrice : previousCompareAt !== null && previousCompareAt > input.price ? previousCompareAt : null;
   product.offerings.set(establishmentId, { price: input.price, channels: [...input.channels], compareAtPrice });

@@ -4,7 +4,7 @@ import { db } from "@/lib/db";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { slugify } from "@/lib/auth-validation";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
-import { archiveLocalCatalogProduct, createLocalCatalogProduct, listLocalCatalog, updateLocalCatalogProduct } from "@/lib/local-catalog";
+import { archiveLocalCatalogProduct, createLocalCatalogProduct, listLocalCategories, listLocalCatalog, updateLocalCatalogProduct } from "@/lib/local-catalog";
 import { requestAuditMetadata } from "@/lib/audit";
 import { recordLocalAudit } from "@/lib/local-audit";
 import { compareAtPriceError, productImageUrlSchema as imageUrlSchema } from "@/lib/catalog-validation";
@@ -20,12 +20,12 @@ const offeringSchema = z.object({
 });
 const createSchema = offeringSchema.extend({
   name: z.string().trim().min(2).max(120),
-  category: z.string().trim().min(2).max(80),
+  categoryId: z.string().trim().min(1),
   description: z.string().trim().max(500).optional(),
   isCombo: z.boolean().default(false),
 });
 // No PATCH, imageUrl ausente mantém a foto atual, string troca a foto e null remove a foto existente.
-const patchSchema = offeringSchema.extend({ productId: z.string().trim().min(1), name: z.string().trim().min(2).max(120).optional(), description: z.string().trim().max(500).optional(), imageUrl: imageUrlSchema.nullable().optional() });
+const patchSchema = offeringSchema.extend({ productId: z.string().trim().min(1), categoryId: z.string().trim().min(1).optional(), name: z.string().trim().min(2).max(120).optional(), description: z.string().trim().max(500).optional(), imageUrl: imageUrlSchema.nullable().optional() });
 
 async function resolveActor() {
   const session = await getCurrentSession();
@@ -103,6 +103,7 @@ export async function GET(request: Request) {
       return {
         id: product.id,
         name: product.name,
+        categoryId: product.categoryId,
         category: product.category?.name ?? "Sem categoria",
         price: Number(activeOfferings[0]?.price ?? 0),
         compareAtPrice: activeOfferings[0]?.compareAtPrice != null ? Number(activeOfferings[0].compareAtPrice) : null,
@@ -128,7 +129,10 @@ export async function POST(request: Request) {
     const session = await getLocalSession();
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
     if (!session.canManageCatalog) return Response.json({ error: "Acesso negado ao Cardápio." }, { status: 403 });
-    const { name, category, description, price, channels, imageUrl, isCombo, vegetarian, compareAtPrice } = parsed.data;
+    const { name, categoryId, description, price, channels, imageUrl, isCombo, vegetarian, compareAtPrice } = parsed.data;
+    const selectedCategory = listLocalCategories().find(category => category.id === categoryId);
+    if (!selectedCategory) return Response.json({ error: "Selecione uma categoria cadastrada." }, { status: 400 });
+    const category = selectedCategory.name;
     const product = createLocalCatalogProduct(session.establishment.id, { name, category, description, price, channels, imageUrl, isCombo, vegetarian, compareAtPrice });
     if (!product) return Response.json({ error: "Já existe um produto com esse nome." }, { status: 409 });
     recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "CREATE", entityType: "Product", entityId: product.id, reason: "Cadastro inicial de produto", after: parsed.data, ...requestAuditMetadata(request) });
@@ -140,13 +144,10 @@ export async function POST(request: Request) {
   if (!actor.session.canManageCatalog) return Response.json({ error: "Acesso negado ao Cardápio." }, { status: 403 });
 
   const data = parsed.data;
+  const category = await db.category.findFirst({ where: { id: data.categoryId, organizationId: actor.session.organization.id, active: true } });
+  if (!category) return Response.json({ error: "Selecione uma categoria cadastrada." }, { status: 400 });
   try {
     const product = await db.$transaction(async tx => {
-      const category = await tx.category.upsert({
-        where: { organizationId_slug: { organizationId: actor.session.organization.id, slug: slugify(data.category) } },
-        update: { name: data.category, active: true },
-        create: { organizationId: actor.session.organization.id, name: data.category, slug: slugify(data.category) },
-      });
       const created = await tx.product.create({
         data: {
           organizationId: actor.session.organization.id,
@@ -166,10 +167,10 @@ export async function POST(request: Request) {
           },
         },
       });
-      await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "CREATE", entityType: "Product", entityId: created.id, reason: "Cadastro inicial de produto", after: { name: data.name, category: data.category, price: data.price, compareAtPrice: data.compareAtPrice ?? null, vegetarian: data.vegetarian ?? false, channels: data.channels } } });
+      await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "CREATE", entityType: "Product", entityId: created.id, reason: "Cadastro inicial de produto", after: { name: data.name, category: category.name, categoryId: category.id, price: data.price, compareAtPrice: data.compareAtPrice ?? null, vegetarian: data.vegetarian ?? false, channels: data.channels } } });
       return created;
     });
-    return Response.json({ product: { id: product.id, ...data, active: product.active } }, { status: 201 });
+    return Response.json({ product: { id: product.id, ...data, category: category.name, active: product.active } }, { status: 201 });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return Response.json({ error: "Já existe um produto com esse nome." }, { status: 409 });
     return Response.json({ error: "Não foi possível cadastrar o produto." }, { status: 500 });
@@ -188,8 +189,10 @@ export async function PATCH(request: Request) {
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
     if (!session.canManageCatalog) return Response.json({ error: "Acesso negado ao Cardápio." }, { status: 403 });
     const { name, price, channels, description, imageUrl, vegetarian, compareAtPrice } = parsed.data;
+    const category = parsed.data.categoryId === undefined ? undefined : listLocalCategories().find(item => item.id === parsed.data.categoryId);
+    if (parsed.data.categoryId !== undefined && !category) return Response.json({ error: "Selecione uma categoria cadastrada." }, { status: 400 });
     if (name && listLocalCatalog(session.establishment.id).some(item => item.id !== parsed.data.productId && slugify(item.name) === slugify(name))) return Response.json({ error: "Já existe um produto com esse nome." }, { status: 409 });
-    const product = updateLocalCatalogProduct(session.establishment.id, parsed.data.productId, { name, price, channels, description, imageUrl, vegetarian, compareAtPrice });
+    const product = updateLocalCatalogProduct(session.establishment.id, parsed.data.productId, { name, category: category?.name, price, channels, description, imageUrl, vegetarian, compareAtPrice });
     if (!product) return Response.json({ error: "Produto não encontrado." }, { status: 404 });
     recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "UPDATE", entityType: "ProductOffering", entityId: product.id, reason: "Atualização do produto e da oferta", after: parsed.data, ...requestAuditMetadata(request) });
     return Response.json({ product });
@@ -203,6 +206,8 @@ export async function PATCH(request: Request) {
     where: { id: parsed.data.productId, organizationId: actor.session.organization.id, active: true },
     include: { variants: { where: { isDefault: true }, take: 1 } },
   });
+  const category = parsed.data.categoryId === undefined ? undefined : await db.category.findFirst({ where: { id: parsed.data.categoryId, organizationId: actor.session.organization.id, active: true } });
+  if (parsed.data.categoryId !== undefined && !category) return Response.json({ error: "Selecione uma categoria cadastrada." }, { status: 400 });
   const variant = product?.variants[0];
   if (!product || !variant) return Response.json({ error: "Produto não encontrado." }, { status: 404 });
 
@@ -219,13 +224,13 @@ export async function PATCH(request: Request) {
         create: { establishmentId: actor.session.establishment.id, variantId: variant.id, channel, price: parsed.data.price, compareAtPrice, active: parsed.data.channels.includes(channel) },
       });
     }
-    await tx.product.update({ where: { id: product.id }, data: { ...(parsed.data.name !== undefined ? { name: parsed.data.name, slug: slugify(parsed.data.name) } : {}), ...(parsed.data.vegetarian !== undefined ? { vegetarian: parsed.data.vegetarian } : {}), ...(parsed.data.imageUrl !== undefined ? { imageUrl: parsed.data.imageUrl } : {}), ...(parsed.data.description !== undefined ? { description: parsed.data.description || null } : {}) } });
-    await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "UPDATE", entityType: "ProductOffering", entityId: variant.id, reason: "Atualização do produto e da oferta", before: { name: product.name, offerings: previous.map(item => ({ ...item, price: Number(item.price), compareAtPrice: item.compareAtPrice != null ? Number(item.compareAtPrice) : null })), vegetarian: product.vegetarian }, after: { name: parsed.data.name ?? product.name, price: parsed.data.price, compareAtPrice: parsed.data.compareAtPrice, vegetarian: parsed.data.vegetarian, channels: parsed.data.channels }, ...requestAuditMetadata(request) } });
+    await tx.product.update({ where: { id: product.id }, data: { ...(category ? { categoryId: category.id } : {}), ...(parsed.data.name !== undefined ? { name: parsed.data.name, slug: slugify(parsed.data.name) } : {}), ...(parsed.data.vegetarian !== undefined ? { vegetarian: parsed.data.vegetarian } : {}), ...(parsed.data.imageUrl !== undefined ? { imageUrl: parsed.data.imageUrl } : {}), ...(parsed.data.description !== undefined ? { description: parsed.data.description || null } : {}) } });
+    await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "UPDATE", entityType: "ProductOffering", entityId: variant.id, reason: "Atualização do produto e da oferta", before: { name: product.name, categoryId: product.categoryId, offerings: previous.map(item => ({ ...item, price: Number(item.price), compareAtPrice: item.compareAtPrice != null ? Number(item.compareAtPrice) : null })), vegetarian: product.vegetarian }, after: { name: parsed.data.name ?? product.name, categoryId: category?.id ?? product.categoryId, price: parsed.data.price, compareAtPrice: parsed.data.compareAtPrice, vegetarian: parsed.data.vegetarian, channels: parsed.data.channels }, ...requestAuditMetadata(request) } });
   });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") return Response.json({ error: "Já existe um produto com esse nome." }, { status: 409 });
     return Response.json({ error: "Não foi possível salvar o produto." }, { status: 500 });
   }
   const finalImageUrl = parsed.data.imageUrl !== undefined ? parsed.data.imageUrl : product.imageUrl;
-  return Response.json({ product: { id: product.id, name: parsed.data.name ?? product.name, description: parsed.data.description !== undefined ? parsed.data.description || null : product.description, price: parsed.data.price, compareAtPrice: parsed.data.compareAtPrice ?? null, vegetarian: parsed.data.vegetarian ?? product.vegetarian, channels: parsed.data.channels, active: product.active, imageUrl: finalImageUrl } });
+  return Response.json({ product: { id: product.id, name: parsed.data.name ?? product.name, categoryId: category?.id ?? product.categoryId, description: parsed.data.description !== undefined ? parsed.data.description || null : product.description, price: parsed.data.price, compareAtPrice: parsed.data.compareAtPrice ?? null, vegetarian: parsed.data.vegetarian ?? product.vegetarian, channels: parsed.data.channels, active: product.active, imageUrl: finalImageUrl } });
 }
