@@ -99,9 +99,10 @@ export function createLocalCatalogProduct(establishmentId: string, input: { name
   return { id: product.id, name: product.name, category: product.category, description: product.description, active: true, imageUrl: product.imageUrl, isCombo: product.isCombo, vegetarian: product.vegetarian, ...emptyFiscalInfo, price: input.price, compareAtPrice: input.compareAtPrice ?? null, channels: [...input.channels], ingredientGroups: [] };
 }
 
-export function updateLocalCatalogProduct(establishmentId: string, productId: string, input: { price: number; channels: LocalCatalogChannel[]; description?: string | null; imageUrl?: string | null; vegetarian?: boolean; compareAtPrice?: number | null }) {
+export function updateLocalCatalogProduct(establishmentId: string, productId: string, input: { name?: string; price: number; channels: LocalCatalogChannel[]; description?: string | null; imageUrl?: string | null; vegetarian?: boolean; compareAtPrice?: number | null }) {
   const product = catalogProducts.find(item => item.id === productId);
-  if (!product) return null;
+  if (!product || !product.active) return null;
+  if (input.name !== undefined) product.name = input.name.trim();
   const previousCompareAt = product.offerings.get(establishmentId)?.compareAtPrice ?? null;
   const compareAtPrice = input.compareAtPrice !== undefined ? input.compareAtPrice : previousCompareAt !== null && previousCompareAt > input.price ? previousCompareAt : null;
   product.offerings.set(establishmentId, { price: input.price, channels: [...input.channels], compareAtPrice });
@@ -109,6 +110,14 @@ export function updateLocalCatalogProduct(establishmentId: string, productId: st
   if (input.imageUrl !== undefined) product.imageUrl = input.imageUrl;
   if (input.description !== undefined) product.description = input.description?.trim() || null;
   return { id: product.id, name: product.name, category: product.category, description: product.description, active: product.active, imageUrl: product.imageUrl, isCombo: product.isCombo, vegetarian: product.vegetarian, ncm: product.ncm, cfop: product.cfop, icmsCst: product.icmsCst, icmsOrigin: product.icmsOrigin, unitOfMeasure: product.unitOfMeasure, price: input.price, compareAtPrice, channels: [...input.channels], ingredientGroups: deriveIngredientGroups(product) };
+}
+
+export function archiveLocalCatalogProduct(productId: string) {
+  const product = catalogProducts.find(item => item.id === productId && item.active);
+  if (!product) return null;
+  product.active = false;
+  for (const offering of product.offerings.values()) offering.channels = [];
+  return { id: product.id, name: product.name, active: false };
 }
 
 export function listLocalIngredientGroups(productId: string) {

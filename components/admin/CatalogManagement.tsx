@@ -106,6 +106,7 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
 
 function CatalogRow({ product, onSaved }: { product: CatalogProduct; onSaved: () => Promise<void> }) {
   const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(product.name);
   const [saving, setSaving] = useState(false);
   const [groupsOpen, setGroupsOpen] = useState(false);
   const [price, setPrice] = useState(product.price.toFixed(2).replace(".", ","));
@@ -117,6 +118,7 @@ function CatalogRow({ product, onSaved }: { product: CatalogProduct; onSaved: ()
   const [rowError, setRowError] = useState("");
   const toggle = (channel: Channel) => setSelectedChannels(current => current.includes(channel) ? current.filter(item => item !== channel) : [...current, channel]);
   const save = async () => {
+    if (name.trim().length < 2) { setRowError("Informe um nome com pelo menos 2 caracteres."); return; }
     const numericPrice = parseMoney(price);
     const numericCompareAt = compareAt.trim() ? parseMoney(compareAt) : null;
     if (!Number.isFinite(numericPrice) || numericPrice < 0) { setRowError("Informe um preço válido."); return; }
@@ -125,10 +127,20 @@ function CatalogRow({ product, onSaved }: { product: CatalogProduct; onSaved: ()
     if (compareError) { setRowError(compareError); return; }
     setSaving(true); setRowError("");
     try {
-      const response = await fetch("/api/admin/catalog", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId: product.id, price: numericPrice, compareAtPrice: numericCompareAt, vegetarian, description: description.trim(), channels: selectedChannels, imageUrl: imageUrl ?? undefined }) });
+      const response = await fetch("/api/admin/catalog", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId: product.id, name: name.trim(), price: numericPrice, compareAtPrice: numericCompareAt, vegetarian, description: description.trim(), channels: selectedChannels, imageUrl: imageUrl ?? undefined }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) { setRowError(data.error ?? "Não foi possível salvar o produto."); return; }
       setEditing(false); await onSaved();
+    } catch { setRowError("Falha ao conectar no servidor."); } finally { setSaving(false); }
+  };
+  const remove = async () => {
+    if (!window.confirm(`Excluir “${product.name}” do cardápio de todas as unidades? O histórico de vendas será mantido.`)) return;
+    setSaving(true); setRowError("");
+    try {
+      const response = await fetch("/api/admin/catalog", { method: "DELETE", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ productId: product.id }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) { setRowError(data.error ?? "Não foi possível excluir o produto."); return; }
+      await onSaved();
     } catch { setRowError("Falha ao conectar no servidor."); } finally { setSaving(false); }
   };
   return <article className="catalog-admin-row-wrap">
@@ -140,12 +152,13 @@ function CatalogRow({ product, onSaved }: { product: CatalogProduct; onSaved: ()
       <div className="catalog-channel-list">{channels.map(channel => <button type="button" disabled={!editing} key={channel.id} className={selectedChannels.includes(channel.id) ? "active" : ""} onClick={() => toggle(channel.id)}>{channel.label}</button>)}</div>
       <div className="catalog-row-price">{editing ? <div className="money-input compact"><span>R$</span><input inputMode="decimal" value={price} onChange={event => { setPrice(event.target.value); setRowError(""); }} /></div> : <>{product.compareAtPrice !== null && <s className="catalog-compare-price">{formatMoney(product.compareAtPrice)}</s>}<strong>{formatMoney(product.price)}</strong></>}</div>
       <div className="catalog-row-actions">
-        {editing ? <><button type="button" className="secondary" onClick={() => { setEditing(false); setPrice(product.price.toFixed(2).replace(".", ",")); setDescription(product.description ?? ""); setSelectedChannels(product.channels); setImageUrl(product.imageUrl); setCompareAt(product.compareAtPrice !== null ? product.compareAtPrice.toFixed(2).replace(".", ",") : ""); setVegetarian(product.vegetarian); setRowError(""); }}>Cancelar</button><button type="button" className="primary" disabled={saving || selectedChannels.length === 0} onClick={() => void save()}><Save />Salvar</button></> : <button type="button" className="secondary" onClick={() => setEditing(true)}>Editar oferta</button>}
+        {editing ? <><button type="button" className="secondary" onClick={() => { setEditing(false); setName(product.name); setPrice(product.price.toFixed(2).replace(".", ",")); setDescription(product.description ?? ""); setSelectedChannels(product.channels); setImageUrl(product.imageUrl); setCompareAt(product.compareAtPrice !== null ? product.compareAtPrice.toFixed(2).replace(".", ",") : ""); setVegetarian(product.vegetarian); setRowError(""); }}>Cancelar</button><button type="button" className="primary" disabled={saving || selectedChannels.length === 0} onClick={() => void save()}><Save />Salvar</button></> : <button type="button" className="secondary" onClick={() => setEditing(true)}>Editar produto</button>}
+        <button type="button" className="secondary" disabled={saving} onClick={() => void remove()}><Trash2 />Excluir produto</button>
         <button type="button" className="secondary catalog-groups-toggle" onClick={() => setGroupsOpen(current => !current)}><ChevronDown style={{ transform: groupsOpen ? "rotate(180deg)" : undefined }} />{product.isCombo ? "Produtos do combo" : "Grupos de ingrediente"}</button>
       </div>
     </div>
     {rowError && <div className="auth-error" role="alert">{rowError}</div>}
-    {editing && <div className="catalog-row-image-edit"><label className="field"><span>Preço anterior <small>(opcional, “de”)</small></span><div className="money-input compact"><span>R$</span><input inputMode="decimal" value={compareAt} onChange={event => { setCompareAt(event.target.value); setRowError(""); }} placeholder="Sem promoção" /></div><small className="field-hint">Aparece riscado no pedido online. Deixe vazio para remover.</small></label><label className="check-line catalog-combo-toggle"><input type="checkbox" checked={vegetarian} onChange={event => setVegetarian(event.target.checked)} /><span><strong>Vegetariano</strong><small>Vale para todas as unidades.</small></span></label><label className="field catalog-edit-description"><span>Descrição <small>(opcional)</small></span><textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={500} placeholder="Ingredientes e diferenciais do produto." rows={3} /></label><ProductImageField imageUrl={imageUrl} onChange={setImageUrl} /></div>}
+    {editing && <div className="catalog-row-image-edit"><label className="field"><span>Nome do produto</span><input value={name} onChange={event => setName(event.target.value)} minLength={2} maxLength={120} /><small className="field-hint">Vale para todas as unidades.</small></label><label className="field"><span>Preço anterior <small>(opcional, “de”)</small></span><div className="money-input compact"><span>R$</span><input inputMode="decimal" value={compareAt} onChange={event => { setCompareAt(event.target.value); setRowError(""); }} placeholder="Sem promoção" /></div><small className="field-hint">Aparece riscado no pedido online. Deixe vazio para remover.</small></label><label className="check-line catalog-combo-toggle"><input type="checkbox" checked={vegetarian} onChange={event => setVegetarian(event.target.checked)} /><span><strong>Vegetariano</strong><small>Vale para todas as unidades.</small></span></label><label className="field catalog-edit-description"><span>Descrição <small>(opcional)</small></span><textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={500} placeholder="Ingredientes e diferenciais do produto." rows={3} /></label><ProductImageField imageUrl={imageUrl} onChange={setImageUrl} /></div>}
     {groupsOpen && (product.isCombo ? <ComboGroupsPanel productId={product.id} /> : <IngredientGroupsPanel productId={product.id} />)}
   </article>;
 }
