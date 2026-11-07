@@ -1,10 +1,11 @@
+import { manageNamedTab } from "@/lib/named-tabs-server";
 import { deliveryFinished } from "@/lib/delivery-workflow";
 import { MembershipStatus, OrderStatus, Prisma } from "@/generated/prisma/client";
 import { z } from "zod";
 import { requestAuditMetadata } from "@/lib/audit";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { db } from "@/lib/db";
-import { addLocalTabItem, cancelLocalSentItem, changeLocalOrderStatus, changeLocalTabItem, getLocalFloor, sendLocalOrder } from "@/lib/local-floor";
+import { manageLocalNamedTab, addLocalTabItem, cancelLocalSentItem, changeLocalOrderStatus, changeLocalTabItem, getLocalFloor, sendLocalOrder } from "@/lib/local-floor";
 import { recordLocalAudit } from "@/lib/local-audit";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
 import { listLocalCatalog } from "@/lib/local-catalog";
@@ -13,8 +14,12 @@ import { comboGroupsInclude, mapComboGroupsToIngredientGroups } from "@/lib/comb
 import { dispatchDeliveryWhatsAppAutomation } from "@/lib/whatsapp-automation";
 
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
+const tabNameSchema = z.string().trim().min(1).max(60);
 const actionSchema = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("ADD_ITEM"), tableId: z.string().min(1), productId: z.string().min(1), selectedOptions: z.array(optionSelectionSchema).max(10).optional() }),
+  z.object({ action: z.literal("CREATE_TAB"), tableId: z.string().min(1), name: tabNameSchema }),
+  z.object({ action: z.literal("RENAME_TAB"), tabId: z.string().min(1), name: tabNameSchema }),
+  z.object({ action: z.literal("CLOSE_EMPTY_TAB"), tabId: z.string().min(1) }),
+  z.object({ action: z.literal("ADD_ITEM"), tableId: z.string().min(1), tabId: z.string().min(1).optional(), productId: z.string().min(1), selectedOptions: z.array(optionSelectionSchema).max(10).optional() }),
   z.object({ action: z.literal("CHANGE_ITEM"), tabItemId: z.string().min(1), quantity: z.number().int().min(0).max(999) }),
   z.object({ action: z.literal("CANCEL_SENT_ITEM"), tabItemId: z.string().min(1), quantity: z.number().int().positive().max(999), reason: z.string().trim().min(3).max(200) }),
   z.object({ action: z.literal("SEND_ORDER"), tabId: z.string().min(1) }),
@@ -22,7 +27,7 @@ const actionSchema = z.discriminatedUnion("action", [
 ]);
 
 const floorInclude = {
-  tabs: { where: { status: "OPEN" as const }, take: 1, include: { openedBy: { select: { id: true, name: true, username: true } }, items: { where: { active: true }, orderBy: { createdAt: "asc" as const } }, orders: { orderBy: { sentAt: "asc" as const }, include: { sentBy: { select: { id: true, name: true, username: true } }, items: { include: { cancellations: true, tabItem: { select: { productId: true, selectedOptionsSnapshot: true } } } }, statusHistory: { include: { actor: { select: { id: true, name: true, username: true } } }, orderBy: { createdAt: "asc" as const } } } } } },
+  tabs: { where: { OR: [{ status: "OPEN" as const }, { orders: { some: { status: { notIn: ["DELIVERED" as const, "CANCELLED" as const] } } } }] }, orderBy: { openedAt: "asc" as const }, include: { openedBy: { select: { id: true, name: true, username: true } }, items: { where: { active: true }, orderBy: { createdAt: "asc" as const } }, orders: { orderBy: { sentAt: "asc" as const }, include: { sentBy: { select: { id: true, name: true, username: true } }, items: { include: { cancellations: true, tabItem: { select: { productId: true, selectedOptionsSnapshot: true } } } }, statusHistory: { include: { actor: { select: { id: true, name: true, username: true } } }, orderBy: { createdAt: "asc" as const } } } } } },
 } satisfies Prisma.DiningTableInclude;
 
 class IngredientOptionError extends Error {}
@@ -42,16 +47,24 @@ async function actor() {
 }
 
 function serializeTables(tables: Awaited<ReturnType<typeof loadTables>>, byProduct: Map<string, string>) {
-  return tables.map(table => { const tab = table.tabs[0]; return { id: table.id, number: table.number, seats: table.seats, name: table.name, area: table.area, assignedWaiterId: table.assignedWaiterId, active: table.active, tab: tab ? { ...tab, items: tab.items.map(item => ({ ...item, quantity: Number(item.quantity), sentQuantity: Number(item.sentQuantity), unitPrice: Number(item.unitPrice) })), orders: tab.orders.map(order => ({ ...order, items: order.items.map(item => ({ ...item, quantity: Number(item.quantity), stationId: byProduct.get(item.tabItem.productId ?? "") ?? null, selectedOptionsSnapshot: item.tabItem.selectedOptionsSnapshot, cancelledQuantity: item.cancellations.reduce((sum, cancellation) => sum + Number(cancellation.quantity), 0), cancellations: item.cancellations.map(cancellation => ({ ...cancellation, quantity: Number(cancellation.quantity) })) })) })) } : null }; });
+  return tables.map(table => {
+    const allTabs = table.tabs.map(tab => ({ ...tab,
+      items: tab.items.map(item => ({ ...item, quantity: Number(item.quantity), sentQuantity: Number(item.sentQuantity), unitPrice: Number(item.unitPrice) })),
+      orders: tab.orders.map(order => ({ ...order, tabName: tab.name, tableNumber: table.number,
+        items: order.items.map(item => ({ ...item, quantity: Number(item.quantity), stationId: byProduct.get(item.tabItem.productId ?? "") ?? null, selectedOptionsSnapshot: item.tabItem.selectedOptionsSnapshot, cancelledQuantity: item.cancellations.reduce((sum, cancellation) => sum + Number(cancellation.quantity), 0), cancellations: item.cancellations.map(cancellation => ({ ...cancellation, quantity: Number(cancellation.quantity) })) })) }))
+    }));
+    const tabs = allTabs.filter(tab => tab.status === "OPEN");
+    const kitchenOrders = allTabs.flatMap(tab => tab.orders.filter(order => !["DELIVERED", "CANCELLED"].includes(order.status)).map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: tab.id, isCounter: false, delivery: null })));
+    return { ...table, tabs, tab: tabs[0] ?? null, kitchenOrders };
+  });
 }
 
 async function loadTables(establishmentId: string, viewer: { userId: string; canManageFloor: boolean }) {
   return db.diningTable.findMany({ where: { establishmentId, active: true, isCounter: false, ...(viewer.canManageFloor ? {} : { OR: [{ assignedWaiterId: null }, { assignedWaiterId: viewer.userId }] }) }, include: floorInclude, orderBy: { number: "asc" } });
 }
 
-// Pedidos do PDV (ADR 0044): a mesa virtual "Balcão" (`isCounter: true`) pode ter dezenas de
-// comandas abertas ao mesmo tempo (uma por venda), o que não cabe no formato "1 comanda aberta por
-// mesa" de `floorInclude`/`loadTables` — por isso uma consulta separada, só para a tela de Cozinha.
+// A mesa virtual do PDV/delivery não aparece no mapa físico do salão. Seus pedidos
+// são carregados separadamente para compor a fila da cozinha.
 async function loadCounterOrders(establishmentId: string) {
   const tabs = await db.tab.findMany({
     where: { establishmentId, table: { isCounter: true }, orders: { some: { status: { notIn: ["DELIVERED", "CANCELLED"] } } } },
@@ -79,7 +92,7 @@ export async function GET(request: Request) {
   const session = await actor(); if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 }); if (!session.canOperateFloor) return Response.json({ error: "Acesso negado ao salão." }, { status: 403 });
   const { byProduct, stations } = await stationLookup(session.establishment.id);
   const tables = serializeTables(await loadTables(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), byProduct);
-  const tableOrders = tables.flatMap(table => table.tab?.orders.filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: table.tab!.id, isCounter: false, delivery: null })) ?? []);
+  const tableOrders = tables.flatMap(table => table.kitchenOrders);
   const counterOrders = serializeCounterOrders(await loadCounterOrders(session.establishment.id), byProduct);
   return Response.json({ tables, orders: [...tableOrders, ...counterOrders], stations });
 }
@@ -91,13 +104,19 @@ export async function POST(request: Request) {
   if (isLocalAuthEnabled()) {
     const session = await getLocalSession(); if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 }); if (!session.canOperateFloor) return Response.json({ error: "Acesso negado ao salão." }, { status: 403 });
     const base = { organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, ...requestAuditMetadata(request) };
+    if (data.action === "CREATE_TAB" || data.action === "RENAME_TAB" || data.action === "CLOSE_EMPTY_TAB") {
+      const result = manageLocalNamedTab(session.establishment.id, session.user.id, data);
+      if (typeof result === "string") return Response.json({ error: result === "DUPLICATE_NAME" ? "Nome já usado nesta mesa." : result === "TAB_NOT_EMPTY" ? "Comanda ainda possui consumo." : "Comanda não encontrada." }, { status: 409 });
+      recordLocalAudit({ ...base, action: data.action === "CREATE_TAB" ? "TAB_OPEN" : data.action === "RENAME_TAB" ? "UPDATE" : "TAB_CLOSE", entityType: "Tab", entityId: result.tab.id, reason: "Identificação de comanda por nome", after: { name: result.tab.name, tableNumber: result.table.number, status: result.tab.status } });
+      return Response.json({ ...getLocalFloor(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), createdTabId: data.action === "CREATE_TAB" ? result.tab.id : undefined });
+    }
     if (data.action === "ADD_ITEM") {
       const product = listLocalCatalog(session.establishment.id).find(item => item.id === data.productId && item.channels.includes("FLOOR"));
       if (!product) return Response.json({ error: "Produto indisponível no salão." }, { status: 409 });
       const resolved = resolveIngredientSelections(product.ingredientGroups, data.selectedOptions);
       if ("error" in resolved) return Response.json({ error: resolved.error }, { status: 400 });
       const unitPrice = Math.round((product.price + resolved.priceDelta + Number.EPSILON) * 100) / 100;
-      const result = addLocalTabItem({ establishmentId: session.establishment.id, tableId: data.tableId, operatorId: session.user.id, product: { id: product.id, name: product.name }, unitPrice, selectedOptionsSnapshot: resolved.snapshot.length ? resolved.snapshot : undefined });
+      const result = addLocalTabItem({ establishmentId: session.establishment.id, tableId: data.tableId, tabId: data.tabId, operatorId: session.user.id, product: { id: product.id, name: product.name }, unitPrice, selectedOptionsSnapshot: resolved.snapshot.length ? resolved.snapshot : undefined });
       if (result === "TABLE_NOT_FOUND") return Response.json({ error: "Mesa não encontrada." }, { status: 404 });
       if (result.opened) recordLocalAudit({ ...base, action: "TAB_OPEN", entityType: "Tab", entityId: result.tab.id, reason: `Comanda aberta na mesa ${result.table.number}`, after: { tableId: result.table.id, tableNumber: result.table.number } });
       recordLocalAudit({ ...base, action: "TAB_ITEM_CHANGE", entityType: "TabItem", entityId: result.item.id, reason: `${product.name} adicionado à mesa ${result.table.number}`, before: { quantity: result.beforeQuantity }, after: { quantity: result.item.quantity, productId: product.id, productName: product.name, unitPrice, selectedOptionsSnapshot: resolved.snapshot } });
@@ -111,20 +130,22 @@ export async function POST(request: Request) {
 
   const session = await actor(); if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 }); if (!session.canOperateFloor) return Response.json({ error: "Acesso negado ao salão." }, { status: 403 });
   try {
-    if (data.action === "ADD_ITEM") await addItem(session, data, request);
+    let createdTabId: string | undefined;
+    if (data.action === "CREATE_TAB" || data.action === "RENAME_TAB" || data.action === "CLOSE_EMPTY_TAB") createdTabId = await manageNamedTab(session, data, request);
+    else if (data.action === "ADD_ITEM") await addItem(session, data, request);
     else if (data.action === "CHANGE_ITEM") await changeItem(session, data, request);
     else if (data.action === "CANCEL_SENT_ITEM") { if (!session.canCancelSentItems) return Response.json({ error: "Você não tem permissão para cancelar itens enviados." }, { status: 403 }); await cancelSentItem(session, data, request); }
     else if (data.action === "SEND_ORDER") await sendOrder(session, data, request);
     else await changeOrderStatus(session, data, request);
     const { byProduct, stations } = await stationLookup(session.establishment.id);
-    const tables = serializeTables(await loadTables(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), byProduct); const tableOrders = tables.flatMap(table => table.tab?.orders.filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED").map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: table.tab!.id, isCounter: false, delivery: null })) ?? []);
+    const tables = serializeTables(await loadTables(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), byProduct); const tableOrders = tables.flatMap(table => table.kitchenOrders);
     const counterOrders = serializeCounterOrders(await loadCounterOrders(session.establishment.id), byProduct);
-    return Response.json({ tables, orders: [...tableOrders, ...counterOrders], stations });
+    return Response.json({ tables, orders: [...tableOrders, ...counterOrders], stations, createdTabId });
   } catch (error) {
     if (error instanceof IngredientOptionError) return Response.json({ error: error.message }, { status: 400 });
-    const messages: Record<string, [string, number]> = { DELIVERY_HANDOFF_REQUIRED: ["Registre a saída para entrega na tela de delivery.", 409], TABLE_NOT_FOUND: ["Mesa não encontrada.", 404], PRODUCT_NOT_AVAILABLE: ["Produto indisponível no salão.", 409], ITEM_NOT_FOUND: ["Item da comanda não encontrado.", 404], ALREADY_SENT: ["Itens já enviados exigem cancelamento justificado.", 409], INVALID_CANCEL_QUANTITY: ["Quantidade de cancelamento inválida.", 409], TAB_NOT_FOUND: ["Comanda não encontrada.", 404], NOTHING_TO_SEND: ["Não há novos itens para enviar.", 409], ORDER_NOT_FOUND: ["Pedido não encontrado.", 404], INVALID_ORDER_TRANSITION: ["Esta mudança de etapa não é permitida.", 409] };
+    const messages: Record<string, [string, number]> = { SELECT_TAB: ["Selecione a comanda pelo nome antes de adicionar o item.", 409], TAB_NOT_EMPTY: ["Esta comanda ainda possui consumo. Feche pelo pagamento.", 409], DELIVERY_HANDOFF_REQUIRED: ["Registre a saída para entrega na tela de delivery.", 409], TABLE_NOT_FOUND: ["Mesa não encontrada.", 404], PRODUCT_NOT_AVAILABLE: ["Produto indisponível no salão.", 409], ITEM_NOT_FOUND: ["Item da comanda não encontrado.", 404], ALREADY_SENT: ["Itens já enviados exigem cancelamento justificado.", 409], INVALID_CANCEL_QUANTITY: ["Quantidade de cancelamento inválida.", 409], TAB_NOT_FOUND: ["Comanda não encontrada.", 404], NOTHING_TO_SEND: ["Não há novos itens para enviar.", 409], ORDER_NOT_FOUND: ["Pedido não encontrado.", 404], INVALID_ORDER_TRANSITION: ["Esta mudança de etapa não é permitida.", 409] };
     const known = error instanceof Error ? messages[error.message] : undefined; if (known) return Response.json({ error: known[0] }, { status: known[1] });
-    if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2002" || error.code === "P2034")) return Response.json({ error: "A mesa foi alterada por outra pessoa. Atualize e tente novamente." }, { status: 409 });
+    if (error instanceof Prisma.PrismaClientKnownRequestError && (error.code === "P2002" || error.code === "P2034")) return Response.json({ error: "Nome já usado nesta mesa ou comanda alterada por outra pessoa. Atualize e tente novamente." }, { status: 409 });
     return Response.json({ error: "Não foi possível atualizar o salão." }, { status: 500 });
   }
 }
@@ -140,7 +161,10 @@ async function addItem(session: Session, data: Extract<z.infer<typeof actionSche
     if ("error" in resolved) throw new IngredientOptionError(resolved.error);
     const unitPrice = Math.round((Number(offering.price) + resolved.priceDelta + Number.EPSILON) * 100) / 100;
     const selectedOptionsSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull = resolved.snapshot.length ? resolved.snapshot : Prisma.JsonNull;
-    let tab = await tx.tab.findFirst({ where: { tableId: table.id, establishmentId: session.establishment.id, status: "OPEN" } });
+    const openTabs = await tx.tab.findMany({ where: { tableId: table.id, establishmentId: session.establishment.id, status: "OPEN", ...(data.tabId ? { id: data.tabId } : {}) }, take: 2 });
+    if (!data.tabId && openTabs.length > 1) throw new Error("SELECT_TAB");
+    if (data.tabId && !openTabs.length) throw new Error("TAB_NOT_FOUND");
+    let tab = openTabs[0] ?? null;
     if (!tab) { tab = await tx.tab.create({ data: { establishmentId: session.establishment.id, tableId: table.id, openedById: session.user.id } }); await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "TAB_OPEN", entityType: "Tab", entityId: tab.id, reason: `Comanda aberta na mesa ${table.number}`, after: { tableId: table.id, tableNumber: table.number }, ...requestAuditMetadata(request) } }); }
     // Itens com opções escolhidas nunca são agrupados com outra linha existente — cada personalização
     // vira sua própria linha na comanda, espelhando o critério do carrinho local (lib/local-floor.ts).
@@ -187,7 +211,7 @@ async function sendOrder(session: Session, data: Extract<z.infer<typeof actionSc
 async function changeOrderStatus(session: Session, data: Extract<z.infer<typeof actionSchema>, { action: "CHANGE_ORDER_STATUS" }>, request: Request) {
   const next: Partial<Record<OrderStatus, OrderStatus>> = { RECEIVED: "PREPARING", PREPARING: "READY", READY: "DELIVERED" };
   const deliveryToNotify = await db.$transaction(async tx => {
-    const order = await tx.order.findFirst({ where: { id: data.orderId, tab: { establishmentId: session.establishment.id, OR: [{ status: "OPEN" }, { table: { isCounter: true } }] } }, include: { tab: { include: { table: true } } } });
+    const order = await tx.order.findFirst({ where: { id: data.orderId, tab: { establishmentId: session.establishment.id, status: { in: ["OPEN", "PAID"] } } }, include: { tab: { include: { table: true } } } });
     if (!order) throw new Error("ORDER_NOT_FOUND");
     const delivery = order.tab.table.isCounter ? await tx.deliveryOrder.findFirst({ where: { establishmentId: session.establishment.id, kitchenOrderId: order.id } }) : null;
     const reconcile = delivery && deliveryFinished(delivery.status) && !["DELIVERED", "CANCELLED"].includes(order.status) && data.status === "DELIVERED";
