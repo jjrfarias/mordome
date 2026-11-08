@@ -18,11 +18,13 @@ export function formatSelectedOptions(options: SelectedIngredientOption[] | null
   return options && options.length ? options.map(option => option.optionName).join(", ") : "";
 }
 
-export function IngredientPicker({ product, onClose, onConfirm }: { product: IngredientPickerProduct; onClose: () => void; onConfirm: (unitPrice: number, selectedOptions: SelectedIngredientOption[], optionSelections: { groupId: string; optionIds: string[] }[]) => void }) {
+export function IngredientPicker({ product, onClose, onConfirm, allowNotes = false, submitError }: { product: IngredientPickerProduct; allowNotes?: boolean; submitError?: string; onClose: () => void; onConfirm: (unitPrice: number, selectedOptions: SelectedIngredientOption[], optionSelections: { groupId: string; optionIds: string[] }[], notes?: string) => void | Promise<void> }) {
   const groups = (product.ingredientGroups ?? []).filter((group: IngredientGroup) => group.active && group.options.some(option => option.active));
   // Grupo com só 1 opção ativa não é de fato uma escolha (ex.: combo fixo com um único item por
   // etapa) — pré-seleciona pra não obrigar o cliente a clicar num radio sem alternativa real.
   const [choices, setChoices] = useState<Record<string, string[]>>(() => Object.fromEntries(groups.filter(group => group.options.filter(option => option.active).length === 1).map(group => [group.id, [group.options.find(option => option.active)!.id]])));
+  const [notes, setNotes] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
   const toggleOption = (group: IngredientGroup, optionId: string) => setChoices(current => {
@@ -36,7 +38,8 @@ export function IngredientPicker({ product, onClose, onConfirm }: { product: Ing
   const priceDelta = groups.reduce((sum, group) => sum + (choices[group.id] ?? []).reduce((groupSum, optionId) => groupSum + (group.options.find(option => option.id === optionId)?.priceDelta ?? 0), 0), 0);
   const unitPrice = product.price + priceDelta;
 
-  const confirm = () => {
+  const confirm = async () => {
+    if (submitting) return;
     for (const group of groups) {
       const chosen = choices[group.id] ?? [];
       if (chosen.length < group.minSelections) { setError(`Selecione ao menos ${group.minSelections} opção(ões) em "${group.name}".`); return; }
@@ -44,12 +47,12 @@ export function IngredientPicker({ product, onClose, onConfirm }: { product: Ing
     }
     const selectedOptions: SelectedIngredientOption[] = groups.flatMap(group => (choices[group.id] ?? []).map(optionId => { const option = group.options.find(candidate => candidate.id === optionId)!; return { groupName: group.name, optionName: option.name, priceDelta: option.priceDelta }; }));
     const optionSelections = groups.filter(group => (choices[group.id] ?? []).length > 0).map(group => ({ groupId: group.id, optionIds: choices[group.id] ?? [] }));
-    onConfirm(unitPrice, selectedOptions, optionSelections);
+    setSubmitting(true);
+    try { await onConfirm(unitPrice, selectedOptions, optionSelections, notes.trim() || undefined); } finally { setSubmitting(false); }
   };
 
-  return <div className="modal-bg"><div className="modal ingredient-picker-modal">
-    <button className="modal-close" onClick={onClose}><X/></button>
-    <span className="modal-icon"><Plus/></span>
+  return <div className="modal-bg"><div className="modal ingredient-picker-modal" role="dialog" aria-modal="true" aria-label={`Personalizar ${product.name}`}>
+    <button className="modal-close" aria-label="Fechar personalização" disabled={submitting} onClick={onClose}><X/></button>
     <h2>{product.name}</h2>
     <p>Personalize o pedido antes de adicionar ao carrinho.</p>
     {groups.map(group => <div className="ingredient-picker-group" key={group.id}>
@@ -62,8 +65,9 @@ export function IngredientPicker({ product, onClose, onConfirm }: { product: Ing
         </label>; })}
       </div>
     </div>)}
-    {error && <p className="ingredient-picker-error">{error}</p>}
+    {allowNotes && <label className="ingredient-picker-notes"><span>Observação para a cozinha <small>Opcional</small></span><textarea value={notes} maxLength={300} rows={2} placeholder="Ex.: sem cebola, tirar o molho, bem passado" onChange={event => setNotes(event.target.value)} /><small>{notes.length}/300</small></label>}
+    {(error || submitError) && <p role="alert" className="ingredient-picker-error">{error || submitError}</p>}
     <div className="ingredient-picker-summary"><span>Preço com escolhas</span><strong>{money(unitPrice)}</strong></div>
-    <button className="primary wide" onClick={confirm}><Plus/> Adicionar ao carrinho</button>
+    <button className="primary wide" disabled={submitting} onClick={() => void confirm()}><Plus/> Adicionar ao carrinho</button>
   </div></div>;
 }

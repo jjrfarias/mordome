@@ -816,6 +816,7 @@ model TabItem {
   sentQuantity    Decimal        @default(0) @db.Decimal(10, 3)
   unitPrice       Decimal        @db.Decimal(12, 2)
   active          Boolean        @default(true)
+  notes           String?
   selectedOptionsSnapshot Json?
   addedById       String
   createdAt       DateTime       @default(now())
