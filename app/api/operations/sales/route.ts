@@ -221,7 +221,7 @@ export async function POST(request: Request) {
         recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "SALE_COMPLETE", entityType: "Sale", entityId: result.sale.id, reason: localTab ? `Fechamento da mesa ${localTab.table.number}` : localDelivery ? `Pedido de delivery para ${localDelivery.customerName}` : "Venda direta no PDV", after: { channel: data.channel, table: localTab?.table.number, tabId: localTab?.tab.id, tabName: localTab?.tab.name ?? "", deliveryOrderId: localDelivery?.id, deliveryAreaId: localDelivery?.deliveryAreaId ?? null, deliveryAreaName: deliveryArea?.name ?? null, deliveryFee, payments, discount: resolvedDiscount, discountReason: resolvedDiscountReason, couponCode: appliedCoupon?.code ?? null, items, subtotal, total, cashSessionId: cash.id }, ...requestAuditMetadata(request) });
         if (appliedCoupon) redeemLocalCoupon(session.organization.id, appliedCoupon.id, { saleId: result.sale.id, establishmentId: session.establishment.id, discountApplied: resolvedDiscount });
         if (data.tabId) {
-          const closed = closeLocalTab({ establishmentId: session.establishment.id, tabId: data.tabId, saleId: result.sale.id });
+          const closed = closeLocalTab({ establishmentId: session.establishment.id, tabId: data.tabId, saleId: result.sale.id, actorId: session.user.id });
           if (closed !== "TAB_NOT_FOUND") recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "TAB_CLOSE", entityType: "Tab", entityId: closed.tab.id, reason: `Comanda da mesa ${closed.table.number} fechada`, before: { status: "OPEN" }, after: { status: "PAID", saleId: result.sale.id }, ...requestAuditMetadata(request) });
         }
         if (data.deliveryOrderId && localDelivery) {
@@ -379,7 +379,15 @@ export async function POST(request: Request) {
         await tx.couponRedemption.create({ data: { couponId: appliedCoupon.id, saleId: created.id, establishmentId: actor.session.establishment.id, discountApplied: resolvedDiscount } });
         await tx.coupon.update({ where: { id: appliedCoupon.id }, data: { usesCount: { increment: 1 } } });
       }
-      if (tab) { await tx.tab.update({ where: { id: tab.id }, data: { status: "PAID", closedAt: new Date(), saleId: created.id } }); await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "TAB_CLOSE", entityType: "Tab", entityId: tab.id, reason: `Comanda da mesa ${tab.table.number} fechada`, before: { status: "OPEN" }, after: { status: "PAID", saleId: created.id, tableNumber: tab.table.number }, ...requestAuditMetadata(request) } }); }
+      if (tab) {
+        // O pagamento encerra todas as rodadas desta comanda, na mesma transação da venda.
+        const pendingOrders = await tx.order.findMany({ where: { tabId: tab.id, status: { in: ["RECEIVED", "PREPARING", "READY"] } } });
+        for (const order of pendingOrders) {
+          await tx.order.update({ where: { id: order.id }, data: { status: "DELIVERED" } });
+          await tx.orderStatusHistory.create({ data: { orderId: order.id, status: "DELIVERED", actorId: actor.session.user.id } });
+          await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "ORDER_STATUS_CHANGE", entityType: "Order", entityId: order.id, reason: "Encerrado pelo pagamento da comanda", before: { status: order.status }, after: { status: "DELIVERED", tabId: tab.id, saleId: created.id }, ...requestAuditMetadata(request) } });
+        }
+        await tx.tab.update({ where: { id: tab.id }, data: { status: "PAID", closedAt: new Date(), saleId: created.id } }); await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "TAB_CLOSE", entityType: "Tab", entityId: tab.id, reason: `Comanda da mesa ${tab.table.number} fechada`, before: { status: "OPEN" }, after: { status: "PAID", saleId: created.id, tableNumber: tab.table.number }, ...requestAuditMetadata(request) } }); }
       if (deliveryOrder) {
         await tx.deliveryOrder.update({ where: { id: deliveryOrder.id }, data: { status: "DELIVERED", saleId: created.id } });
         if (deliveryOrder.kitchenOrderId) {

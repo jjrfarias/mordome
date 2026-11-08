@@ -27,7 +27,7 @@ const actionSchema = z.discriminatedUnion("action", [
 ]);
 
 const floorInclude = {
-  tabs: { where: { OR: [{ status: "OPEN" as const }, { orders: { some: { status: { notIn: ["DELIVERED" as const, "CANCELLED" as const] } } } }] }, orderBy: { openedAt: "asc" as const }, include: { openedBy: { select: { id: true, name: true, username: true } }, items: { where: { active: true }, orderBy: { createdAt: "asc" as const } }, orders: { orderBy: { sentAt: "asc" as const }, include: { sentBy: { select: { id: true, name: true, username: true } }, items: { include: { cancellations: true, tabItem: { select: { productId: true, selectedOptionsSnapshot: true } } } }, statusHistory: { include: { actor: { select: { id: true, name: true, username: true } } }, orderBy: { createdAt: "asc" as const } } } } } },
+  tabs: { where: { status: "OPEN" as const }, orderBy: { openedAt: "asc" as const }, include: { openedBy: { select: { id: true, name: true, username: true } }, items: { where: { active: true }, orderBy: { createdAt: "asc" as const } }, orders: { orderBy: { sentAt: "asc" as const }, include: { sentBy: { select: { id: true, name: true, username: true } }, items: { include: { cancellations: true, tabItem: { select: { productId: true, selectedOptionsSnapshot: true } } } }, statusHistory: { include: { actor: { select: { id: true, name: true, username: true } } }, orderBy: { createdAt: "asc" as const } } } } } },
 } satisfies Prisma.DiningTableInclude;
 
 class IngredientOptionError extends Error {}

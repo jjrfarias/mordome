@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { randomUUID } from "node:crypto";
-import { addLocalTabItem, closeLocalTab, getLocalFloor, manageLocalNamedTab, sendLocalOrder, changeLocalOrderStatus } from "../lib/local-floor.ts";
+import { addLocalTabItem, closeLocalTab, getLocalFloor, manageLocalNamedTab, sendLocalOrder, changeLocalOrderStatus, cancelLocalSentItem } from "../lib/local-floor.ts";
 import { kitchenOrderLabel } from "../lib/kitchen-label.ts";
 import { buildReceiptHtml } from "../lib/integrations/print-client.ts";
 
@@ -19,8 +19,9 @@ test("same table supports named tabs with separate totals and independent paymen
   closeLocalTab({ establishmentId: unit, tabId: ana.tab.id, saleId: "sale-ana" });
   assert.equal(getLocalFloor(unit).tables[0].tabs.length, 1);
   assert.equal(getLocalFloor(unit).tables[0].tab?.id, bia.tab.id);
-  assert.equal(getLocalFloor(unit).orders[0].tabName, "Ana");
-  assert.ok(typeof changeLocalOrderStatus({ establishmentId: unit, orderId: sent.order.id, status: "PREPARING", actorId: "waiter" }) !== "string");
+  assert.equal(getLocalFloor(unit).orders.length, 0);
+  assert.equal(sent.order.status, "DELIVERED");
+  assert.equal(changeLocalOrderStatus({ establishmentId: unit, orderId: sent.order.id, status: "PREPARING", actorId: "waiter" }), "INVALID_ORDER_TRANSITION");
   assert.equal(manageLocalNamedTab("other-unit", "waiter", { action: "RENAME_TAB", tabId: bia.tab.id, name: "Intruso" }), "TAB_NOT_FOUND");
 });
 
@@ -30,4 +31,29 @@ test("named receipt escapes customer text", () => {
   const html = buildReceiptHtml({ establishmentName: "Loja", items: [], total: 0, payment: "Pix", channel: "FLOOR", table: 4, tabName: "Ana <script>" });
   assert.ok(html.includes("Mesa 4 · Ana &lt;script&gt;"));
   assert.ok(!html.includes("<script>"));
+});
+
+
+test("closing a tab ends received, preparing and ready rounds without changing cancelled orders", () => {
+  const unit = randomUUID(), table = getLocalFloor(unit).tables[0];
+  const account = manageLocalNamedTab(unit, "waiter", { action: "CREATE_TAB", tableId: table.id, name: "Ana" });
+  assert.ok(typeof account !== "string");
+  const rounds = [];
+  let tabItemId = "";
+  for (let index = 0; index < 4; index++) {
+    const added = addLocalTabItem({ establishmentId: unit, tableId: table.id, tabId: account.tab.id, operatorId: "waiter", product: { id: "pastel", name: "Pastel" }, unitPrice: 20 });
+    assert.ok(typeof added !== "string"); tabItemId = added.item.id;
+    const sent = sendLocalOrder({ establishmentId: unit, tabId: account.tab.id, operatorId: "waiter" });
+    assert.ok(typeof sent !== "string"); rounds.push(sent.order);
+    if (index === 1 || index === 2) changeLocalOrderStatus({ establishmentId: unit, orderId: sent.order.id, status: "PREPARING", actorId: "cook" });
+    if (index === 2) changeLocalOrderStatus({ establishmentId: unit, orderId: sent.order.id, status: "READY", actorId: "cook" });
+  }
+  cancelLocalSentItem({ establishmentId: unit, tabItemId, quantity: 1, reason: "Cliente desistiu", actorId: "manager" });
+  const before = rounds[3].statusHistory.length;
+  closeLocalTab({ establishmentId: unit, tabId: account.tab.id, saleId: "sale", actorId: "cashier" });
+  assert.deepEqual(rounds.map(order => order.status), ["DELIVERED", "DELIVERED", "DELIVERED", "CANCELLED"]);
+  for (const order of rounds.slice(0, 3)) assert.equal(order.statusHistory.at(-1)?.actorId, "cashier");
+  assert.equal(rounds[3].statusHistory.length, before);
+  assert.equal(getLocalFloor(unit).orders.length, 0);
+  assert.equal(closeLocalTab({ establishmentId: unit, tabId: account.tab.id, saleId: "sale" }), "TAB_NOT_FOUND");
 });
