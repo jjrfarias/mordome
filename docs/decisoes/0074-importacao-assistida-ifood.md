@@ -1,6 +1,6 @@
 # 0074 — Importação assistida do Gestor iFood
 
-Data: 08/11/2026. Implementação local, ativação em produção pendente.
+Data: 08/11/2026. Implementação validada. A ativação exige publicar a API/migração e instalar a extensão no computador da loja.
 
 Sem credenciais oficiais do iFood, a operação precisa evitar redigitação. Uma extensão MV3 lê o DOM visível do painel aberto e usa o UUID presente na rota. Não acessa estado React, cookies, tokens ou APIs internas. Seletores se baseiam na tela inspecionada do Gestor.
 
