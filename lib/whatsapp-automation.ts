@@ -17,6 +17,8 @@ export async function writeWhatsAppAutomation(establishmentId: string, automatio
 export async function dispatchDeliveryWhatsAppAutomation(orderId: string, event: WhatsAppAutomationEventName) {
   const order = await db.deliveryOrder.findUnique({ where: { id: orderId }, include: { establishment: { select: { name: true } }, items: { select: { quantity: true, productName: true, selectedOptionsSnapshot: true } } } });
   if (!order || order.origin !== "ONLINE") return;
+  // Mensagens de rota/entrega não se aplicam a retirada nem consumo na loja.
+  if (order.fulfillment !== "DELIVERY" && (event === "OUT_FOR_DELIVERY" || event === "DELIVERED")) return;
   if (event === "INVITE_ACCOUNT" && (order.customerAccountId || !order.accountInviteOptIn)) return;
   const automation = await readWhatsAppAutomation(order.establishmentId);
   const rule = automation[event];

@@ -1,3 +1,4 @@
+import { fulfillmentLabel } from "@/lib/order-fulfillment";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { kitchenEscpos, printTokenHash, selectedOptionNames } from "@/lib/kitchen-print";
@@ -25,8 +26,8 @@ export async function GET(request: Request) {
   });
   for (const order of orders) {
     const items = order.items.map(item => ({ name: [item.productName, ...selectedOptionNames(item.tabItem.selectedOptionsSnapshot)].join(" - "), quantity: Number(item.quantity) - item.cancellations.reduce((sum, item) => sum + Number(item.quantity), 0) })).filter(item => item.quantity > 0);
-    const delivery = await db.deliveryOrder.findFirst({ where: { establishmentId: agent.establishmentId, kitchenOrderId: order.id }, select: { customerName: true } });
-    const label = delivery ? `Delivery - ${delivery.customerName}` : order.tab.table.isCounter ? "Balcao" : `Mesa ${order.tab.table.number}${order.tab.name ? ` - ${order.tab.name}` : ""}`;
+    const delivery = await db.deliveryOrder.findFirst({ where: { establishmentId: agent.establishmentId, kitchenOrderId: order.id }, select: { customerName: true, fulfillment: true } });
+    const label = delivery ? `${fulfillmentLabel(delivery)} - ${delivery.customerName}` : order.tab.table.isCounter ? "Balcao" : `Mesa ${order.tab.table.number}${order.tab.name ? ` - ${order.tab.name}` : ""}`;
     await db.kitchenPrintJob.upsert({ where: { agentId_orderId: { agentId: agent.id, orderId: order.id } }, update: {}, create: { agentId: agent.id, orderId: order.id, status: items.length ? "PENDING" : "SKIPPED", payload: kitchenEscpos({ establishment: agent.establishment.name, label, orderId: order.id, sentAt: order.sentAt, items }) } });
   }
   await db.kitchenPrintAgent.update({ where: { id: agent.id }, data: { lastSeenAt: new Date() } });

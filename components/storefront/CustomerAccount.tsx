@@ -1,10 +1,11 @@
 "use client";
+import { fulfillmentLabel } from "@/lib/order-fulfillment";
 import { useState } from "react";
 import { Dialog } from "./primitives";
 import { formatCents } from "@/lib/storefront/model";
 import styles from "./storefront.module.css";
 
-export type CustomerAccountData = { enabled: boolean; account: { name: string; phone: string } | null; totalOrders?: number; completedOrders?: number; orders?: { id: string; status: string; createdAt: string; totalCents: number; deliveryFee: number | null; items: { productName: string; quantity: number; unitPrice: number }[] }[] };
+export type CustomerAccountData = { enabled: boolean; account: { name: string; phone: string } | null; totalOrders?: number; completedOrders?: number; orders?: { fulfillment?: string; id: string; status: string; createdAt: string; totalCents: number; deliveryFee: number | null; items: { productName: string; quantity: number; unitPrice: number }[] }[] };
 export function CustomerAccountDialog({ open, onClose, unit, data, onChanged }: { open: boolean; onClose: () => void; unit: string; data: CustomerAccountData; onChanged: () => Promise<void> }) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");

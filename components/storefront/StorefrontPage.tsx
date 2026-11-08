@@ -211,7 +211,9 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
       setLines([]); setCouponCode(null);
       return { kind: "demo" };
     }
-    if (source.kind !== "live" || !address) throw new Error("Informe o endereço de entrega.");
+    if (source.kind !== "live") throw new Error("Cardápio indisponível.");
+    const isDelivery = form.fulfillment === "delivery";
+    if (isDelivery && !address) throw new Error("Informe o endereço de entrega.");
     // Chave idempotente estável enquanto o carrinho não muda: um reenvio após falha de rede devolve
     // o mesmo pedido em vez de criar outro (DeliveryOrder @@unique[establishmentId, clientRequestId]).
     requestId.current ??= newId();
@@ -224,14 +226,15 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
         customerPhone: form.phone,
         withAccount: Boolean(accountData.account),
         accountInviteOptIn: form.accountInviteOptIn,
-        address: formatAddressForOrder(address),
+        fulfillment: form.fulfillment.toUpperCase(),
+        ...(isDelivery && address ? { address: formatAddressForOrder(address),
         postalCode: address.postalCode,
         neighborhood: address.neighborhood,
         locationConfirmed: address.locationConfirmed === true,
         destinationLat: address.locationConfirmed ? address.latitude ?? undefined : undefined,
         destinationLng: address.locationConfirmed ? address.longitude ?? undefined : undefined,
+        deliveryAreaId: quote.status === "known" ? quote.area.id : undefined } : {}),
         notes: form.notes || undefined,
-        deliveryAreaId: quote.status === "known" ? quote.area.id : undefined,
         items: lines.map(line => ({ productId: line.productId, quantity: line.quantity, selectedOptions: line.selections.length ? line.selections : undefined })),
       }),
     });
@@ -243,7 +246,7 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
       throw new Error(typeof json.error === "string" ? json.error : "Não foi possível enviar o pedido. Tente novamente.");
     }
     setLines([]);
-    return { kind: "live", orderId: String(json.orderId ?? ""), feeToConfirm: quote.status === "confirm" };
+    return { kind: "live", orderId: String(json.orderId ?? ""), feeToConfirm: isDelivery && quote.status === "confirm" };
   };
 
   const cartPanelProps = {

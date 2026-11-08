@@ -56,8 +56,8 @@ export async function GET(request: Request) {
 
   // Delivery usa a mesa virtual "Balcão" (ADR 0050); o vínculo kitchenOrderId identifica a origem.
   const counterOrderIds = orders.filter(order => order.tab.table.isCounter).map(order => order.id);
-  const deliveries = counterOrderIds.length ? await db.deliveryOrder.findMany({ where: { establishmentId: session.establishment.id, kitchenOrderId: { in: counterOrderIds } }, select: { id: true, kitchenOrderId: true, origin: true } }) : [];
-  const deliveryByOrder = new Map(deliveries.map(delivery => [delivery.kitchenOrderId!, { deliveryOrderId: delivery.id, origin: delivery.origin }]));
+  const deliveries = counterOrderIds.length ? await db.deliveryOrder.findMany({ where: { establishmentId: session.establishment.id, kitchenOrderId: { in: counterOrderIds } }, select: { id: true, kitchenOrderId: true, origin: true, fulfillment: true } }) : [];
+  const deliveryByOrder = new Map(deliveries.map(delivery => [delivery.kitchenOrderId!, { deliveryOrderId: delivery.id, origin: delivery.origin, fulfillment: delivery.fulfillment }]));
 
   const records: OrderTimingRecord[] = orders.map(order => ({
     orderId: order.id,

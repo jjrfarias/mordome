@@ -1,10 +1,11 @@
+import { requiresDelivery } from "./order-fulfillment.ts";
 export type KitchenStage = "RECEIVED" | "PREPARING" | "READY" | "DELIVERED" | "CANCELLED";
 export type DeliveryStage = "RECEIVED" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
 export const kitchenReady = (status: string | null | undefined) => status === "READY" || status === "DELIVERED";
 export const deliveryFinished = (status: string | null | undefined) => status === "DELIVERED" || status === "CANCELLED";
 
-export function deliveryTransitionError(order: { status: DeliveryStage; courierId: string | null; kitchenOrderId: string | null }, target: DeliveryStage, kitchenStatus: KitchenStage | null) {
-  const next: Partial<Record<DeliveryStage, DeliveryStage>> = { RECEIVED: "PREPARING", PREPARING: "OUT_FOR_DELIVERY", OUT_FOR_DELIVERY: "DELIVERED" };
+export function deliveryTransitionError(order: { fulfillment?: string; status: DeliveryStage; courierId: string | null; kitchenOrderId: string | null }, target: DeliveryStage, kitchenStatus: KitchenStage | null) {
+  const next: Partial<Record<DeliveryStage, DeliveryStage>> = { RECEIVED: "PREPARING", PREPARING: requiresDelivery(order) ? "OUT_FOR_DELIVERY" : "DELIVERED", OUT_FOR_DELIVERY: "DELIVERED" };
   if (deliveryFinished(order.status) || (target !== "CANCELLED" && next[order.status] !== target)) return "INVALID_TRANSITION";
   if (target === "CANCELLED") return null;
   if (order.kitchenOrderId && (!kitchenStatus || kitchenStatus === "CANCELLED")) return "KITCHEN_NOT_READY";

@@ -82,7 +82,7 @@ export function mapLiveStorefront(establishmentId: string, response: PublicOrder
     products,
     deliveryAreas: response.deliveryAreas.map(area => ({ id: area.id, name: area.name, feeCents: toCents(area.deliveryFee), neighborhoods: area.neighborhoods })),
     estimatedDeliveryTime: null,
-    pickupSupported: false,
+    pickupSupported: true,
     coupons: null,
     paymentMethods: null,
     comboPromo,

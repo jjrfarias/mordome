@@ -1,3 +1,4 @@
+import { requiresDelivery, type OrderFulfillment } from "@/lib/order-fulfillment";
 import { linkedKitchen, setKitchenStage } from "@/lib/delivery-kitchen";
 import { deliveryTransitionError, workflowMessages } from "@/lib/delivery-workflow";
 import { getCounterTable } from "@/lib/counter-table";
@@ -45,8 +46,8 @@ async function resolveActor() {
   return membership ? session : null;
 }
 
-function serializeOrder(order: { id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: string; origin: string; courierId: string | null; deliveryAreaId?: string | null; deliveryFee?: unknown; saleId: string | null; createdAt: Date | string; items: { id: string; productId: string | null; productName: string; quantity: number; unitPrice: unknown; selectedOptionsSnapshot?: unknown }[] }) {
-  return { id: order.id, customerName: order.customerName, customerPhone: order.customerPhone, address: order.address, destinationLat: order.destinationLat, destinationLng: order.destinationLng, notes: order.notes, status: order.status, origin: order.origin, courierId: order.courierId, deliveryAreaId: order.deliveryAreaId ?? null, deliveryFee: order.deliveryFee !== undefined && order.deliveryFee !== null ? Number(order.deliveryFee) : 0, saleId: order.saleId, createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : order.createdAt, items: order.items.map(item => ({ id: item.id, productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice), selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? null })) };
+function serializeOrder(order: { fulfillment?: OrderFulfillment; id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: string; origin: string; courierId: string | null; deliveryAreaId?: string | null; deliveryFee?: unknown; saleId: string | null; createdAt: Date | string; items: { id: string; productId: string | null; productName: string; quantity: number; unitPrice: unknown; selectedOptionsSnapshot?: unknown }[] }) {
+  return { fulfillment: order.fulfillment ?? "DELIVERY", id: order.id, customerName: order.customerName, customerPhone: order.customerPhone, address: order.address, destinationLat: order.destinationLat, destinationLng: order.destinationLng, notes: order.notes, status: order.status, origin: order.origin, courierId: order.courierId, deliveryAreaId: order.deliveryAreaId ?? null, deliveryFee: order.deliveryFee !== undefined && order.deliveryFee !== null ? Number(order.deliveryFee) : 0, saleId: order.saleId, createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : order.createdAt, items: order.items.map(item => ({ id: item.id, productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice), selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? null })) };
 }
 
 export async function GET(request: Request) {
@@ -143,6 +144,7 @@ export async function POST(request: Request) {
     }
     const result = assignLocalCourier(session.establishment.id, data.orderId, data.courierId);
     if (result === "NOT_FOUND") return Response.json({ error: "Pedido não encontrado." }, { status: 404 });
+    if (result === "NOT_DELIVERY") return Response.json({ error: "Este pedido não precisa de entregador." }, { status: 409 });
     recordLocalAudit({ ...base, action: "UPDATE", entityType: "DeliveryOrder", entityId: result.id, reason: "Entregador atribuído ao pedido", after: { courierId: result.courierId } });
     return Response.json({ order: result });
   }
@@ -244,6 +246,7 @@ export async function POST(request: Request) {
   }
   const current = await db.deliveryOrder.findFirst({ where: { id: data.orderId, establishmentId: actor.establishment.id } });
   if (!current) return Response.json({ error: "Pedido não encontrado." }, { status: 404 });
+  if (!requiresDelivery(current)) return Response.json({ error: "Este pedido não precisa de entregador." }, { status: 409 });
   const updated = await db.$transaction(async tx => {
     const result = await tx.deliveryOrder.update({ where: { id: current.id }, data: { courierId: data.courierId } });
     await tx.auditEvent.create({ data: { organizationId: actor.organization.id, establishmentId: actor.establishment.id, actorId: actor.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: current.id, reason: "Entregador atribuído ao pedido", after: { courierId: data.courierId } } });
