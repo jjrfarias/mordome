@@ -44,17 +44,28 @@ try {
   assert.equal((await floor({ action: "SEND_ORDER", tabId: bia })).status, 200);
   assert.equal((await floor({ action: "CLOSE_EMPTY_TAB", tabId: ana })).status, 409);
   const saleBody = { action: "COMPLETE", channel: "FLOOR", tabId: bia, items: [{ productId: product.id, quantity: 1 }], payments: [{ method: "Dinheiro", amount: 22 }], idempotencyKey: randomUUID() };
+  const invalidPayment = await request("/api/operations/sales", { ...saleBody, payments: [{ method: "Dinheiro", amount: 1 }] });
+  assert.equal(invalidPayment.status, 400);
+  assert.equal((await db.order.findFirstOrThrow({ where: { tabId: bia } })).status, "RECEIVED");
   const paid = await request("/api/operations/sales", saleBody); assert.equal(paid.status, 201, JSON.stringify(paid));
   assert.equal(Number(paid.data.sale.total), 22);
   assert.equal((await db.tab.findUniqueOrThrow({ where: { id: ana } })).status, "OPEN");
   assert.equal((await db.tab.findUniqueOrThrow({ where: { id: bia } })).status, "PAID");
   const paidSnapshot = (await floor()).data;
   assert.equal(paidSnapshot.tables[0].tabs.length, 1);
-  assert.ok(paidSnapshot.orders.some((order: { tabId: string; tabName: string }) => order.tabId === bia && order.tabName === "Bia"));
+  assert.ok(!paidSnapshot.orders.some((order: { tabId: string }) => order.tabId === bia));
+  assert.ok(paidSnapshot.orders.some((order: { tabId: string }) => order.tabId === ana));
   const biaOrder = await db.order.findFirstOrThrow({ where: { tabId: bia } });
-  assert.equal((await floor({ action: "CHANGE_ORDER_STATUS", orderId: biaOrder.id, status: "PREPARING" })).status, 200);
+  assert.equal((await floor({ action: "CHANGE_ORDER_STATUS", orderId: biaOrder.id, status: "PREPARING" })).status, 409);
   assert.equal((await request("/api/operations/sales", saleBody)).status, 200);
   assert.equal(await db.sale.count({ where: { establishmentId: unit.id } }), 1);
+  assert.equal(biaOrder.status, "DELIVERED");
+  // Legacy paid tab with an unfinished round must also be absent from the queue.
+  await db.order.update({ where: { id: biaOrder.id }, data: { status: "RECEIVED" } });
+  assert.ok(!(await floor()).data.orders.some((order: { tabId: string }) => order.tabId === bia));
+  await db.order.update({ where: { id: biaOrder.id }, data: { status: "DELIVERED" } });
+  assert.equal(await db.orderStatusHistory.count({ where: { orderId: biaOrder.id, status: "DELIVERED" } }), 1);
+  assert.equal(await db.auditEvent.count({ where: { entityId: biaOrder.id, action: "ORDER_STATUS_CHANGE", reason: "Encerrado pelo pagamento da comanda" } }), 1);
   // Another round after the first dispatch sends only the newly added pastel.
   assert.equal((await floor({ action: "ADD_ITEM", tableId: table.id, tabId: ana, productId: product.id })).status, 200);
   assert.equal((await floor({ action: "SEND_ORDER", tabId: ana })).status, 200);
@@ -67,11 +78,13 @@ try {
   assert.equal((await floor({ action: "RENAME_TAB", tabId: carlos, name: " Ana " })).status, 409);
   assert.equal((await floor({ action: "RENAME_TAB", tabId: carlos, name: "Carlos Silva" })).status, 200);
   assert.equal((await floor({ action: "CLOSE_EMPTY_TAB", tabId: carlos })).status, 200);
+  assert.equal((await floor({ action: "CHANGE_ORDER_STATUS", orderId: last.id, status: "PREPARING" })).status, 200);
   const paidAna = await request("/api/operations/sales", { ...saleBody, tabId: ana, payments: [{ method: "Dinheiro", amount: 88 }], idempotencyKey: randomUUID() });
   assert.equal(paidAna.status, 201, JSON.stringify(paidAna));
   const emptyTable = (await floor()).data.tables[0];
   assert.equal(emptyTable.tabs.length, 0); assert.equal(emptyTable.tab, null);
-  assert.equal((await floor({ action: "CHANGE_ORDER_STATUS", orderId: last.id, status: "PREPARING" })).status, 200);
+  assert.equal((await floor()).data.orders.length, 0);
+  assert.equal(await db.order.count({ where: { tabId: ana, status: { not: "DELIVERED" } } }), 0);
   assert.equal((await floor({ action: "ADD_ITEM", tableId: table.id, tabId: bia, productId: product.id })).status, 404);
   assert.equal((await floor({ action: "CREATE_TAB", tableId: table.id, name: " " })).status, 400);
   const summary = (await request("/api/operations/summary")).data;
@@ -86,7 +99,7 @@ try {
   assert.equal((await floor({ action: "CREATE_TAB", tableId: table.id, name: "Sem permissão" })).status, 403);
   // Keep a named second account for optional visual review.
   if (process.env.KEEP_TEST_FIXTURES === "true") writeFileSync(".tools/named-tabs-fixture.json", JSON.stringify({ username: user.username, password: "NamedTabs-QA-2026!", unit: unit.id, table: table.id }));
-  console.log("PASS: named tabs, isolated payment/replay, tenant isolation, duplicate names/concurrency, incremental kitchen round.");
+  console.log("PASS: named tabs, isolated payment/replay and automatic kitchen closure, tenant isolation, duplicate names/concurrency, incremental kitchen round.");
 } finally {
   if (process.env.KEEP_TEST_FIXTURES !== "true") {
     const scope = { organizationId: { in: orgs } };

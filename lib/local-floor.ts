@@ -76,7 +76,7 @@ export function getLocalFloor(establishmentId: string, viewer?: { userId: string
   const tables = scoped.map(table => {
     const serialize = (tab: LocalTab) => ({ ...tab, items: tab.items.filter(item => item.active), orders: tab.orders.map(order => ({ ...order, tabName: tab.name ?? "", items: order.items.map(item => { const tabItem = table.tabs.flatMap(candidate => candidate.items).find(candidate => candidate.id === item.tabItemId); const stationId = tabItem ? getLocalProductStation(establishmentId, tabItem.productId) : null; return { ...item, stationId, cancelledQuantity: item.cancellations.reduce((sum, cancellation) => sum + cancellation.quantity, 0) }; }) })) });
     const tabs = table.tabs.filter(tab => tab.status === "OPEN").map(serialize);
-    const kitchenOrders = table.tabs.filter(tab => tab.status !== "CANCELLED").map(serialize).flatMap(tab => tab.orders.filter(order => !["DELIVERED", "CANCELLED"].includes(order.status)).map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: tab.id, isCounter: false, delivery: null })));
+    const kitchenOrders = table.tabs.filter(tab => tab.status === "OPEN").map(serialize).flatMap(tab => tab.orders.filter(order => !["DELIVERED", "CANCELLED"].includes(order.status)).map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: tab.id, isCounter: false, delivery: null })));
     return { ...table, tabs, tab: tabs[0] ?? null, kitchenOrders };
   });
   const tableOrders = tables.flatMap(table => table.kitchenOrders);
@@ -220,9 +220,13 @@ export function listLocalOrderTimings(establishmentId: string, from: Date, to: D
   return result;
 }
 
-export function closeLocalTab(input: { establishmentId: string; tabId: string; saleId: string }) {
+export function closeLocalTab(input: { establishmentId: string; tabId: string; saleId: string; actorId?: string }) {
   const table = tablesFor(input.establishmentId).find(candidate => candidate.tabs.some(tab => tab.status === "OPEN" && tab.id === input.tabId)); const tab = table?.tabs.find(tab => tab.status === "OPEN" && tab.id === input.tabId);
   if (!table || !tab) return "TAB_NOT_FOUND" as const;
+  for (const order of tab.orders.filter(order => !["DELIVERED", "CANCELLED"].includes(order.status))) {
+    order.status = "DELIVERED";
+    order.statusHistory.push({ status: "DELIVERED", actorId: input.actorId ?? tab.openedById, createdAt: new Date().toISOString() });
+  }
   tab.status = "PAID"; tab.closedAt = new Date().toISOString(); tab.saleId = input.saleId; return { table, tab };
 }
 

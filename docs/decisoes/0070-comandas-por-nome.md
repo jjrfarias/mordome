@@ -33,16 +33,16 @@ rejeitados. Criação, alteração do nome e encerramento vazio têm auditoria. 
 Serializable e o índice único protegem contra criação ou alteração concorrente.
 
 A leitura retorna `tabs` abertas, mantém `tab` como primeira conta para compatibilidade
-e carrega separadamente pedidos ainda ativos de contas já pagas. Pagar uma pessoa não
-faz desaparecer um preparo da cozinha nem impede o avanço das suas etapas.
+e inclui na cozinha somente as rodadas de comandas abertas. Pagar uma pessoa encerra
+suas rodadas de cozinha e preserva as das outras pessoas.
 
 ## Validação
 
 - Migração aplicada em PostgreSQL local isolado.
 - `scripts/check-named-tabs-postgres.ts`: duas contas na mesma mesa, isolamento entre
   unidades, ID de outra mesa/conta paga, nome vazio/duplicado, concorrência, permissões,
-  pagamento e repetição idempotente, mesa livre só após última conta, continuidade do
-  preparo após pagamento e nova rodada contendo apenas o acréscimo.
+  pagamento e repetição idempotente, mesa livre só após última conta, encerramento do
+  preparo pelo pagamento e nova rodada contendo apenas o acréscimo.
 - `tests/named-tabs.test.ts`: modo local, pagamento independente e nome da cozinha.
 - Interface desktop/celular e verificação de build, lint, testes e tipos.
 
@@ -50,3 +50,9 @@ Para testar: configurar TEST_DATABASE_URL com banco local terminado em `_test`,
 TEST_APP_URL local e executar `npx tsx scripts/check-named-tabs-postgres.ts`. Não
 executar o cenário em dados de operação. KEEP_TEST_FIXTURES=true é opcional, somente
 no banco isolado, para manter a conta fictícia de revisão visual.
+
+## Encerramento da cozinha pelo pagamento (2026-11-07)
+
+Pagar uma comanda de mesa conclui suas rodadas RECEIVED, PREPARING e READY como DELIVERED na mesma transação da venda, com histórico e auditoria do operador. Rodadas já entregues/canceladas são preservadas. Não depende de a equipe ter avançado o preparo. Reenvio idempotente não duplica os registros, falha de pagamento não encerra pedidos e outras comandas da mesma mesa continuam na fila.
+
+A fila de mesas considera somente comandas abertas, inclusive para ocultar pendências antigas de contas já pagas. PDV e pedidos online/delivery preservam seus fluxos próprios. Esta regra substitui a continuidade de preparo após pagamento descrita na versão inicial.
