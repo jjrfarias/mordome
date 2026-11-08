@@ -1,0 +1,2 @@
+ALTER TYPE "DeliveryOrigin" ADD VALUE IF NOT EXISTS 'IFOOD';
+ALTER TABLE "DeliveryOrder" ADD COLUMN "ifoodImport" JSONB;

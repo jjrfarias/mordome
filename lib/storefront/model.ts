@@ -55,6 +55,7 @@ export type StorefrontData = {
   deliveryAreas: DeliveryAreaInfo[];
   estimatedDeliveryTime: string | null;
   // Habilita retirada e consumo na loja, além da entrega.
+  onlineDeliveryEnabled?: boolean;
   pickupSupported: boolean;
   // null = recurso sem integração: a interface não mostra o campo de cupom.
   coupons: StorefrontCoupon[] | null;

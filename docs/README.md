@@ -35,3 +35,4 @@ Uma funcionalidade não é considerada concluída sem: regra documentada, autori
 
 - [ADR 0072 — Salão no celular](decisoes/0072-salao-mobile.md)
 - [ADR 0073 — Observação por item](decisoes/0073-observacao-item.md)
+- [ADR 0074 — Importação assistida do iFood](decisoes/0074-importacao-assistida-ifood.md)

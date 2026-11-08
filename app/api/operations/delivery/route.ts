@@ -1,3 +1,4 @@
+import { ifoodMetadata } from "@/lib/ifood-import";
 import { requiresDelivery, type OrderFulfillment } from "@/lib/order-fulfillment";
 import { linkedKitchen, setKitchenStage } from "@/lib/delivery-kitchen";
 import { deliveryTransitionError, workflowMessages } from "@/lib/delivery-workflow";
@@ -46,8 +47,8 @@ async function resolveActor() {
   return membership ? session : null;
 }
 
-function serializeOrder(order: { fulfillment?: OrderFulfillment; id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: string; origin: string; courierId: string | null; deliveryAreaId?: string | null; deliveryFee?: unknown; saleId: string | null; createdAt: Date | string; items: { id: string; productId: string | null; productName: string; quantity: number; unitPrice: unknown; selectedOptionsSnapshot?: unknown }[] }) {
-  return { fulfillment: order.fulfillment ?? "DELIVERY", id: order.id, customerName: order.customerName, customerPhone: order.customerPhone, address: order.address, destinationLat: order.destinationLat, destinationLng: order.destinationLng, notes: order.notes, status: order.status, origin: order.origin, courierId: order.courierId, deliveryAreaId: order.deliveryAreaId ?? null, deliveryFee: order.deliveryFee !== undefined && order.deliveryFee !== null ? Number(order.deliveryFee) : 0, saleId: order.saleId, createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : order.createdAt, items: order.items.map(item => ({ id: item.id, productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice), selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? null })) };
+function serializeOrder(order: { ifoodImport?: unknown; fulfillment?: OrderFulfillment; id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: string; origin: string; courierId: string | null; deliveryAreaId?: string | null; deliveryFee?: unknown; saleId: string | null; createdAt: Date | string; items: { id: string; productId: string | null; productName: string; quantity: number; unitPrice: unknown; selectedOptionsSnapshot?: unknown }[] }) {
+  return { ifood: ifoodMetadata(order.ifoodImport), fulfillment: order.fulfillment ?? "DELIVERY", id: order.id, customerName: order.customerName, customerPhone: order.customerPhone, address: order.address, destinationLat: order.destinationLat, destinationLng: order.destinationLng, notes: order.notes, status: order.status, origin: order.origin, courierId: order.courierId, deliveryAreaId: order.deliveryAreaId ?? null, deliveryFee: order.deliveryFee !== undefined && order.deliveryFee !== null ? Number(order.deliveryFee) : 0, saleId: order.saleId, createdAt: order.createdAt instanceof Date ? order.createdAt.toISOString() : order.createdAt, items: order.items.map(item => ({ id: item.id, productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: Number(item.unitPrice), selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? null })) };
 }
 
 export async function GET(request: Request) {
@@ -231,7 +232,7 @@ export async function POST(request: Request) {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     const event: Partial<Record<typeof data.status, WhatsAppAutomationEventName>> = { PREPARING: "PREPARING", OUT_FOR_DELIVERY: "OUT_FOR_DELIVERY", DELIVERED: "DELIVERED" };
     const automationEvent = event[data.status];
-    if (automationEvent) void dispatchDeliveryWhatsAppAutomation(updated.id, automationEvent).catch(() => {});
+    if (automationEvent && updated.origin !== "IFOOD") void dispatchDeliveryWhatsAppAutomation(updated.id, automationEvent).catch(() => {});
     return Response.json({ order: { ...updated, items: [] } });
     } catch (error) {
       if (error instanceof Error && workflowMessages[error.message]) return Response.json({ error: workflowMessages[error.message] }, { status: 409 });

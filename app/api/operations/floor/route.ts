@@ -1,3 +1,4 @@
+import { ifoodMetadata } from "@/lib/ifood-import";
 import { manageNamedTab } from "@/lib/named-tabs-server";
 import { deliveryFinished } from "@/lib/delivery-workflow";
 import { MembershipStatus, OrderStatus, Prisma } from "@/generated/prisma/client";
@@ -73,8 +74,8 @@ async function loadCounterOrders(establishmentId: string) {
   // Delivery também usa a mesa virtual "Balcão" (ADR 0050); o vínculo kitchenOrderId identifica quais
   // pedidos da fila vieram do delivery, para a cozinha não confundi-los com vendas do PDV.
   const orderIds = tabs.flatMap(tab => tab.orders.map(order => order.id));
-  const deliveries = orderIds.length ? await db.deliveryOrder.findMany({ where: { establishmentId, kitchenOrderId: { in: orderIds } }, select: { id: true, kitchenOrderId: true, origin: true, customerName: true, status: true, fulfillment: true } }) : [];
-  const deliveryByOrder = new Map(deliveries.map(delivery => [delivery.kitchenOrderId!, { fulfillment: delivery.fulfillment, deliveryOrderId: delivery.id, status: delivery.status, origin: delivery.origin, customerName: delivery.customerName.trim().split(/\s+/)[0] ?? "" }]));
+  const deliveries = orderIds.length ? await db.deliveryOrder.findMany({ where: { establishmentId, kitchenOrderId: { in: orderIds } }, select: { id: true, kitchenOrderId: true, ifoodImport: true, origin: true, customerName: true, status: true, fulfillment: true } }) : [];
+  const deliveryByOrder = new Map(deliveries.map(delivery => [delivery.kitchenOrderId!, { externalNumber: ifoodMetadata(delivery.ifoodImport)?.displayId, fulfillment: delivery.fulfillment, deliveryOrderId: delivery.id, status: delivery.status, origin: delivery.origin, customerName: delivery.customerName.trim().split(/\s+/)[0] ?? "" }]));
   return { tabs, deliveryByOrder };
 }
 
@@ -216,7 +217,8 @@ async function changeOrderStatus(session: Session, data: Extract<z.infer<typeof 
     const delivery = order.tab.table.isCounter ? await tx.deliveryOrder.findFirst({ where: { establishmentId: session.establishment.id, kitchenOrderId: order.id } }) : null;
     const reconcile = delivery && deliveryFinished(delivery.status) && !["DELIVERED", "CANCELLED"].includes(order.status) && data.status === "DELIVERED";
     if (!reconcile && next[order.status] !== data.status) throw new Error("INVALID_ORDER_TRANSITION");
-    if (delivery && !deliveryFinished(delivery.status) && delivery.status !== "OUT_FOR_DELIVERY" && data.status === "DELIVERED") throw new Error("DELIVERY_HANDOFF_REQUIRED");
+    if (delivery && delivery.origin !== "IFOOD" && !deliveryFinished(delivery.status) && delivery.status !== "OUT_FOR_DELIVERY" && data.status === "DELIVERED") throw new Error("DELIVERY_HANDOFF_REQUIRED");
+    if (delivery?.origin === "IFOOD" && !reconcile && data.status === "DELIVERED") await tx.deliveryOrder.update({ where: { id: delivery.id }, data: { status: "DELIVERED" } });
     const status = reconcile ? (delivery.status === "CANCELLED" ? "CANCELLED" : "DELIVERED") : data.status;
     await tx.order.update({ where: { id: order.id }, data: { status } });
     await tx.orderStatusHistory.create({ data: { orderId: order.id, status, actorId: session.user.id } });
@@ -225,7 +227,7 @@ async function changeOrderStatus(session: Session, data: Extract<z.infer<typeof 
       await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: delivery.id, reason: "Preparo atualizado pela cozinha", before: { status: delivery.status }, after: { status: "PREPARING" } } });
     }
     await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "ORDER_STATUS_CHANGE", entityType: "Order", entityId: order.id, reason: reconcile ? "Encerramento de tíquete pendente de delivery já finalizado" : "Etapa da cozinha alterada", before: { status: order.status }, after: { status, tabId: order.tabId, deliveryOrderId: delivery?.id ?? null }, ...requestAuditMetadata(request) } });
-    return delivery?.status === "RECEIVED" && (status === "PREPARING" || status === "READY") ? delivery.id : null;
+    return delivery?.origin !== "IFOOD" && delivery?.status === "RECEIVED" && (status === "PREPARING" || status === "READY") ? delivery.id : null;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   if (deliveryToNotify) void dispatchDeliveryWhatsAppAutomation(deliveryToNotify, "PREPARING").catch(() => {});
 }

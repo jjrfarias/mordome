@@ -1,0 +1,74 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { createRequire } from "node:module";
+import { captureIfoodOrder } from "../extensions/ifood-import/capture.js";
+import { ifoodCaptureSchema, ifoodImportProblem, ifoodRequestId } from "../lib/ifood-import.ts";
+const { JSDOM } = createRequire(import.meta.url)("jsdom");
+// Anonymized fixture matching the observed Gestor DOM, including quantity rendered via CSS.
+function fixture({ quantity = "2", body = "", price = "58,00", status = "Em preparo", extra = "" } = {}) {
+  const dom = new JSDOM(`<button>Loja de teste\nLoja aberta</button><div class="OrderDetails__content"><h2>4228 Cliente Teste</h2><div class="OrderDetails__status-info"><h3>${status}</h3></div><div class="DetailsDeliverySectionItem">Rua de teste, 1\nEntrega parceira</div><ul><li><div class="SectionItem"><div class="SectionItem__header"><div data-quantity="${quantity}"></div><div class="SectionItem__label--title">Pastel de Carne</div><span data-test-id="item-price">R$ ${price}</span></div><div class="SectionItem__body">${body}</div></div></li></ul>Taxa de entrega\nR$ 11,99\nSubtotal\nR$ 69,99\nPago via iFood, não precisa cobrar na entrega${extra}</div>`, { url: "https://gestordepedidos.ifood.com.br/#/home/order-display/kanban/11111111-1111-4111-8111-111111111111" });
+  Object.defineProperty(dom.window.HTMLElement.prototype, "innerText", { get() { return this.textContent; } });
+  dom.window.HTMLElement.prototype.getClientRects = () => [{}];
+  Object.assign(globalThis, { document: dom.window.document, location: dom.window.location });
+  return dom;
+}
+test("DOM real: quantidade em data-quantity e preço da linha, não preço unitário", () => {
+  const dom = fixture();
+  try {
+    const result = captureIfoodOrder();
+    assert.equal(result.items[0].quantity, 2);
+    assert.equal(result.items[0].lineTotalCents, 5800);
+    assert.equal(result.payment, "PAID_ONLINE");
+    assert.equal(result.subtotalCents, 6999);
+    assert.equal(ifoodCaptureSchema.safeParse(result).success, true);
+    assert.equal(ifoodImportProblem(result), null);
+  } finally { dom.window.close(); }
+});
+test("preserva adicionais, observações e incentivos sem tratá-los como produtos", () => {
+  const dom = fixture({ body: "2 × Queijo extra\nSem cebola", extra: "\nIncentivos iFood\n-R$ 33,07\nTaxa de serviço\nR$ 1,45" });
+  try {
+    const result = captureIfoodOrder();
+    assert.equal(result.items.length, 1);
+    assert.match(result.items[0].details, /Sem cebola/);
+    assert.match(result.sourceText, /Incentivos/);
+  } finally { dom.window.close(); }
+});
+test("falha fechada quando quantidade, preço ou painel mudam", () => {
+  for (const input of [{ quantity: "" }, { quantity: "0" }, { price: "indisponível" }]) {
+    const dom = fixture(input);
+    try { assert.throws(captureIfoodOrder); } finally { dom.window.close(); }
+  }
+  const dom = fixture();
+  try {
+    dom.window.document.querySelector(".OrderDetails__content").remove();
+    assert.throws(captureIfoodOrder, /detalhes/);
+  } finally { dom.window.close(); }
+});
+test("painéis ambíguos não são importados e UUID distingue números curtos repetidos", () => {
+  const dom = fixture();
+  try {
+    const panel = dom.window.document.querySelector(".OrderDetails__content");
+    panel.parentElement.append(panel.cloneNode(true));
+    assert.throws(captureIfoodOrder, /único/);
+    assert.notEqual(ifoodRequestId("11111111-1111-4111-8111-111111111111"), ifoodRequestId("22222222-2222-4222-8222-222222222222"));
+  } finally { dom.window.close(); }
+});
+test("observação geral e quantidade de adicional permanecem na captura", () => {
+  const dom = fixture({ body: '<div class="SectionItem"><div data-quantity="2"></div><span class="SectionItem__label">Queijo extra</span></div>', extra: '<div class="SectionItem"><div class="SectionItem__label">Observações</div>Não enviar talheres</div>' });
+  try {
+    const result = captureIfoodOrder();
+    assert.match(result.items[0].details, /2 × Queijo extra/);
+    assert.match(result.orderNotes, /Não enviar talheres/);
+  } finally { dom.window.close(); }
+});
+test("bloqueia histórico, divergência de valores e pagamento desconhecido", () => {
+  const dom = fixture();
+  try {
+    const order = captureIfoodOrder();
+    for (const sourceStatus of ["Concluído", "Cancelado", "Entregador saiu para entrega", "Em rota"]) assert.ok(ifoodImportProblem({ ...order, sourceStatus }));
+    assert.ok(ifoodImportProblem({ ...order, subtotalCents: 1 }));
+    assert.ok(ifoodImportProblem({ ...order, payment: "UNKNOWN" }));
+    assert.equal(ifoodRequestId(order.externalId), ifoodRequestId(order.externalId.toUpperCase()));
+    assert.equal(ifoodCaptureSchema.safeParse({ ...order, externalId: "4228" }).success, false);
+  } finally { dom.window.close(); }
+});
