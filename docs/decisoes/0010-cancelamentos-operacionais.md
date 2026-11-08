@@ -27,3 +27,9 @@ Cancelamento de item usa `TAB_ITEM_CANCEL`; cancelamento de venda usa `SALE_CANC
 ## Consequências
 
 Cancelamento e reembolso são conceitos diferentes. Relatórios e caixa consideram somente vendas `COMPLETED`, enquanto o histórico preserva as canceladas. O modelo de cancelamento por rodada permite informar corretamente a cozinha mesmo quando o mesmo produto foi enviado mais de uma vez.
+
+## Acesso na comanda (2026-11-07)
+
+Cada produto apresenta **Retirar item**, com confirmação de quantidade. Se houver unidades pendentes e enviadas do mesmo produto, o operador escolhe o grupo antes de confirmar; uma operação afeta apenas esse grupo. O botão de diminuir também abre o cancelamento quando só restam unidades enviadas.
+
+A retirada de pendentes usa `CHANGE_ITEM`; enviados usam `CANCEL_SENT_ITEM`, com motivo e permissão existentes. O diálogo informa falta de permissão sem esconder a ação, valida números inteiros e mostra erros da API. Comandas por nome continuam isoladas. Não há alteração de permissões, exclusão de histórico nem nova impressão automática de cancelamento: o operador é orientado a avisar a cozinha se a comanda já foi impressa.
