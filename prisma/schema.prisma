@@ -665,7 +665,14 @@ model DiningTable {
   @@index([establishmentId, area])
 }
 
+enum OrderFulfillment {
+  DELIVERY
+  PICKUP
+  DINE_IN
+}
+
 model DeliveryOrder {
+  fulfillment OrderFulfillment @default(DELIVERY)
   customerAccountId String?
   customerAccount CustomerAccount? @relation(fields: [customerAccountId, establishmentId], references: [id, establishmentId])
   accountInviteOptIn Boolean @default(false)

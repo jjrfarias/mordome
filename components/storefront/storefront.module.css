@@ -396,7 +396,7 @@
 .checkoutStep { display: flex; flex-direction: column; gap: 12px; }
 .checkoutStep h3 { display: flex; align-items: center; gap: 10px; font-size: 16px; font-weight: 700; }
 .checkoutStep h3 span { width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; background: var(--red); color: #fff; font-size: 12.5px; }
-.segmented { display: inline-flex; gap: 8px; }
+.segmented { display: flex; flex-wrap: wrap; gap: 8px; }
 .segmented label { position: relative; display: inline-flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 16px; border: 1px solid var(--border-strong); border-radius: 10px; font-weight: 600; font-size: 14px; cursor: pointer; }
 .segmented label:focus-within { outline: 3px solid rgba(226, 27, 35, .45); outline-offset: 2px; }
 .segmented input { position: absolute; opacity: 0; pointer-events: none; }

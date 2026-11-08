@@ -1,3 +1,4 @@
+import { payableOrderStage } from "@/lib/order-fulfillment";
 import { syncPosSale, cancelPosReceipts } from "@/lib/pos-finance";
 import { getLocalCounterOrder } from "@/lib/local-floor";
 import { linkedKitchen, setKitchenStage } from "@/lib/delivery-kitchen";
@@ -157,7 +158,7 @@ export async function POST(request: Request) {
     if (localTab?.tab.items.some(item => item.active && item.quantity > item.sentQuantity)) return Response.json({ error: "Envie os itens pendentes para a cozinha antes de fechar." }, { status: 409 });
     const localDelivery = data.deliveryOrderId ? getLocalDeliveryOrder(session.establishment.id, data.deliveryOrderId) : null;
     if (data.deliveryOrderId && (!localDelivery || data.channel !== "DELIVERY" || localDelivery.saleId)) return Response.json({ error: "Pedido de delivery não encontrado ou já pago." }, { status: 409 });
-    if (localDelivery && localDelivery.status !== "OUT_FOR_DELIVERY") return Response.json({ error: workflowMessages.DELIVERY_NOT_IN_ROUTE }, { status: 409 });
+    if (localDelivery && !payableOrderStage(localDelivery)) return Response.json({ error: workflowMessages.DELIVERY_NOT_IN_ROUTE }, { status: 409 });
     if (localDelivery?.kitchenOrderId && !kitchenReady(getLocalCounterOrder(session.establishment.id, localDelivery.kitchenOrderId)?.status)) return Response.json({ error: workflowMessages.KITCHEN_NOT_READY }, { status: 409 });
     const localItems = localTab ? localTab.tab.items.filter(item => item.active && item.quantity > 0).map(item => ({ productId: item.productId, quantity: item.quantity })) : localDelivery ? localDelivery.items.map(item => ({ productId: item.productId, quantity: item.quantity })) : data.items;
     if (!localItems.length) return Response.json({ error: localDelivery ? "O pedido de delivery está vazio." : "A comanda está vazia." }, { status: 409 });
@@ -278,7 +279,7 @@ export async function POST(request: Request) {
       // Salão e Delivery já resolveram a escolha quando o item foi adicionado à comanda/pedido —
       // aqui só propagamos o preço e o retrato (selectedOptionsSnapshot) já travados no TabItem/DeliveryOrderItem.
       if (deliveryOrder) {
-        if (deliveryOrder.status !== "OUT_FOR_DELIVERY") throw new Error("DELIVERY_NOT_IN_ROUTE");
+        if (!payableOrderStage(deliveryOrder)) throw new Error("DELIVERY_NOT_IN_ROUTE");
         const kitchen = await linkedKitchen(tx, actor.session.establishment.id, deliveryOrder.kitchenOrderId);
         if (deliveryOrder.kitchenOrderId && !kitchenReady(kitchen?.status)) throw new Error("KITCHEN_NOT_READY");
       }

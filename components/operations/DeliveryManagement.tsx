@@ -1,4 +1,5 @@
 "use client";
+import { fulfillmentLabel, requiresDelivery, payableOrderStage, type OrderFulfillment } from "@/lib/order-fulfillment";
 
 import { kitchenReady } from "@/lib/delivery-workflow";
 import { useEffect, useState } from "react";
@@ -16,7 +17,7 @@ type Product = { id: string; name: string; category: string; price: number; ingr
 type Courier = { id: string; name: string };
 type CourierLocation = { courierId: string; lat: number; lng: number; updatedAt: string };
 type OrderItem = { id: string; productId: string | null; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedIngredientOption[] | null };
-type Order = { kitchenOrderId: string | null; kitchenStatus: string | null; id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: DeliveryStatus; origin: "INTERNAL" | "ONLINE"; courierId: string | null; deliveryAreaId: string | null; deliveryFee: number; saleId: string | null; createdAt: string; items: OrderItem[] };
+type Order = { fulfillment?: OrderFulfillment; kitchenOrderId: string | null; kitchenStatus: string | null; id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: DeliveryStatus; origin: "INTERNAL" | "ONLINE"; courierId: string | null; deliveryAreaId: string | null; deliveryFee: number; saleId: string | null; createdAt: string; items: OrderItem[] };
 
 const statusLabels: Record<DeliveryStatus, string> = { RECEIVED: "Recebido", PREPARING: "Em preparo", OUT_FOR_DELIVERY: "Saiu para entrega", DELIVERED: "Entregue", CANCELLED: "Cancelado" };
 const nextStatus: Partial<Record<DeliveryStatus, DeliveryStatus>> = { RECEIVED: "PREPARING", PREPARING: "OUT_FOR_DELIVERY" };
@@ -65,7 +66,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
   const outForDelivery = orders.filter(order => order.status === "OUT_FOR_DELIVERY").length;
 
   return <div className="page-content">
-    <div className="hero-row"><div><span className="section-kicker">Central de delivery</span><p>Pedidos com endereço, entregador e etapas de entrega.</p></div><div style={{ display: "flex", gap: 8 }}>{canManageDeliveryAreas && <button className="secondary" onClick={() => setManagingAreas(true)}><Settings /> Áreas de entrega</button>}<button className="primary" onClick={() => setCreating(true)}><Plus /> Novo pedido</button></div></div>
+    <div className="hero-row"><div><span className="section-kicker">Pedidos online e delivery</span><p>Entrega, retirada e consumo na loja, identificados por cliente.</p></div><div style={{ display: "flex", gap: 8 }}>{canManageDeliveryAreas && <button className="secondary" onClick={() => setManagingAreas(true)}><Settings /> Áreas de entrega</button>}<button className="primary" onClick={() => setCreating(true)}><Plus /> Novo pedido</button></div></div>
     {error && <div className="auth-error">{error}</div>}
     <div className="stats-row">
       <div className="stat"><div><Package /></div><section><b>{active.length}</b><span>pedidos ativos</span></section></div>
@@ -85,25 +86,26 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
     {loading ? <div className="empty"><span>Carregando pedidos…</span></div> : active.length === 0 ? <div className="big-empty"><Package /><h2>Nenhum pedido ativo</h2><p>Crie um novo pedido de delivery para começar.</p></div> : <div className="kds-grid">
       {boardColumns.flatMap(status => active.filter(order => order.status === status)).map(order => {
         const total = order.items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0) + order.deliveryFee;
+        const delivery = requiresDelivery(order);
         const waitingKitchen = Boolean(order.kitchenOrderId) && !kitchenReady(order.kitchenStatus);
         const courier = couriers.find(candidate => candidate.id === order.courierId);
         return <article key={order.id} className={`kds-card ${order.status === "PREPARING" ? "em-preparo" : order.status === "OUT_FOR_DELIVERY" ? "pronto" : ""}`}>
-          <div className="kds-head"><div><span>{statusLabels[order.status]}{order.origin === "ONLINE" ? " · Pedido online" : ""}</span><b>{order.customerName}</b></div><span><Phone />{order.customerPhone}</span></div>
+          <div className="kds-head"><div><span>{statusLabels[order.status]}{order.origin === "ONLINE" ? " · Pedido online" : ""}</span><b>{order.customerName}</b><small>{fulfillmentLabel(order)}</small></div><span><Phone />{order.customerPhone}</span></div>
           <div className="kds-items">
-            {order.kitchenOrderId && <p style={{ fontSize: 12 }}>Cozinha: {order.kitchenStatus === "READY" ? "Pronto para retirada" : order.kitchenStatus === "DELIVERED" ? "Retirado para entrega" : order.kitchenStatus === "PREPARING" ? "Em preparo" : order.kitchenStatus === "CANCELLED" ? "Cancelado" : "Aguardando preparo"}</p>}
+            {order.kitchenOrderId && <p style={{ fontSize: 12 }}>Cozinha: {order.kitchenStatus === "READY" ? "Pronto para retirada" : order.kitchenStatus === "DELIVERED" ? "Retirado da cozinha" : order.kitchenStatus === "PREPARING" ? "Em preparo" : order.kitchenStatus === "CANCELLED" ? "Cancelado" : "Aguardando preparo"}</p>}
             <div style={{ marginBottom: 10, fontSize: 11, color: "var(--muted)", display: "flex", gap: 6, alignItems: "flex-start" }}><MapPin style={{ width: 14, flex: "0 0 auto", marginTop: 1 }} />{order.address}</div>
-            <button type="button" className="secondary" onClick={() => { setLocationOrder(order); setCorrectedPoint(null); }}>{order.destinationLat !== null ? "Corrigir ponto no mapa" : "Marcar ponto de entrega"}</button>
+            {delivery && <button type="button" className="secondary" onClick={() => { setLocationOrder(order); setCorrectedPoint(null); }}>{order.destinationLat !== null ? "Corrigir ponto no mapa" : "Marcar ponto de entrega"}</button>}
             {order.items.map(item => <div key={item.id}><span>{item.quantity}x</span><span>{item.productName}{item.selectedOptionsSnapshot?.length ? <small className="kds-item-options">{item.selectedOptionsSnapshot.map(option => option.optionName).join(", ")}</small> : null}</span></div>)}
             {order.deliveryFee > 0 && <div><span /><span>Taxa de entrega <em style={{ fontStyle: "normal", color: "var(--muted)" }}>{money(order.deliveryFee)}</em></span></div>}
-            <label className="field" style={{ marginTop: 10 }}><span>Entregador</span><select value={order.courierId ?? ""} disabled={saving} onChange={event => void act({ action: "ASSIGN_COURIER", orderId: order.id, courierId: event.target.value || null })}>
+            {delivery && <label className="field" style={{ marginTop: 10 }}><span>Entregador</span><select value={order.courierId ?? ""} disabled={saving} onChange={event => void act({ action: "ASSIGN_COURIER", orderId: order.id, courierId: event.target.value || null })}>
               <option value="">Sem entregador definido</option>
               {couriers.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
-            </select></label>
+            </select></label>}
             {courier && <small style={{ display: "block", marginTop: 4, color: "var(--muted)", fontSize: 9 }}>Atribuído: {courier.name}</small>}
           </div>
           <div className="kds-foot">
             <span>{money(total)}</span>
-            {order.status === "OUT_FOR_DELIVERY" ? <button disabled={waitingKitchen} onClick={() => setCheckoutOrder(order)}><CircleDollarSign /> Cobrar e concluir</button> : nextStatus[order.status] ? <button disabled={saving || (nextStatus[order.status] === "OUT_FOR_DELIVERY" && (!order.courierId || waitingKitchen))} title={nextStatus[order.status] === "OUT_FOR_DELIVERY" && !order.courierId ? "Defina o entregador antes de iniciar a rota." : undefined} onClick={() => void act({ action: "CHANGE_STATUS", orderId: order.id, status: nextStatus[order.status] }, `Pedido de ${order.customerName}: ${statusLabels[nextStatus[order.status]!]}`)}>{nextStatus[order.status] === "OUT_FOR_DELIVERY" && waitingKitchen ? "Aguardando cozinha" : nextActionLabel[nextStatus[order.status]!]}</button> : null}
+            {payableOrderStage(order) ? <button disabled={waitingKitchen || saving} onClick={() => setCheckoutOrder(order)}><CircleDollarSign /> Cobrar e concluir</button> : nextStatus[order.status] ? <button disabled={saving || (nextStatus[order.status] === "OUT_FOR_DELIVERY" && (!order.courierId || waitingKitchen))} title={nextStatus[order.status] === "OUT_FOR_DELIVERY" && !order.courierId ? "Defina o entregador antes de iniciar a rota." : undefined} onClick={() => void act({ action: "CHANGE_STATUS", orderId: order.id, status: nextStatus[order.status] }, `Pedido de ${order.customerName}: ${statusLabels[nextStatus[order.status]!]}`)}>{nextStatus[order.status] === "OUT_FOR_DELIVERY" && waitingKitchen ? "Aguardando cozinha" : nextActionLabel[nextStatus[order.status]!]}</button> : null}
           </div>
           <button type="button" className="cancel-sent-item" style={{ margin: "0 18px 14px" }} disabled={saving} onClick={() => { if (window.confirm(`Cancelar o pedido de ${order.customerName}? O tíquete da cozinha também será cancelado.`)) void act({ action: "CHANGE_STATUS", orderId: order.id, status: "CANCELLED" }, "Pedido cancelado"); }}>Cancelar pedido</button>
         </article>;

@@ -1,3 +1,4 @@
+import { payableOrderStage, requiresDelivery, type OrderFulfillment } from "./order-fulfillment.ts";
 import { deliveryTransitionError, kitchenReady } from "./delivery-workflow.ts";
 import { getLocalCounterOrder, syncLocalCounterOrder } from "./local-floor.ts";
 import { randomUUID } from "node:crypto";
@@ -6,7 +7,7 @@ import type { SelectedOptionSnapshot } from "./ingredient-options.ts";
 export type LocalDeliveryStatus = "RECEIVED" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED";
 export type LocalDeliveryOrigin = "INTERNAL" | "ONLINE";
 type LocalDeliveryItem = { id: string; productId: string; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] };
-type LocalDeliveryOrder = { id: string; customerName: string; customerPhone: string; customerId: string | null; clientRequestId: string | null; address: string; destinationLat: number | null; destinationLng: number | null; notes: string; status: LocalDeliveryStatus; origin: LocalDeliveryOrigin; courierId: string | null; deliveryAreaId: string | null; deliveryFee: number; saleId: string | null; kitchenOrderId: string | null; createdById: string | null; createdAt: string; updatedAt: string; items: LocalDeliveryItem[] };
+type LocalDeliveryOrder = { fulfillment: OrderFulfillment; id: string; customerName: string; customerPhone: string; customerId: string | null; clientRequestId: string | null; address: string; destinationLat: number | null; destinationLng: number | null; notes: string; status: LocalDeliveryStatus; origin: LocalDeliveryOrigin; courierId: string | null; deliveryAreaId: string | null; deliveryFee: number; saleId: string | null; kitchenOrderId: string | null; createdById: string | null; createdAt: string; updatedAt: string; items: LocalDeliveryItem[] };
 
 const stores = new Map<string, LocalDeliveryOrder[]>();
 const locations = new Map<string, { lat: number; lng: number; updatedAt: string }>();
@@ -29,9 +30,9 @@ export function findLocalDeliveryOrderByRequestId(establishmentId: string, clien
   return ordersFor(establishmentId).find(candidate => candidate.clientRequestId === clientRequestId) ?? null;
 }
 
-export function createLocalDeliveryOrder(establishmentId: string, input: { customerName: string; customerPhone: string; customerId?: string | null; clientRequestId?: string | null; address: string; destinationLat?: number; destinationLng?: number; notes?: string; createdById?: string; origin?: LocalDeliveryOrigin; deliveryAreaId?: string | null; deliveryFee?: number; items: { productId: string; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] }[] }) {
+export function createLocalDeliveryOrder(establishmentId: string, input: { fulfillment?: OrderFulfillment; customerName: string; customerPhone: string; customerId?: string | null; clientRequestId?: string | null; address: string; destinationLat?: number; destinationLng?: number; notes?: string; createdById?: string; origin?: LocalDeliveryOrigin; deliveryAreaId?: string | null; deliveryFee?: number; items: { productId: string; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] }[] }) {
   const now = new Date().toISOString();
-  const order: LocalDeliveryOrder = { id: `local-delivery-${randomUUID()}`, customerName: input.customerName, customerPhone: input.customerPhone, customerId: input.customerId ?? null, clientRequestId: input.clientRequestId ?? null, address: input.address, destinationLat: input.destinationLat ?? null, destinationLng: input.destinationLng ?? null, notes: input.notes ?? "", status: "RECEIVED", origin: input.origin ?? "INTERNAL", courierId: null, deliveryAreaId: input.deliveryAreaId ?? null, deliveryFee: input.deliveryFee ?? 0, saleId: null, kitchenOrderId: null, createdById: input.createdById ?? null, createdAt: now, updatedAt: now, items: input.items.map(item => ({ ...item, id: `local-delivery-item-${randomUUID()}` })) };
+  const order: LocalDeliveryOrder = { fulfillment: input.fulfillment ?? "DELIVERY", id: `local-delivery-${randomUUID()}`, customerName: input.customerName, customerPhone: input.customerPhone, customerId: input.customerId ?? null, clientRequestId: input.clientRequestId ?? null, address: input.address, destinationLat: input.destinationLat ?? null, destinationLng: input.destinationLng ?? null, notes: input.notes ?? "", status: "RECEIVED", origin: input.origin ?? "INTERNAL", courierId: null, deliveryAreaId: input.deliveryAreaId ?? null, deliveryFee: input.deliveryFee ?? 0, saleId: null, kitchenOrderId: null, createdById: input.createdById ?? null, createdAt: now, updatedAt: now, items: input.items.map(item => ({ ...item, id: `local-delivery-item-${randomUUID()}` })) };
   ordersFor(establishmentId).push(order);
   return { ...order, items: order.items.map(item => ({ ...item })) };
 }
@@ -83,6 +84,7 @@ export function changeLocalDeliveryStatus(establishmentId: string, orderId: stri
 export function assignLocalCourier(establishmentId: string, orderId: string, courierId: string | null) {
   const order = ordersFor(establishmentId).find(candidate => candidate.id === orderId);
   if (!order) return "NOT_FOUND" as const;
+  if (!requiresDelivery(order)) return "NOT_DELIVERY" as const;
   order.courierId = courierId;
   order.updatedAt = new Date().toISOString();
   return { ...order, items: order.items.map(item => ({ ...item })) };
@@ -91,7 +93,7 @@ export function assignLocalCourier(establishmentId: string, orderId: string, cou
 export function attachLocalDeliverySale(establishmentId: string, orderId: string, saleId: string, actorId = "local-operator") {
   const order = ordersFor(establishmentId).find(candidate => candidate.id === orderId);
   if (!order) return "NOT_FOUND" as const;
-  if (order.status !== "OUT_FOR_DELIVERY" || (order.kitchenOrderId && !kitchenReady(getLocalCounterOrder(establishmentId, order.kitchenOrderId)?.status))) return "INVALID_TRANSITION" as const;
+  if (!payableOrderStage(order) || (order.kitchenOrderId && !kitchenReady(getLocalCounterOrder(establishmentId, order.kitchenOrderId)?.status))) return "INVALID_TRANSITION" as const;
   syncLocalCounterOrder(establishmentId, order.kitchenOrderId, "DELIVERED", actorId);
   order.saleId = saleId;
   order.status = "DELIVERED";

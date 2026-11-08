@@ -1,3 +1,4 @@
+import { fulfillmentLabel } from "@/lib/order-fulfillment";
 import { currentCustomer } from "@/lib/customer-session";
 import { getCounterTable } from "@/lib/counter-table";
 import { confirmedDeliveryCoordinates } from "@/lib/delivery-location";
@@ -39,7 +40,8 @@ const orderSchema = z.object({
   clientRequestId: z.string().uuid(),
   customerName: z.string().trim().min(2).max(100),
   customerPhone: z.string().trim().min(8).max(20).transform(value => value.replace(/\D/g, "")).pipe(z.string().min(8).max(15)),
-  address: z.string().trim().min(5).max(300),
+  fulfillment: z.enum(["DELIVERY", "PICKUP", "DINE_IN"]).default("DELIVERY"),
+  address: z.string().trim().max(300).optional(),
   // Opcionais no contrato por compatibilidade com abas abertas antes do deploy do fluxo por CEP.
   // A interface nova sempre envia ambos e faz a validação estrita antes de habilitar o botão.
   postalCode: z.string().transform(value => value.replace(/\D/g, "")).pipe(z.string().length(8)).optional(),
@@ -50,6 +52,8 @@ const orderSchema = z.object({
   notes: z.string().trim().max(300).optional(),
   deliveryAreaId: z.string().min(1).optional(),
   items: z.array(z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(99), selectedOptions: z.array(optionSelectionSchema).max(10).optional() })).min(1).max(40),
+}).superRefine((data, ctx) => {
+  if (data.fulfillment === "DELIVERY" && (!data.address || data.address.length < 5)) ctx.addIssue({ code: "custom", path: ["address"], message: "Informe o endereço de entrega." });
 });
 
 export async function GET(_request: Request, { params }: { params: Promise<{ establishmentId: string }> }) {
@@ -125,7 +129,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
 
   const parsed = orderSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) { console.error("Invalid public order payload", parsed.error.flatten()); return Response.json({ error: "Confira os dados do cliente, endereço e itens do pedido." }, { status: 400 }); }
-  const data = { ...parsed.data, ...confirmedDeliveryCoordinates(parsed.data) };
+  const delivery = parsed.data.fulfillment === "DELIVERY";
+  const data = { ...parsed.data, ...(delivery ? confirmedDeliveryCoordinates(parsed.data) : { destinationLat: undefined, destinationLng: undefined }),
+    address: delivery ? parsed.data.address! : fulfillmentLabel(parsed.data),
+    deliveryAreaId: delivery ? parsed.data.deliveryAreaId : undefined,
+    neighborhood: delivery ? parsed.data.neighborhood : undefined,
+  };
 
   if (isLocalAuthEnabled()) {
     const establishment = listLocalEstablishments().find(item => item.id === establishmentId && item.active);
@@ -144,7 +153,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
     const resolveError = resolvedItems.find(item => "error" in item);
     if (resolveError) return Response.json({ error: resolveError.error }, { status: 409 });
     const items = resolvedItems as Exclude<(typeof resolvedItems)[number], { error: string }>[];
-    const activeAreas = listLocalDeliveryAreas(establishmentId).filter(area => area.active);
+    const activeAreas = delivery ? listLocalDeliveryAreas(establishmentId).filter(area => area.active) : [];
     const configuredAreas = activeAreas.filter(area => areaNeighborhoods(area.neighborhoods).length > 0);
     const matchedArea = findDeliveryAreaByNeighborhood(configuredAreas, data.neighborhood ?? "");
     if (configuredAreas.length > 0 && data.neighborhood && !matchedArea) return Response.json({ error: "Ainda não entregamos no bairro informado pelo CEP." }, { status: 400 });
@@ -157,7 +166,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
       deliveryFee = area.deliveryFee;
     }
     const customer = findLocalCustomerByPhone("local-demo", data.customerPhone) ?? findOrCreateLocalCustomerByPhone("local-demo", { name: data.customerName, phone: data.customerPhone });
-    const order = createLocalDeliveryOrder(establishmentId, { clientRequestId: data.clientRequestId, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: resolvedAreaId ?? null, deliveryFee, items });
+    const order = createLocalDeliveryOrder(establishmentId, { clientRequestId: data.clientRequestId, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, fulfillment: data.fulfillment, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: resolvedAreaId ?? null, deliveryFee, items });
     // Delivery envia para a cozinha (ADR 0050): pedido online é criado sem operador logado, então
     // usa o primeiro usuário ativo com acesso à unidade como autor do tíquete de cozinha — o mesmo
     // critério do ADR 0044 exige um ator, e aqui não existe um atendente por trás do pedido.
@@ -185,7 +194,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
   const resolvedItems = data.items.map(item => { const info = infoByProduct.get(item.productId)!; const resolved = resolveIngredientSelections(info.ingredientGroups, item.selectedOptions); return { item, info, resolved }; });
   const optionError = resolvedItems.find(entry => "error" in entry.resolved);
   if (optionError && "error" in optionError.resolved) return Response.json({ error: optionError.resolved.error }, { status: 400 });
-  const activeAreas = await db.deliveryArea.findMany({ where: { establishmentId, active: true } });
+  const activeAreas = delivery ? await db.deliveryArea.findMany({ where: { establishmentId, active: true } }) : [];
   const configuredAreas = activeAreas.filter(area => areaNeighborhoods(area.neighborhoods).length > 0);
   const matchedArea = findDeliveryAreaByNeighborhood(configuredAreas, data.neighborhood ?? "");
   if (configuredAreas.length > 0 && data.neighborhood && !matchedArea) return Response.json({ error: "Ainda não entregamos no bairro informado pelo CEP." }, { status: 400 });
@@ -208,7 +217,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
         update: {},
         create: { organizationId: establishment.organizationId, name: data.customerName, phone: normalizedPhone },
       });
-      const created = await tx.deliveryOrder.create({ data: { establishmentId, customerAccountId: customerSession?.accountId ?? null, accountInviteOptIn: !customerSession && data.accountInviteOptIn === true, clientRequestId: data.clientRequestId, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: resolvedAreaId, deliveryFee, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
+      const created = await tx.deliveryOrder.create({ data: { establishmentId, customerAccountId: customerSession?.accountId ?? null, accountInviteOptIn: !customerSession && data.accountInviteOptIn === true, clientRequestId: data.clientRequestId, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, fulfillment: data.fulfillment, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: resolvedAreaId, deliveryFee, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
 
       // Delivery envia para a cozinha (ADR 0050): pedido online não tem operador logado por trás,
       // então usa a primeira pessoa com acesso ativo à unidade como autora do tíquete de cozinha
@@ -221,7 +230,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
         const tabItems = await Promise.all(created.items.map(item => tx.tabItem.create({ data: { tabId: counterTab.id, productId: item.productId, productName: item.productName, quantity: item.quantity, sentQuantity: item.quantity, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? undefined, addedById: actorId } })));
         const counterOrder = await tx.order.create({ data: { tabId: counterTab.id, sentById: actorId, items: { create: tabItems.map((tabItem, index) => ({ tabItemId: tabItem.id, productName: created.items[index].productName, quantity: created.items[index].quantity })) }, statusHistory: { create: { status: "RECEIVED", actorId } } } });
         await tx.deliveryOrder.update({ where: { id: created.id }, data: { kitchenOrderId: counterOrder.id } });
-        await tx.auditEvent.create({ data: { organizationId: establishment.organizationId, establishmentId, actorId, action: "ORDER_SENT", entityType: "Order", entityId: counterOrder.id, reason: `Pedido enviado para a cozinha — Delivery online (${created.customerName})`, after: { tabId: counterTab.id, deliveryOrderId: created.id, items: created.items.map(item => ({ productName: item.productName, quantity: item.quantity })) } } });
+        await tx.auditEvent.create({ data: { organizationId: establishment.organizationId, establishmentId, actorId, action: "ORDER_SENT", entityType: "Order", entityId: counterOrder.id, reason: `Pedido enviado para a cozinha — ${fulfillmentLabel(created)} online (${created.customerName})`, after: { tabId: counterTab.id, deliveryOrderId: created.id, items: created.items.map(item => ({ productName: item.productName, quantity: item.quantity })) } } });
       }
       return created;
     });

@@ -54,7 +54,7 @@ export type StorefrontData = {
   products: StorefrontProduct[];
   deliveryAreas: DeliveryAreaInfo[];
   estimatedDeliveryTime: string | null;
-  // O POST público atual só registra entregas; retirada depende de suporte no backend.
+  // Habilita retirada e consumo na loja, além da entrega.
   pickupSupported: boolean;
   // null = recurso sem integração: a interface não mostra o campo de cupom.
   coupons: StorefrontCoupon[] | null;

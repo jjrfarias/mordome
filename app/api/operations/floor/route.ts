@@ -73,8 +73,8 @@ async function loadCounterOrders(establishmentId: string) {
   // Delivery também usa a mesa virtual "Balcão" (ADR 0050); o vínculo kitchenOrderId identifica quais
   // pedidos da fila vieram do delivery, para a cozinha não confundi-los com vendas do PDV.
   const orderIds = tabs.flatMap(tab => tab.orders.map(order => order.id));
-  const deliveries = orderIds.length ? await db.deliveryOrder.findMany({ where: { establishmentId, kitchenOrderId: { in: orderIds } }, select: { id: true, kitchenOrderId: true, origin: true, customerName: true, status: true } }) : [];
-  const deliveryByOrder = new Map(deliveries.map(delivery => [delivery.kitchenOrderId!, { deliveryOrderId: delivery.id, status: delivery.status, origin: delivery.origin, customerName: delivery.customerName.trim().split(/\s+/)[0] ?? "" }]));
+  const deliveries = orderIds.length ? await db.deliveryOrder.findMany({ where: { establishmentId, kitchenOrderId: { in: orderIds } }, select: { id: true, kitchenOrderId: true, origin: true, customerName: true, status: true, fulfillment: true } }) : [];
+  const deliveryByOrder = new Map(deliveries.map(delivery => [delivery.kitchenOrderId!, { fulfillment: delivery.fulfillment, deliveryOrderId: delivery.id, status: delivery.status, origin: delivery.origin, customerName: delivery.customerName.trim().split(/\s+/)[0] ?? "" }]));
   return { tabs, deliveryByOrder };
 }
 

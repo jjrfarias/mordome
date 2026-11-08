@@ -30,3 +30,5 @@ Esta pasta é a fonte de verdade funcional e técnica do produto. Toda mudança 
 ## Regra de manutenção
 
 Uma funcionalidade não é considerada concluída sem: regra documentada, autorização definida, validação de entrada, teste proporcional ao risco e tratamento de carregamento, vazio, erro e sucesso.
+
+- [ADR 0071 — Modalidades do pedido online](decisoes/0071-modalidades-pedido-online.md)

@@ -30,7 +30,7 @@ export async function GET(_request: Request, { params }: Context) {
   }
   const where = { establishmentId, customerAccountId: session.accountId };
   const [orders, totalOrders, completedOrders] = await Promise.all([
-    db.deliveryOrder.findMany({ where, orderBy: { createdAt: "desc" }, take: 50, select: { id: true, status: true, createdAt: true, deliveryFee: true, sale: { select: { total: true } }, items: { select: { productName: true, quantity: true, unitPrice: true, selectedOptionsSnapshot: true } } } }),
+    db.deliveryOrder.findMany({ where, orderBy: { createdAt: "desc" }, take: 50, select: { id: true, fulfillment: true, status: true, createdAt: true, deliveryFee: true, sale: { select: { total: true } }, items: { select: { productName: true, quantity: true, unitPrice: true, selectedOptionsSnapshot: true } } } }),
     db.deliveryOrder.count({ where }),
     db.deliveryOrder.count({ where: { ...where, status: "DELIVERED", sale: { status: "COMPLETED", refunds: { none: {} } } } }),
   ]);

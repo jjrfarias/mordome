@@ -8,7 +8,7 @@ import { formatAddressLines, formatCents, type DeliveryAddress } from "@/lib/sto
 import { Dialog, cx } from "./primitives";
 import styles from "./storefront.module.css";
 
-export type CheckoutForm = { name: string; phone: string; fulfillment: "delivery" | "pickup"; notes: string; paymentMethod: string | null; accountInviteOptIn: boolean };
+export type CheckoutForm = { name: string; phone: string; fulfillment: "delivery" | "pickup" | "dine_in"; notes: string; paymentMethod: string | null; accountInviteOptIn: boolean };
 export type CheckoutResult = { kind: "live"; orderId: string; feeToConfirm: boolean } | { kind: "demo" };
 
 type Totals = { subtotalCents: number; discountCents: number; deliveryFeeCents: number | null; totalCents: number; totalIsFinal: boolean };
@@ -124,17 +124,18 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
       </section>
 
       <section className={styles.checkoutStep} aria-labelledby="checkout-entrega">
-        <h3 id="checkout-entrega"><span aria-hidden>2</span>{pickupSupported ? "Entrega ou retirada" : "Entrega"}</h3>
+        <h3 id="checkout-entrega"><span aria-hidden>2</span>{pickupSupported ? "Como deseja receber?" : "Entrega"}</h3>
         {pickupSupported && <div className={styles.segmented} role="radiogroup" aria-label="Como receber">
           <label className={cx(delivery && styles.segmentedActive)}><input type="radio" name="recebimento" checked={delivery} onChange={() => setForm({ ...form, fulfillment: "delivery" })} /><Truck aria-hidden />Entrega</label>
-          <label className={cx(!delivery && styles.segmentedActive)}><input type="radio" name="recebimento" checked={!delivery} onChange={() => setForm({ ...form, fulfillment: "pickup" })} /><Store aria-hidden />Retirada</label>
+          <label className={cx(form.fulfillment === "pickup" && styles.segmentedActive)}><input type="radio" name="recebimento" checked={form.fulfillment === "pickup"} onChange={() => setForm({ ...form, fulfillment: "pickup" })} /><Store aria-hidden />Retirar no local</label>
+          <label className={cx(form.fulfillment === "dine_in" && styles.segmentedActive)}><input type="radio" name="recebimento" checked={form.fulfillment === "dine_in"} onChange={() => setForm({ ...form, fulfillment: "dine_in" })} /><Store aria-hidden />Consumir na loja</label>
         </div>}
         {delivery ? <div className={cx(styles.addressCard, styles.addressCardAction, (show("address") || show("area")) && styles.addressCardError)}>
           <MapPin aria-hidden />
           <span>{addressLines ? <><b>{addressLines.first}</b><small>{addressLines.second}</small></> : <b>Nenhum endereço informado</b>}
             <small>Taxa de entrega: {feeLabel ?? formatCents(quote.status === "known" ? quote.feeCents : 0)}</small></span>
           <button type="button" className={styles.linkButton} onClick={onEditAddress}>{address ? "Trocar" : "Informar"}</button>
-        </div> : <p className={styles.formNote}>Retire no balcão de {establishmentName}. Avisamos quando estiver pronto.</p>}
+        </div> : <p className={styles.formNote}>{form.fulfillment === "dine_in" ? `Pedido para consumir em ${establishmentName}. Sem taxa de entrega.` : `Retire no balcão de ${establishmentName}. Sem taxa de entrega.`}</p>}
         {show("address") && <p className={styles.fieldError} role="alert">Informe o endereço de entrega.</p>}
         {!problems.address && show("area") && <p className={styles.fieldError} role="alert">{quote.status === "uncovered" ? "Ainda não entregamos neste endereço." : "Escolha a região de entrega no endereço."}</p>}
         <label className={styles.field}><span>Observações <small>(opcional)</small></span>
