@@ -55,6 +55,7 @@
     "@types/react-dom": "latest",
     "eslint": "latest",
     "eslint-config-next": "16.4.5",
+    "jsdom": "^31.0.0",
     "prisma": "^7.10.0",
     "tsx": "latest",
     "typescript": "latest"

@@ -107,6 +107,7 @@ enum DeliveryStatus {
 enum DeliveryOrigin {
   INTERNAL
   ONLINE
+  IFOOD
 }
 
 enum TabStatus {
@@ -354,6 +355,7 @@ model Establishment {
   logoUrl          String?
   bannerUrl        String?
   highlightProductId String?
+  onlineDeliveryEnabled Boolean @default(true)
   highlightHeadline  String?
   highlightProduct Product?                     @relation(fields: [highlightProductId], references: [id], onDelete: SetNull)
   timezone         String                       @default("America/Sao_Paulo")
@@ -672,6 +674,7 @@ enum OrderFulfillment {
 }
 
 model DeliveryOrder {
+  ifoodImport Json?
   fulfillment OrderFulfillment @default(DELIVERY)
   customerAccountId String?
   customerAccount CustomerAccount? @relation(fields: [customerAccountId, establishmentId], references: [id, establishmentId])

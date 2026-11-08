@@ -15,6 +15,7 @@ type EstablishmentAddress = {
 };
 
 type EstablishmentStorefront = {
+  onlineDeliveryEnabled: boolean;
   logoUrl: string | null;
   bannerUrl: string | null;
   highlightProductId: string | null;
@@ -44,7 +45,7 @@ type EstablishmentFormState = {
 
 type AddressFormState = { postalCode: string; street: string; number: string; complement: string; neighborhood: string; city: string; state: string; phone: string; editing: boolean; saving: boolean; error: string; lookingUp: boolean };
 
-type StorefrontFormState = { logoUrl: string | null; bannerUrl: string | null; highlightProductId: string; highlightHeadline: string; editing: boolean; saving: boolean; error: string; busy: boolean };
+type StorefrontFormState = { onlineDeliveryEnabled: boolean; logoUrl: string | null; bannerUrl: string | null; highlightProductId: string; highlightHeadline: string; editing: boolean; saving: boolean; error: string; busy: boolean };
 
 function formatCep(value: string) {
   const digits = value.replace(/\D/g, "").slice(0, 8);
@@ -102,7 +103,7 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
     setStorefrontEdits(current => Object.fromEntries(parsed.establishments.map(establishment => {
       const previous = current[establishment.id];
       if (previous?.editing) return [establishment.id, previous];
-      return [establishment.id, { logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightProductId: establishment.highlightProductId ?? "", highlightHeadline: establishment.highlightHeadline ?? "", editing: false, saving: false, error: "", busy: false }];
+      return [establishment.id, { onlineDeliveryEnabled: establishment.onlineDeliveryEnabled ?? true, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightProductId: establishment.highlightProductId ?? "", highlightHeadline: establishment.highlightHeadline ?? "", editing: false, saving: false, error: "", busy: false }];
     })));
     setLoading(false);
   };
@@ -276,7 +277,7 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
   const storefrontState = (id: string) => storefrontEdits[id];
   const setStorefrontDraft = (id: string, patch: Partial<StorefrontFormState>) => setStorefrontEdits(current => ({ ...current, [id]: { ...current[id], ...patch } }));
   const startEditStorefront = (id: string) => setStorefrontDraft(id, { editing: true, error: "" });
-  const cancelEditStorefront = (id: string, establishment: EstablishmentItem) => setStorefrontDraft(id, { editing: false, error: "", logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightProductId: establishment.highlightProductId ?? "", highlightHeadline: establishment.highlightHeadline ?? "" });
+  const cancelEditStorefront = (id: string, establishment: EstablishmentItem) => setStorefrontDraft(id, { editing: false, error: "", onlineDeliveryEnabled: establishment.onlineDeliveryEnabled ?? true, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightProductId: establishment.highlightProductId ?? "", highlightHeadline: establishment.highlightHeadline ?? "" });
 
   const handleStorefrontImage = async (id: string, field: "logoUrl" | "bannerUrl", file: File | undefined) => {
     if (!file) return;
@@ -299,7 +300,7 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
       const response = await fetch("/api/admin/establishments", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ establishmentId: id, logoUrl: draft.logoUrl ?? "", bannerUrl: draft.bannerUrl ?? "", highlightProductId: draft.highlightProductId, highlightHeadline: draft.highlightHeadline }),
+        body: JSON.stringify({ establishmentId: id, onlineDeliveryEnabled: draft.onlineDeliveryEnabled, logoUrl: draft.logoUrl ?? "", bannerUrl: draft.bannerUrl ?? "", highlightProductId: draft.highlightProductId, highlightHeadline: draft.highlightHeadline }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) { setStorefrontDraft(id, { error: data.error ?? "Não foi possível salvar a vitrine." }); return; }
@@ -436,7 +437,7 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
                 const store = storefrontState(establishment.id);
                 if (!store) return null;
                 if (!store.editing) return <div className="settings-address-line">
-                  <span>{establishment.logoUrl || establishment.bannerUrl || establishment.highlightProductId ? "Vitrine configurada" : "Vitrine do delivery não configurada"}</span>
+                  <span>{establishment.onlineDeliveryEnabled === false ? "Entrega online pausada · " : "Entrega online ativa · "}{establishment.logoUrl || establishment.bannerUrl || establishment.highlightProductId ? "Vitrine configurada" : "Vitrine do delivery não configurada"}</span>
                   <button type="button" className="secondary" onClick={() => startEditStorefront(establishment.id)}>Editar vitrine do delivery</button>
                 </div>;
                 return <div>
@@ -472,6 +473,7 @@ export function EstablishmentsManagement({ activeEstablishmentId, onChanged }: {
                     </select></label>
                     <label className="field"><span>Chamada de promoção</span><input value={store.highlightHeadline} maxLength={120} placeholder="Ex.: Burger do mês!" onChange={event => setStorefrontDraft(establishment.id, { highlightHeadline: event.target.value })} /></label>
                   </div>
+                  <label className="field" style={{ marginTop: 14 }}><span><input type="checkbox" checked={store.onlineDeliveryEnabled} disabled={store.saving} onChange={event => setStorefrontDraft(establishment.id, { onlineDeliveryEnabled: event.target.checked })} /> Aceitar entrega pelo pedido online</span><small>Ao desligar, os clientes continuam podendo pedir para retirada ou consumo no local.</small></label>
                   <div className="settings-actions" style={{ marginTop: 10 }}>
                     <button type="button" className="primary" disabled={store.saving || store.busy} onClick={() => void saveStorefront(establishment.id)}>{store.saving ? "Salvando…" : "Salvar vitrine"}</button>
                     <button type="button" className="secondary" onClick={() => cancelEditStorefront(establishment.id, establishment)}>Cancelar</button>

@@ -69,7 +69,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     const since = popularitySince().toISOString();
     const offeredIds = new Set(products.map(product => product.id));
     const popularProductIds = rankPopularProducts(listLocalDeliveryOrders(establishmentId).filter(order => order.status !== "CANCELLED" && order.createdAt >= since).flatMap(order => order.items)).filter(productId => offeredIds.has(productId));
-    return Response.json({ popularProductIds, branding: { name: establishment.name, logoUrl: null, primary: "#173f35", accent: "#e97c4b" }, establishment: { name: establishment.name, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightHeadline: establishment.highlightHeadline, phone: formatBrazilPhone(establishment.phone), address: formatEstablishmentAddress(establishment), highlightProduct: highlightProduct ? { id: highlightProduct.id, name: highlightProduct.name, price: highlightProduct.price, imageUrl: highlightProduct.imageUrl } : null }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: product.description, price: product.price, compareAtPrice: product.compareAtPrice !== null && product.compareAtPrice > product.price ? product.compareAtPrice : null, vegetarian: product.vegetarian, imageUrl: product.imageUrl, ingredientGroups: product.ingredientGroups })), deliveryAreas: deliveryAreas.map(area => ({ id: area.id, name: area.name, deliveryFee: area.deliveryFee, neighborhoods: area.neighborhoods })) });
+    return Response.json({ popularProductIds, branding: { name: establishment.name, logoUrl: null, primary: "#173f35", accent: "#e97c4b" }, establishment: { onlineDeliveryEnabled: establishment.onlineDeliveryEnabled, name: establishment.name, logoUrl: establishment.logoUrl, bannerUrl: establishment.bannerUrl, highlightHeadline: establishment.highlightHeadline, phone: formatBrazilPhone(establishment.phone), address: formatEstablishmentAddress(establishment), highlightProduct: highlightProduct ? { id: highlightProduct.id, name: highlightProduct.name, price: highlightProduct.price, imageUrl: highlightProduct.imageUrl } : null }, products: products.map(product => ({ id: product.id, name: product.name, category: product.category, description: product.description, price: product.price, compareAtPrice: product.compareAtPrice !== null && product.compareAtPrice > product.price ? product.compareAtPrice : null, vegetarian: product.vegetarian, imageUrl: product.imageUrl, ingredientGroups: product.ingredientGroups })), deliveryAreas: deliveryAreas.map(area => ({ id: area.id, name: area.name, deliveryFee: area.deliveryFee, neighborhoods: area.neighborhoods })) });
   }
 
   const establishment = await db.establishment.findFirst({ where: { id: establishmentId, active: true, organization: { active: true } }, include: { highlightProduct: true, organization: { select: { name: true, brandLogoUrl: true, brandPrimary: true, brandAccent: true } } } });
@@ -96,6 +96,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
     popularProductIds,
     branding: { name: establishment.organization.name, logoUrl: establishment.organization.brandLogoUrl, primary: establishment.organization.brandPrimary, accent: establishment.organization.brandAccent },
     establishment: {
+      onlineDeliveryEnabled: establishment.onlineDeliveryEnabled,
       name: establishment.name,
       phone: formatBrazilPhone(establishment.phone),
       address: formatEstablishmentAddress(establishment),
@@ -139,6 +140,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
   if (isLocalAuthEnabled()) {
     const establishment = listLocalEstablishments().find(item => item.id === establishmentId && item.active);
     if (!establishment) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
+    if (delivery && !establishment.onlineDeliveryEnabled) return Response.json({ error: "As entregas estão pausadas. Escolha retirada ou consumo no local." }, { status: 409 });
     const duplicate = findLocalDeliveryOrderByRequestId(establishmentId, data.clientRequestId);
     if (duplicate) return Response.json({ orderId: duplicate.id });
     const catalog = listLocalCatalog(establishmentId);
@@ -180,6 +182,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
 
   const establishment = await db.establishment.findFirst({ where: { id: establishmentId, active: true, organization: { active: true } } });
   if (!establishment) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
+    if (delivery && !establishment.onlineDeliveryEnabled) return Response.json({ error: "As entregas estão pausadas. Escolha retirada ou consumo no local." }, { status: 409 });
   const duplicate = await db.deliveryOrder.findUnique({ where: { establishmentId_clientRequestId: { establishmentId, clientRequestId: data.clientRequestId } } });
   if (duplicate) return Response.json({ orderId: duplicate.id });
   const offerings = await db.productOffering.findMany({ where: { establishmentId, channel: "DELIVERY", active: true, variant: { productId: { in: data.items.map(item => item.productId) }, active: true, product: { organizationId: establishment.organizationId, active: true } } }, include: { variant: { include: { product: { include: { ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } }, comboGroups: comboGroupsInclude } } } } } });

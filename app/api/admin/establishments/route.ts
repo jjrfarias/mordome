@@ -31,6 +31,7 @@ const addressSchema = z.object({
 // mexe no que já existe). Reaproveita o limite de tamanho de PRODUCT_IMAGE_URL_MAX_LENGTH (ADR 0032).
 const imageOrEmpty = z.string().max(PRODUCT_IMAGE_URL_MAX_LENGTH).refine(value => value === "" || value.startsWith("data:image/"), { message: "Formato de imagem inválido." });
 const storefrontSchema = z.object({
+  onlineDeliveryEnabled: z.boolean().optional(),
   logoUrl: imageOrEmpty.optional(),
   bannerUrl: imageOrEmpty.optional(),
   highlightProductId: z.string().trim().max(100).optional(),
@@ -64,7 +65,7 @@ function storefrontPatch(data: z.infer<typeof patchSchema>) {
     if (value === undefined) continue;
     patch[key] = value || null;
   }
-  return patch;
+  return { ...patch, ...(data.onlineDeliveryEnabled === undefined ? {} : { onlineDeliveryEnabled: data.onlineDeliveryEnabled }) };
 }
 
 type EstablishmentPayload = {
@@ -72,6 +73,7 @@ type EstablishmentPayload = {
   name: string;
   slug: string;
   active: boolean;
+  onlineDeliveryEnabled: boolean;
   postalCode: string | null;
   street: string | null;
   number: string | null;
@@ -124,6 +126,7 @@ export async function GET(request: Request) {
       name: establishment.name,
       slug: establishment.slug,
       active: establishment.active,
+      onlineDeliveryEnabled: establishment.onlineDeliveryEnabled,
       postalCode: establishment.postalCode,
       street: establishment.street,
       number: establishment.number,
@@ -299,7 +302,7 @@ export async function PATCH(request: Request) {
       return changed;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 
-    return Response.json({ establishment: { id: updated.id, name: updated.name, slug: updated.slug, active: updated.active, postalCode: updated.postalCode, street: updated.street, number: updated.number, complement: updated.complement, neighborhood: updated.neighborhood, city: updated.city, state: updated.state, phone: updated.phone, logoUrl: updated.logoUrl, bannerUrl: updated.bannerUrl, highlightProductId: updated.highlightProductId, highlightHeadline: updated.highlightHeadline } });
+    return Response.json({ establishment: { id: updated.id, name: updated.name, slug: updated.slug, active: updated.active, onlineDeliveryEnabled: updated.onlineDeliveryEnabled, postalCode: updated.postalCode, street: updated.street, number: updated.number, complement: updated.complement, neighborhood: updated.neighborhood, city: updated.city, state: updated.state, phone: updated.phone, logoUrl: updated.logoUrl, bannerUrl: updated.bannerUrl, highlightProductId: updated.highlightProductId, highlightHeadline: updated.highlightHeadline } });
   } catch (error) {
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       return Response.json({ error: "Já existe um estabelecimento com esse nome." }, { status: 409 });

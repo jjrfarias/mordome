@@ -6,6 +6,7 @@ import { categoryIconKey } from "./catalog.ts";
 export type PublicOrderMenuResponse = {
   branding?: { name?: string; logoUrl?: string | null; primary: string; accent: string };
   establishment: {
+    onlineDeliveryEnabled?: boolean;
     name: string;
     logoUrl: string | null;
     bannerUrl: string | null;
@@ -59,7 +60,7 @@ export function mapLiveStorefront(establishmentId: string, response: PublicOrder
     kicker: "Peça online",
     title: establishment.highlightHeadline || establishment.name,
     highlight: highlight ? highlight.name : null,
-    description: highlight ? `Adicione ao seu pedido em poucos toques.` : `Escolha no cardápio e receba em casa.`,
+    description: highlight ? `Adicione ao seu pedido em poucos toques.` : (establishment.onlineDeliveryEnabled === false ? "Peça para retirada ou consumo no local." : "Escolha no cardápio e receba em casa."),
     imageUrl: slideImage,
     imageAlt: highlight ? highlight.name : `Destaque de ${establishment.name}`,
     ctaLabel: "Pedir agora",
@@ -82,6 +83,7 @@ export function mapLiveStorefront(establishmentId: string, response: PublicOrder
     products,
     deliveryAreas: response.deliveryAreas.map(area => ({ id: area.id, name: area.name, feeCents: toCents(area.deliveryFee), neighborhoods: area.neighborhoods })),
     estimatedDeliveryTime: null,
+    onlineDeliveryEnabled: establishment.onlineDeliveryEnabled ?? true,
     pickupSupported: true,
     coupons: null,
     paymentMethods: null,

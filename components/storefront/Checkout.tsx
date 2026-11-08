@@ -23,7 +23,7 @@ function formatPhone(value: string) {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 }
 
-export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, quote, address, pickupSupported, paymentMethods, establishmentName, onClose, onEditAddress, onSubmit, onFinished, onCreateAccount }: {
+export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, quote, address, pickupSupported, onlineDeliveryEnabled = true, paymentMethods, establishmentName, onClose, onEditAddress, onSubmit, onFinished, onCreateAccount }: {
   customer?: { name: string; phone: string } | null;
   open: boolean;
   isDemo: boolean;
@@ -33,6 +33,7 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
   quote: DeliveryQuote;
   address: DeliveryAddress | null;
   pickupSupported: boolean;
+  onlineDeliveryEnabled?: boolean;
   paymentMethods: string[] | null;
   establishmentName: string;
   onClose: () => void;
@@ -55,7 +56,8 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
     onClose();
   };
 
-  const delivery = form.fulfillment === "delivery";
+  const fulfillment = !onlineDeliveryEnabled && form.fulfillment === "delivery" ? "pickup" : form.fulfillment;
+  const delivery = fulfillment === "delivery";
   const shownTotals = delivery ? totals : pickupTotals;
   const problems = {
     name: form.name.trim().length < 2,
@@ -75,7 +77,7 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
     if (!valid || sending) return;
     setSending(true);
     try {
-      setResult(await onSubmit({ ...form, name: form.name.trim(), notes: form.notes.trim() }));
+      setResult(await onSubmit({ ...form, fulfillment, name: form.name.trim(), notes: form.notes.trim() }));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível enviar o pedido.");
     } finally {
@@ -125,17 +127,18 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
 
       <section className={styles.checkoutStep} aria-labelledby="checkout-entrega">
         <h3 id="checkout-entrega"><span aria-hidden>2</span>{pickupSupported ? "Como deseja receber?" : "Entrega"}</h3>
+        {!onlineDeliveryEnabled && <p className={styles.formNote}>Entregas pausadas. Estamos aceitando retirada e consumo no local.</p>}
         {pickupSupported && <div className={styles.segmented} role="radiogroup" aria-label="Como receber">
-          <label className={cx(delivery && styles.segmentedActive)}><input type="radio" name="recebimento" checked={delivery} onChange={() => setForm({ ...form, fulfillment: "delivery" })} /><Truck aria-hidden />Entrega</label>
-          <label className={cx(form.fulfillment === "pickup" && styles.segmentedActive)}><input type="radio" name="recebimento" checked={form.fulfillment === "pickup"} onChange={() => setForm({ ...form, fulfillment: "pickup" })} /><Store aria-hidden />Retirar no local</label>
-          <label className={cx(form.fulfillment === "dine_in" && styles.segmentedActive)}><input type="radio" name="recebimento" checked={form.fulfillment === "dine_in"} onChange={() => setForm({ ...form, fulfillment: "dine_in" })} /><Store aria-hidden />Consumir na loja</label>
+          {onlineDeliveryEnabled && <label className={cx(delivery && styles.segmentedActive)}><input type="radio" name="recebimento" checked={delivery} onChange={() => setForm({ ...form, fulfillment: "delivery" })} /><Truck aria-hidden />Entrega</label>}
+          <label className={cx(fulfillment === "pickup" && styles.segmentedActive)}><input type="radio" name="recebimento" checked={fulfillment === "pickup"} onChange={() => setForm({ ...form, fulfillment: "pickup" })} /><Store aria-hidden />Retirar no local</label>
+          <label className={cx(fulfillment === "dine_in" && styles.segmentedActive)}><input type="radio" name="recebimento" checked={fulfillment === "dine_in"} onChange={() => setForm({ ...form, fulfillment: "dine_in" })} /><Store aria-hidden />Consumir na loja</label>
         </div>}
         {delivery ? <div className={cx(styles.addressCard, styles.addressCardAction, (show("address") || show("area")) && styles.addressCardError)}>
           <MapPin aria-hidden />
           <span>{addressLines ? <><b>{addressLines.first}</b><small>{addressLines.second}</small></> : <b>Nenhum endereço informado</b>}
             <small>Taxa de entrega: {feeLabel ?? formatCents(quote.status === "known" ? quote.feeCents : 0)}</small></span>
           <button type="button" className={styles.linkButton} onClick={onEditAddress}>{address ? "Trocar" : "Informar"}</button>
-        </div> : <p className={styles.formNote}>{form.fulfillment === "dine_in" ? `Pedido para consumir em ${establishmentName}. Sem taxa de entrega.` : `Retire no balcão de ${establishmentName}. Sem taxa de entrega.`}</p>}
+        </div> : <p className={styles.formNote}>{fulfillment === "dine_in" ? `Pedido para consumir em ${establishmentName}. Sem taxa de entrega.` : `Retire no balcão de ${establishmentName}. Sem taxa de entrega.`}</p>}
         {show("address") && <p className={styles.fieldError} role="alert">Informe o endereço de entrega.</p>}
         {!problems.address && show("area") && <p className={styles.fieldError} role="alert">{quote.status === "uncovered" ? "Ainda não entregamos neste endereço." : "Escolha a região de entrega no endereço."}</p>}
         <label className={styles.field}><span>Observações <small>(opcional)</small></span>
