@@ -1,0 +1,1 @@
+ALTER TABLE "TabItem" ADD COLUMN "notes" TEXT;

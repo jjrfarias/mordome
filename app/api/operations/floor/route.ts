@@ -19,7 +19,7 @@ const actionSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("CREATE_TAB"), tableId: z.string().min(1), name: tabNameSchema }),
   z.object({ action: z.literal("RENAME_TAB"), tabId: z.string().min(1), name: tabNameSchema }),
   z.object({ action: z.literal("CLOSE_EMPTY_TAB"), tabId: z.string().min(1) }),
-  z.object({ action: z.literal("ADD_ITEM"), tableId: z.string().min(1), tabId: z.string().min(1).optional(), productId: z.string().min(1), selectedOptions: z.array(optionSelectionSchema).max(10).optional() }),
+  z.object({ action: z.literal("ADD_ITEM"), tableId: z.string().min(1), tabId: z.string().min(1).optional(), productId: z.string().min(1), notes: z.string().trim().max(300).optional(), selectedOptions: z.array(optionSelectionSchema).max(10).optional() }),
   z.object({ action: z.literal("CHANGE_ITEM"), tabItemId: z.string().min(1), quantity: z.number().int().min(0).max(999) }),
   z.object({ action: z.literal("CANCEL_SENT_ITEM"), tabItemId: z.string().min(1), quantity: z.number().int().positive().max(999), reason: z.string().trim().min(3).max(200) }),
   z.object({ action: z.literal("SEND_ORDER"), tabId: z.string().min(1) }),
@@ -27,7 +27,7 @@ const actionSchema = z.discriminatedUnion("action", [
 ]);
 
 const floorInclude = {
-  tabs: { where: { status: "OPEN" as const }, orderBy: { openedAt: "asc" as const }, include: { openedBy: { select: { id: true, name: true, username: true } }, items: { where: { active: true }, orderBy: { createdAt: "asc" as const } }, orders: { orderBy: { sentAt: "asc" as const }, include: { sentBy: { select: { id: true, name: true, username: true } }, items: { include: { cancellations: true, tabItem: { select: { productId: true, selectedOptionsSnapshot: true } } } }, statusHistory: { include: { actor: { select: { id: true, name: true, username: true } } }, orderBy: { createdAt: "asc" as const } } } } } },
+  tabs: { where: { status: "OPEN" as const }, orderBy: { openedAt: "asc" as const }, include: { openedBy: { select: { id: true, name: true, username: true } }, items: { where: { active: true }, orderBy: { createdAt: "asc" as const } }, orders: { orderBy: { sentAt: "asc" as const }, include: { sentBy: { select: { id: true, name: true, username: true } }, items: { include: { cancellations: true, tabItem: { select: { productId: true, notes: true, selectedOptionsSnapshot: true } } } }, statusHistory: { include: { actor: { select: { id: true, name: true, username: true } } }, orderBy: { createdAt: "asc" as const } } } } } },
 } satisfies Prisma.DiningTableInclude;
 
 class IngredientOptionError extends Error {}
@@ -51,7 +51,7 @@ function serializeTables(tables: Awaited<ReturnType<typeof loadTables>>, byProdu
     const allTabs = table.tabs.map(tab => ({ ...tab,
       items: tab.items.map(item => ({ ...item, quantity: Number(item.quantity), sentQuantity: Number(item.sentQuantity), unitPrice: Number(item.unitPrice) })),
       orders: tab.orders.map(order => ({ ...order, tabName: tab.name, tableNumber: table.number,
-        items: order.items.map(item => ({ ...item, quantity: Number(item.quantity), stationId: byProduct.get(item.tabItem.productId ?? "") ?? null, selectedOptionsSnapshot: item.tabItem.selectedOptionsSnapshot, cancelledQuantity: item.cancellations.reduce((sum, cancellation) => sum + Number(cancellation.quantity), 0), cancellations: item.cancellations.map(cancellation => ({ ...cancellation, quantity: Number(cancellation.quantity) })) })) }))
+        items: order.items.map(item => ({ ...item, quantity: Number(item.quantity), stationId: byProduct.get(item.tabItem.productId ?? "") ?? null, selectedOptionsSnapshot: item.tabItem.selectedOptionsSnapshot, notes: item.tabItem.notes, cancelledQuantity: item.cancellations.reduce((sum, cancellation) => sum + Number(cancellation.quantity), 0), cancellations: item.cancellations.map(cancellation => ({ ...cancellation, quantity: Number(cancellation.quantity) })) })) }))
     }));
     const tabs = allTabs.filter(tab => tab.status === "OPEN");
     const kitchenOrders = allTabs.flatMap(tab => tab.orders.filter(order => !["DELIVERED", "CANCELLED"].includes(order.status)).map(order => ({ ...order, tableId: table.id, tableNumber: table.number, tabId: tab.id, isCounter: false, delivery: null })));
@@ -68,7 +68,7 @@ async function loadTables(establishmentId: string, viewer: { userId: string; can
 async function loadCounterOrders(establishmentId: string) {
   const tabs = await db.tab.findMany({
     where: { establishmentId, table: { isCounter: true }, orders: { some: { status: { notIn: ["DELIVERED", "CANCELLED"] } } } },
-    include: { orders: { where: { status: { notIn: ["DELIVERED", "CANCELLED"] } }, orderBy: { sentAt: "asc" }, include: { sentBy: { select: { id: true, name: true, username: true } }, items: { include: { cancellations: true, tabItem: { select: { productId: true, selectedOptionsSnapshot: true } } } }, statusHistory: { include: { actor: { select: { id: true, name: true, username: true } } }, orderBy: { createdAt: "asc" } } } } },
+    include: { orders: { where: { status: { notIn: ["DELIVERED", "CANCELLED"] } }, orderBy: { sentAt: "asc" }, include: { sentBy: { select: { id: true, name: true, username: true } }, items: { include: { cancellations: true, tabItem: { select: { productId: true, notes: true, selectedOptionsSnapshot: true } } } }, statusHistory: { include: { actor: { select: { id: true, name: true, username: true } } }, orderBy: { createdAt: "asc" } } } } },
   });
   // Delivery também usa a mesa virtual "Balcão" (ADR 0050); o vínculo kitchenOrderId identifica quais
   // pedidos da fila vieram do delivery, para a cozinha não confundi-los com vendas do PDV.
@@ -81,7 +81,7 @@ async function loadCounterOrders(establishmentId: string) {
 function serializeCounterOrders({ tabs, deliveryByOrder }: Awaited<ReturnType<typeof loadCounterOrders>>, byProduct: Map<string, string>) {
   return tabs.flatMap(tab => tab.orders.map(order => ({
     ...order,
-    items: order.items.map(item => ({ ...item, quantity: Number(item.quantity), stationId: byProduct.get(item.tabItem.productId ?? "") ?? null, selectedOptionsSnapshot: item.tabItem.selectedOptionsSnapshot, cancelledQuantity: item.cancellations.reduce((sum, cancellation) => sum + Number(cancellation.quantity), 0), cancellations: item.cancellations.map(cancellation => ({ ...cancellation, quantity: Number(cancellation.quantity) })) })),
+    items: order.items.map(item => ({ ...item, quantity: Number(item.quantity), stationId: byProduct.get(item.tabItem.productId ?? "") ?? null, selectedOptionsSnapshot: item.tabItem.selectedOptionsSnapshot, notes: item.tabItem.notes, cancelledQuantity: item.cancellations.reduce((sum, cancellation) => sum + Number(cancellation.quantity), 0), cancellations: item.cancellations.map(cancellation => ({ ...cancellation, quantity: Number(cancellation.quantity) })) })),
     tableId: null, tableNumber: 0, tabId: tab.id, isCounter: true, delivery: deliveryByOrder.get(order.id) ?? null,
   })));
 }
@@ -116,10 +116,10 @@ export async function POST(request: Request) {
       const resolved = resolveIngredientSelections(product.ingredientGroups, data.selectedOptions);
       if ("error" in resolved) return Response.json({ error: resolved.error }, { status: 400 });
       const unitPrice = Math.round((product.price + resolved.priceDelta + Number.EPSILON) * 100) / 100;
-      const result = addLocalTabItem({ establishmentId: session.establishment.id, tableId: data.tableId, tabId: data.tabId, operatorId: session.user.id, product: { id: product.id, name: product.name }, unitPrice, selectedOptionsSnapshot: resolved.snapshot.length ? resolved.snapshot : undefined });
+      const result = addLocalTabItem({ establishmentId: session.establishment.id, tableId: data.tableId, tabId: data.tabId, operatorId: session.user.id, product: { id: product.id, name: product.name }, unitPrice, notes: data.notes || undefined, selectedOptionsSnapshot: resolved.snapshot.length ? resolved.snapshot : undefined });
       if (result === "TABLE_NOT_FOUND") return Response.json({ error: "Mesa não encontrada." }, { status: 404 });
       if (result.opened) recordLocalAudit({ ...base, action: "TAB_OPEN", entityType: "Tab", entityId: result.tab.id, reason: `Comanda aberta na mesa ${result.table.number}`, after: { tableId: result.table.id, tableNumber: result.table.number } });
-      recordLocalAudit({ ...base, action: "TAB_ITEM_CHANGE", entityType: "TabItem", entityId: result.item.id, reason: `${product.name} adicionado à mesa ${result.table.number}`, before: { quantity: result.beforeQuantity }, after: { quantity: result.item.quantity, productId: product.id, productName: product.name, unitPrice, selectedOptionsSnapshot: resolved.snapshot } });
+      recordLocalAudit({ ...base, action: "TAB_ITEM_CHANGE", entityType: "TabItem", entityId: result.item.id, reason: `${product.name} adicionado à mesa ${result.table.number}`, before: { quantity: result.beforeQuantity }, after: { quantity: result.item.quantity, productId: product.id, productName: product.name, unitPrice, selectedOptionsSnapshot: resolved.snapshot, notes: data.notes } });
       return Response.json(getLocalFloor(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), { status: result.opened ? 201 : 200 });
     }
     if (data.action === "CHANGE_ITEM") { const result = changeLocalTabItem({ establishmentId: session.establishment.id, tabItemId: data.tabItemId, quantity: data.quantity }); if (result === "ITEM_NOT_FOUND") return Response.json({ error: "Item da comanda não encontrado." }, { status: 404 }); if (result === "ALREADY_SENT") return Response.json({ error: "Itens já enviados exigem cancelamento justificado." }, { status: 409 }); recordLocalAudit({ ...base, action: "TAB_ITEM_CHANGE", entityType: "TabItem", entityId: result.item.id, reason: data.quantity === 0 ? `Item removido da mesa ${result.table.number}` : `Quantidade alterada na mesa ${result.table.number}`, before: { quantity: result.beforeQuantity }, after: { quantity: data.quantity, active: data.quantity > 0, productName: result.item.productName } }); return Response.json(getLocalFloor(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor })); }
@@ -168,9 +168,9 @@ async function addItem(session: Session, data: Extract<z.infer<typeof actionSche
     if (!tab) { tab = await tx.tab.create({ data: { establishmentId: session.establishment.id, tableId: table.id, openedById: session.user.id } }); await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "TAB_OPEN", entityType: "Tab", entityId: tab.id, reason: `Comanda aberta na mesa ${table.number}`, after: { tableId: table.id, tableNumber: table.number }, ...requestAuditMetadata(request) } }); }
     // Itens com opções escolhidas nunca são agrupados com outra linha existente — cada personalização
     // vira sua própria linha na comanda, espelhando o critério do carrinho local (lib/local-floor.ts).
-    const current = resolved.snapshot.length ? null : await tx.tabItem.findFirst({ where: { tabId: tab.id, productId: product.id, active: true, selectedOptionsSnapshot: { equals: Prisma.JsonNull } } });
-    const item = current ? await tx.tabItem.update({ where: { id: current.id }, data: { quantity: { increment: 1 } } }) : await tx.tabItem.create({ data: { tabId: tab.id, productId: product.id, productName: product.name, quantity: 1, unitPrice, selectedOptionsSnapshot, addedById: session.user.id } });
-    await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "TAB_ITEM_CHANGE", entityType: "TabItem", entityId: item.id, reason: `${product.name} adicionado à mesa ${table.number}`, before: { quantity: Number(current?.quantity ?? 0) }, after: { quantity: Number(item.quantity), productId: product.id, productName: product.name, unitPrice, selectedOptionsSnapshot: resolved.snapshot, tabId: tab.id, tableNumber: table.number }, ...requestAuditMetadata(request) } });
+    const current = resolved.snapshot.length || data.notes ? null : await tx.tabItem.findFirst({ where: { tabId: tab.id, productId: product.id, active: true, notes: null, selectedOptionsSnapshot: { equals: Prisma.JsonNull } } });
+    const item = current ? await tx.tabItem.update({ where: { id: current.id }, data: { quantity: { increment: 1 } } }) : await tx.tabItem.create({ data: { tabId: tab.id, productId: product.id, productName: product.name, quantity: 1, unitPrice, notes: data.notes || null, selectedOptionsSnapshot, addedById: session.user.id } });
+    await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "TAB_ITEM_CHANGE", entityType: "TabItem", entityId: item.id, reason: `${product.name} adicionado à mesa ${table.number}`, before: { quantity: Number(current?.quantity ?? 0) }, after: { quantity: Number(item.quantity), productId: product.id, productName: product.name, unitPrice, selectedOptionsSnapshot: resolved.snapshot, notes: data.notes, tabId: tab.id, tableNumber: table.number }, ...requestAuditMetadata(request) } });
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
 }
 

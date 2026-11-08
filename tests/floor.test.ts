@@ -78,3 +78,22 @@ test("pedido de balcão entra nos relatórios de tempo de produção rotulado co
   const timing = timings.find(candidate => candidate.orderId === order.id);
   assert.equal(timing?.tableLabel, "Balcão");
 });
+
+test("observação separa o mesmo produto e acompanha a rodada da cozinha", () => {
+  const unit = `floor-notes-${Date.now()}`;
+  const table = getLocalFloor(unit).tables[0];
+  const base = { establishmentId: unit, tableId: table.id, operatorId: "waiter", product: { id: "pastel", name: "Pastel" }, unitPrice: 20 };
+  const plain = addLocalTabItem(base);
+  const special = addLocalTabItem({ ...base, notes: "Sem cebola e sem molho" });
+  const another = addLocalTabItem(base);
+  assert.equal(typeof plain, "object"); assert.equal(typeof special, "object"); assert.equal(typeof another, "object");
+  if (typeof plain === "string" || typeof special === "string" || typeof another === "string") return;
+  assert.notEqual(special.item.id, plain.item.id);
+  assert.equal(another.item.id, plain.item.id);
+  assert.equal(plain.item.quantity, 2);
+  assert.equal(special.item.unitPrice, 20);
+  const sent = sendLocalOrder({ establishmentId: unit, tabId: special.tab.id, operatorId: "waiter" });
+  assert.equal(typeof sent, "object"); if (typeof sent === "string") return;
+  assert.equal(sent.order.items.find(item => item.tabItemId === special.item.id)?.notes, "Sem cebola e sem molho");
+  assert.equal(sent.order.items.find(item => item.tabItemId === plain.item.id)?.notes, undefined);
+});

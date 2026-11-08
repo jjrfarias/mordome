@@ -6,8 +6,8 @@ import { kitchenReportLabel } from "./kitchen-label.ts";
 import type { SelectedOptionSnapshot } from "./ingredient-options.ts";
 
 export type LocalOrderStatus = "RECEIVED" | "PREPARING" | "READY" | "DELIVERED" | "CANCELLED";
-type LocalTabItem = { id: string; productId: string; productName: string; quantity: number; sentQuantity: number; unitPrice: number; active: boolean; addedById: string; selectedOptionsSnapshot?: SelectedOptionSnapshot[] };
-type LocalOrderItem = { id: string; tabItemId: string; productName: string; quantity: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[]; cancellations: { id: string; quantity: number; reason: string; actorId: string; createdAt: string }[] };
+type LocalTabItem = { id: string; productId: string; productName: string; quantity: number; sentQuantity: number; unitPrice: number; active: boolean; addedById: string; notes?: string; selectedOptionsSnapshot?: SelectedOptionSnapshot[] };
+type LocalOrderItem = { id: string; tabItemId: string; productName: string; quantity: number; notes?: string; selectedOptionsSnapshot?: SelectedOptionSnapshot[]; cancellations: { id: string; quantity: number; reason: string; actorId: string; createdAt: string }[] };
 type LocalOrderStatusHistoryEntry = { status: LocalOrderStatus; actorId: string; createdAt: string };
 type LocalOrder = { id: string; status: LocalOrderStatus; sentById: string; sentAt: string; items: LocalOrderItem[]; statusHistory: LocalOrderStatusHistoryEntry[] };
 type LocalTab = { id: string; name?: string; status: "OPEN" | "PAID" | "CANCELLED"; openedById: string; openedAt: string; closedAt?: string; saleId?: string; items: LocalTabItem[]; orders: LocalOrder[] };
@@ -23,7 +23,7 @@ const tablesFor = (establishmentId: string) => {
 // existe no schema do servidor (`DiningTable.isCounter`) porque lá `Order`/`OrderItem` exigem uma
 // `Tab` por trás. Em modo local não há essa amarra, então um pedido de balcão é só um `LocalOrder`
 // numa lista própria por estabelecimento, sem passar por `LocalTable`/`LocalTab` nenhum.
-type LocalCounterOrderItem = { id: string; productId: string; productName: string; quantity: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] };
+type LocalCounterOrderItem = { id: string; productId: string; productName: string; quantity: number; notes?: string; selectedOptionsSnapshot?: SelectedOptionSnapshot[] };
 type LocalCounterOrder = { id: string; status: LocalOrderStatus; sentById: string; sentAt: string; items: LocalCounterOrderItem[]; statusHistory: LocalOrderStatusHistoryEntry[] };
 const counterOrderStores = new Map<string, LocalCounterOrder[]>();
 const counterOrdersFor = (establishmentId: string) => {
@@ -31,7 +31,7 @@ const counterOrdersFor = (establishmentId: string) => {
   return counterOrderStores.get(establishmentId)!;
 };
 
-export function createLocalCounterOrder(input: { establishmentId: string; operatorId: string; items: { productId: string; productName: string; quantity: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] }[] }) {
+export function createLocalCounterOrder(input: { establishmentId: string; operatorId: string; items: { productId: string; productName: string; quantity: number; notes?: string; selectedOptionsSnapshot?: SelectedOptionSnapshot[] }[] }) {
   const sentAt = new Date().toISOString();
   const order: LocalCounterOrder = { id: `local-order-${randomUUID()}`, status: "RECEIVED", sentById: input.operatorId, sentAt, items: input.items.map(item => ({ id: `local-order-item-${randomUUID()}`, productId: item.productId, productName: item.productName, quantity: item.quantity, selectedOptionsSnapshot: item.selectedOptionsSnapshot })), statusHistory: [{ status: "RECEIVED", actorId: input.operatorId, createdAt: sentAt }] };
   counterOrdersFor(input.establishmentId).push(order);
@@ -95,20 +95,20 @@ export function getLocalOpenTab(establishmentId: string, tabId: string) {
   return table && tab ? { table, tab } : null;
 }
 
-export function addLocalTabItem(input: { establishmentId: string; tableId: string; tabId?: string; operatorId: string; product: { id: string; name: string }; unitPrice: number; selectedOptionsSnapshot?: SelectedOptionSnapshot[] }) {
+export function addLocalTabItem(input: { establishmentId: string; tableId: string; tabId?: string; operatorId: string; product: { id: string; name: string }; unitPrice: number; notes?: string; selectedOptionsSnapshot?: SelectedOptionSnapshot[] }) {
   const table = tablesFor(input.establishmentId).find(candidate => candidate.id === input.tableId && candidate.active);
   if (!table) return "TABLE_NOT_FOUND" as const;
   const open = table.tabs.filter(tab => tab.status === "OPEN");
   if ((!input.tabId && open.length > 1) || (input.tabId && !open.some(tab => tab.id === input.tabId))) return "TABLE_NOT_FOUND" as const;
   let tab = input.tabId ? open.find(tab => tab.id === input.tabId) : open[0]; let opened = false;
   if (!tab) { tab = { id: `local-tab-${randomUUID()}`, status: "OPEN", openedById: input.operatorId, openedAt: new Date().toISOString(), items: [], orders: [] }; table.tabs.push(tab); opened = true; }
-  const hasOptions = Boolean(input.selectedOptionsSnapshot?.length);
+  const hasOptions = Boolean(input.selectedOptionsSnapshot?.length || input.notes);
   // Itens com opções escolhidas nunca são agrupados com outros — cada personalização é sua própria linha
   // na comanda, do mesmo jeito que o carrinho do PDV trata cada escolha como um cartLineId próprio.
-  let item = hasOptions ? undefined : tab.items.find(candidate => candidate.productId === input.product.id && candidate.active && !candidate.selectedOptionsSnapshot?.length);
+  let item = hasOptions ? undefined : tab.items.find(candidate => candidate.productId === input.product.id && candidate.active && !candidate.selectedOptionsSnapshot?.length && !candidate.notes);
   const beforeQuantity = item?.quantity ?? 0;
   if (item) item.quantity += 1;
-  else { item = { id: `local-tab-item-${randomUUID()}`, productId: input.product.id, productName: input.product.name, quantity: 1, sentQuantity: 0, unitPrice: input.unitPrice, active: true, addedById: input.operatorId, selectedOptionsSnapshot: input.selectedOptionsSnapshot?.length ? input.selectedOptionsSnapshot : undefined }; tab.items.push(item); }
+  else { item = { id: `local-tab-item-${randomUUID()}`, productId: input.product.id, productName: input.product.name, quantity: 1, sentQuantity: 0, unitPrice: input.unitPrice, active: true, addedById: input.operatorId, notes: input.notes, selectedOptionsSnapshot: input.selectedOptionsSnapshot?.length ? input.selectedOptionsSnapshot : undefined }; tab.items.push(item); }
   return { table, tab, item, opened, beforeQuantity };
 }
 
@@ -127,7 +127,7 @@ export function sendLocalOrder(input: { establishmentId: string; tabId: string; 
   const pending = tab.items.filter(item => item.active && item.quantity > item.sentQuantity).map(item => ({ tabItemId: item.id, productName: item.productName, quantity: item.quantity - item.sentQuantity }));
   if (!pending.length) return "NOTHING_TO_SEND" as const;
   const sentAt = new Date().toISOString();
-  const order: LocalOrder = { id: `local-order-${randomUUID()}`, status: "RECEIVED", sentById: input.operatorId, sentAt, items: pending.map(item => { const tabItem = tab!.items.find(candidate => candidate.id === item.tabItemId); return { ...item, id: `local-order-item-${randomUUID()}`, selectedOptionsSnapshot: tabItem?.selectedOptionsSnapshot, cancellations: [] }; }), statusHistory: [{ status: "RECEIVED", actorId: input.operatorId, createdAt: sentAt }] };
+  const order: LocalOrder = { id: `local-order-${randomUUID()}`, status: "RECEIVED", sentById: input.operatorId, sentAt, items: pending.map(item => { const tabItem = tab!.items.find(candidate => candidate.id === item.tabItemId); return { ...item, id: `local-order-item-${randomUUID()}`, selectedOptionsSnapshot: tabItem?.selectedOptionsSnapshot, notes: tabItem?.notes, cancellations: [] }; }), statusHistory: [{ status: "RECEIVED", actorId: input.operatorId, createdAt: sentAt }] };
   tab.orders.push(order); for (const pendingItem of pending) { const item = tab.items.find(candidate => candidate.id === pendingItem.tabItemId)!; item.sentQuantity = item.quantity; }
   return { table, tab, order };
 }
