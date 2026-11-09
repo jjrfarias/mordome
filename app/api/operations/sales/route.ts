@@ -275,11 +275,15 @@ export async function POST(request: Request) {
       const tab = data.tabId ? await tx.tab.findFirst({ where: { id: data.tabId, establishmentId: actor.session.establishment.id, status: "OPEN" }, include: { table: true, items: { where: { active: true, quantity: { gt: 0 } } } } }) : null;
       if (data.tabId && (!tab || data.channel !== "FLOOR")) throw new Error("TAB_NOT_FOUND");
       if (tab?.items.some(item => Number(item.quantity) > Number(item.sentQuantity))) throw new Error("UNSENT_ITEMS");
+      const linkedDelivery = tab ? await tx.deliveryOrder.findFirst({ where: { establishmentId: actor.session.establishment.id, kitchenOrderId: { in: (await tx.order.findMany({ where: { tabId: tab.id }, select: { id: true } })).map(o => o.id) } } }) : null;
+      if (linkedDelivery) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`delivery:${linkedDelivery.id}`}))`;
       if (data.deliveryOrderId) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`delivery:${data.deliveryOrderId}`}))`;
-      const deliveryOrder = data.deliveryOrderId ? await tx.deliveryOrder.findFirst({ where: { id: data.deliveryOrderId, establishmentId: actor.session.establishment.id, saleId: null }, include: { items: true } }) : null;
+      const deliveryOrderId = data.deliveryOrderId ?? linkedDelivery?.id;
+      const deliveryOrder = deliveryOrderId ? await tx.deliveryOrder.findFirst({ where: { id: deliveryOrderId, establishmentId: actor.session.establishment.id, saleId: null }, include: { items: true } }) : null;
       if (data.deliveryOrderId && (!deliveryOrder || data.channel !== "DELIVERY")) throw new Error("DELIVERY_NOT_FOUND");
       if (deliveryOrder?.origin === "IFOOD" || (tab && await tx.deliveryOrder.findFirst({ where: { origin: "IFOOD", kitchenOrderId: { in: (await tx.order.findMany({ where: { tabId: tab.id }, select: { id: true } })).map(order => order.id) } } }))) throw new Error("IFOOD_EXTERNAL_PAYMENT");
-      if (tab && await tx.deliveryOrder.findFirst({ where: { establishmentId: actor.session.establishment.id, kitchenOrderId: { in: (await tx.order.findMany({ where: { tabId: tab.id }, select: { id: true } })).map(o => o.id) } } })) throw Error("DELIVERY_CHECKOUT_REQUIRED");
+      if (linkedDelivery && (!deliveryOrder || tab?.table.isCounter)) throw Error("DELIVERY_CHECKOUT_REQUIRED");
+      if (data.deliveryOrderId && deliveryOrder?.kitchenOrderId && await tx.order.findFirst({ where: { id: deliveryOrder.kitchenOrderId, tab: { table: { isCounter: false } } } })) throw Error("TABLE_CHECKOUT_REQUIRED");
       // Grupos de ingrediente são resolvidos no momento da venda direta do PDV (ver ADR 0022).
       // Salão e Delivery já resolveram a escolha quando o item foi adicionado à comanda/pedido —
       // aqui só propagamos o preço e o retrato (selectedOptionsSnapshot) já travados no TabItem/DeliveryOrderItem.
@@ -289,7 +293,7 @@ export async function POST(request: Request) {
         if (deliveryOrder.kitchenOrderId && !kitchenReady(kitchen?.status)) throw new Error("KITCHEN_NOT_READY");
       }
       const applyIngredientOptions = !tab && !deliveryOrder;
-      const requestedItems: { productId: string; quantity: number; lockedUnitPrice?: number; lockedSelectedOptionsSnapshot?: unknown; selectedOptions?: { groupId: string; optionIds: string[] }[] }[] = tab ? tab.items.map(item => ({ productId: item.productId ?? "", quantity: Number(item.quantity), lockedUnitPrice: Number(item.unitPrice), lockedSelectedOptionsSnapshot: item.selectedOptionsSnapshot })) : deliveryOrder ? deliveryOrder.items.map(item => ({ productId: item.productId ?? "", quantity: item.quantity, lockedUnitPrice: Number(item.unitPrice), lockedSelectedOptionsSnapshot: item.selectedOptionsSnapshot })) : data.items;
+      const requestedItems: { productId: string; quantity: number; lockedUnitPrice?: number; lockedSelectedOptionsSnapshot?: unknown; selectedOptions?: { groupId: string; optionIds: string[] }[] }[] = deliveryOrder ? deliveryOrder.items.map(item => ({ productId: item.productId ?? "", quantity: item.quantity, lockedUnitPrice: Number(item.unitPrice), lockedSelectedOptionsSnapshot: item.selectedOptionsSnapshot })) : tab ? tab.items.map(item => ({ productId: item.productId ?? "", quantity: Number(item.quantity), lockedUnitPrice: Number(item.unitPrice), lockedSelectedOptionsSnapshot: item.selectedOptionsSnapshot })) : data.items;
       if (!requestedItems.length || requestedItems.some(item => !item.productId)) throw new Error(deliveryOrder ? "DELIVERY_EMPTY" : "TAB_EMPTY");
       const saleItems: { productId: string; productName: string; quantity: number; unitPrice: number; total: number; recipeSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull; selectedOptionsSnapshot: Prisma.InputJsonValue | typeof Prisma.JsonNull }[] = [];
       // Dados fiscais (ADR 0049), capturados no mesmo laço que já busca cada `product` — evita uma
@@ -454,6 +458,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "DISCOUNT_FORBIDDEN") return Response.json({ error: "Você não tem permissão para aplicar descontos." }, { status: 403 });
     if (error instanceof Error && error.message === "DISCOUNT_INVALID") return Response.json({ error: "O desconto não pode superar o total da venda." }, { status: 400 });
     if (error instanceof Error && error.message === "DISCOUNT_REASON_REQUIRED") return Response.json({ error: "Informe o motivo do desconto." }, { status: 400 });
+    if (error instanceof Error && error.message === "TABLE_CHECKOUT_REQUIRED") return Response.json({ error: "Este pedido foi vinculado à mesa. Faça o pagamento pelo Salão." }, { status: 409 });
     if (error instanceof Error && error.message === "DELIVERY_CHECKOUT_REQUIRED") return Response.json({ error: "Feche este pedido pela tela de Pedidos online e delivery." }, { status: 409 });
     if (error instanceof Error && error.message === "DISCOUNT_APPROVAL_REQUIRED") return Response.json({ error: "Desconto acima de 10% exige um perfil autorizador." }, { status: 403 });
     if (error instanceof Error && error.message === "COUPON_INVALID") return Response.json({ error: "Cupom inválido para esta venda." }, { status: 400 });

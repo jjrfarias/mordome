@@ -2,7 +2,7 @@ import type { Prisma } from "../generated/prisma/client.ts";
 import type { KitchenStage } from "./delivery-workflow.ts";
 
 export async function linkedKitchen(tx: Prisma.TransactionClient, establishmentId: string, kitchenOrderId: string | null) {
-  const order = kitchenOrderId ? await tx.order.findFirst({ where: { id: kitchenOrderId, tab: { establishmentId, table: { isCounter: true } } } }) : null;
+  const order = kitchenOrderId ? await tx.order.findFirst({ where: { id: kitchenOrderId, tab: { establishmentId } } }) : null;
   if (!order) return null;
   const siblings = await tx.order.findMany({ where: { deliveryParent: { kitchenOrderId: order.id, establishmentId } }, select: { status: true } });
   const stages = [order.status, ...siblings.map(item => item.status)];

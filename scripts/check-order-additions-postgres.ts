@@ -71,10 +71,42 @@ try {
       assert.equal(Number(record.serviceAmount), waive ? 0 : 2.4); assert.equal(record.serviceWaived, waive);
       assert.equal(Number(record.discount), 0);
     }
+    const moving = await make();
+    await addToDelivery(db, actor, { ...input, orderId: moving.id, itemId: moving.items[0].id, idempotencyKey: randomUUID() });
+    const occupiedTable = await db.diningTable.create({ data: { establishmentId: store.id, number: 9 } });
+    const separate = await db.tab.create({ data: { establishmentId: store.id, tableId: occupiedTable.id, openedById: user.id, name: "Outro cliente" } });
+    const beforeTickets = await db.order.count();
+    await api("/api/operations/order-table", { orderId: moving.id, tableId: occupiedTable.id }, 403, false);
+    await api("/api/operations/order-table", { orderId: moving.id, tableId: occupiedTable.id }, 403, true, "https://wrong.invalid");
+    await api("/api/operations/order-table", { orderId: moving.id, tableId: "other-tenant-table" }, 409);
+    const link = await api("/api/operations/order-table", { orderId: moving.id, tableId: occupiedTable.id });
+    assert.equal((await api("/api/operations/order-table", { orderId: moving.id, tableId: occupiedTable.id })).tabId, link.tabId);
+    assert.equal(await db.order.count(), beforeTickets, "Transfer must not resend kitchen tickets");
+    assert.notEqual(link.tabId, separate.id);
+    assert.equal((await db.deliveryOrder.findUniqueOrThrow({ where: { id: moving.id } })).fulfillment, "DINE_IN");
+    const get = async (path: string) => { const r = await fetch(`${base}${path}`, { headers: { origin: base, cookie: `mordome_session=${token}` } }); assert.equal(r.status, 200); return r.json(); };
+    const floor = await get("/api/operations/floor");
+    const linked = floor.tables.find((t: { id: string }) => t.id === occupiedTable.id).tabs.find((t: { id: string }) => t.id === link.tabId);
+    assert.equal(linked.items.reduce((sum: number, i: { quantity: number; unitPrice: number }) => sum + i.quantity * i.unitPrice, 0), 43);
+    assert.equal(linked.linkedOrder.id, moving.id);
+    assert.equal((await get("/api/operations/delivery")).orders.some((o: { id: string }) => o.id === moving.id), false);
+    await api("/api/operations/floor", { action: "ADD_ITEM", tableId: occupiedTable.id, tabId: link.tabId, productId: product.id }, 409);
+    await api("/api/operations/delivery/additions", { orderId: moving.id, mode: "PRODUCT", productId: product.id, quantity: 1, idempotencyKey: randomUUID() });
+    const linkedSale = { action: "COMPLETE", channel: "FLOOR", tabId: link.tabId, waiveService: true, items: [{ productId: product.id, quantity: 1 }], payments: [{ method: "Pix", amount: 63 }], idempotencyKey: randomUUID() };
+    await api("/api/operations/sales", linkedSale, 409);
+    for (const ticket of await db.order.findMany({ where: { deliveryParentId: moving.id } })) for (const status of ["PREPARING", "READY"]) await api("/api/operations/floor", { action: "CHANGE_ORDER_STATUS", orderId: ticket.id, status });
+    await api("/api/operations/sales", { ...sale, deliveryOrderId: moving.id, idempotencyKey: randomUUID() }, 409);
+    const linkedPaid = await api("/api/operations/sales", linkedSale, 201);
+    const paidRecord = await db.sale.findUniqueOrThrow({ where: { id: linkedPaid.sale.id }, include: { items: true } });
+    assert.equal(Number(paidRecord.total), 63); assert.equal(paidRecord.channel, "FLOOR");
+    assert.equal(paidRecord.items.reduce((sum, item) => sum + Number(item.quantity), 0), 3, "Cheddar must not count as an extra pastel");
+    assert.equal((await db.deliveryOrder.findUniqueOrThrow({ where: { id: moving.id } })).saleId, paidRecord.id);
+    assert.equal((await db.tab.findUniqueOrThrow({ where: { id: separate.id } })).status, "OPEN");
+    await api("/api/operations/order-table", { orderId: moving.id, tableId: occupiedTable.id }, 409);
     await make();
     const table = await db.diningTable.create({ data: { establishmentId: store.id, number: 3 } });
     await db.tab.create({ data: { establishmentId: store.id, tableId: table.id, openedById: user.id, items: { create: { productId: product.id, productName: product.name, quantity: 1, sentQuantity: 1, unitPrice: 20, addedById: user.id } } } });
     await writeFile(".tools/additions-ui.json", JSON.stringify({ username: user.username, password: "Qa-additions-2026!", establishmentId: store.id, base }));
   }
-  console.log("PASS: cheddar on one of two items, locked prices, 8 retries, delta-only kitchen ticket, invalid quantity/options, tenant, new product" + (base ? "; HTTP auth/origin, readiness, payment 63, paid lock, service 12%/waived 0 with no discount permission" : ""));
+  console.log("PASS: cheddar on one of two items, locked prices, 8 retries, delta-only kitchen ticket, invalid quantity/options, tenant, new product" + (base ? "; HTTP auth/origin, readiness, payment 63, paid lock, service 12%/waived 0, transfer occupied table, idempotent link, canonical extras, no duplicate tickets or stock, floor-only checkout" : ""));
 } finally { await db.$disconnect(); }

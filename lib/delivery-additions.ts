@@ -13,7 +13,7 @@ export class DeliveryAdditionError extends Error {}
 function fail(message: string): never { throw new DeliveryAdditionError(message); }
 const round = (value: number) => Math.round((value + Number.EPSILON) * 100) / 100;
 
-export async function addToDelivery(db: PrismaClient, actor: { establishmentId: string; organizationId: string; userId: string }, input: z.infer<typeof deliveryAdditionSchema>) {
+export async function addToDelivery(db: PrismaClient, actor: { establishmentId: string; organizationId: string; userId: string; canOperateFloor?: boolean; canOperateDelivery?: boolean; canManageFloor?: boolean }, input: z.infer<typeof deliveryAdditionSchema>) {
   return db.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`delivery:${input.orderId}`}))`;
     const order = await tx.deliveryOrder.findFirst({ where: { id: input.orderId, establishmentId: actor.establishmentId, establishment: { organizationId: actor.organizationId } }, include: { items: true } });
@@ -22,13 +22,14 @@ export async function addToDelivery(db: PrismaClient, actor: { establishmentId: 
     if (prior) return { kitchenOrderId: prior.id, duplicate: true };
     if (order.origin === "IFOOD") fail("Altere pedidos do iFood pelo Gestor.");
     if (order.saleId || !["RECEIVED", "PREPARING"].includes(order.status)) fail("Só é possível acrescentar itens antes do pagamento e da saída/retirada.");
-    const kitchen = order.kitchenOrderId ? await tx.order.findFirst({ where: { id: order.kitchenOrderId, tab: { establishmentId: actor.establishmentId, status: "OPEN" } } }) : null;
-    if (!kitchen || kitchen.status === "CANCELLED" || kitchen.status === "DELIVERED") fail("Pedido sem comanda de cozinha aberta para complementos.");
+    const kitchen = order.kitchenOrderId ? await tx.order.findFirst({ where: { id: order.kitchenOrderId, tab: { establishmentId: actor.establishmentId, status: "OPEN" } }, include: { tab: { include: { table: true } } } }) : null;
+    if (!kitchen || kitchen.status === "CANCELLED" || (kitchen.status === "DELIVERED" && kitchen.tab.table.isCounter)) fail("Pedido sem comanda de cozinha aberta para complementos.");
+    if (kitchen.tab.table.isCounter ? actor.canOperateDelivery === false : actor.canOperateFloor === false || (actor.canManageFloor === false && kitchen.tab.table.assignedWaiterId && kitchen.tab.table.assignedWaiterId !== actor.userId)) fail("Acesso negado ao pedido nesta mesa.");
     const item = input.mode === "EXTRAS" ? order.items.find(item => item.id === input.itemId) : null;
     if (input.mode === "EXTRAS" && (!item || input.quantity > item.quantity)) fail("Selecione um item e uma quantidade válida do pedido.");
     const productId = input.mode === "EXTRAS" ? item!.productId : input.productId;
     if (!productId) fail("Selecione um produto cadastrado.");
-    const offering = await tx.productOffering.findFirst({ where: { establishmentId: actor.establishmentId, channel: "DELIVERY", active: true, variant: { isDefault: true, active: true, productId, product: { active: true, organizationId: actor.organizationId } } }, include: { variant: { include: { product: { include: { ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } }, comboGroups: comboGroupsInclude } } } } } });
+    const offering = await tx.productOffering.findFirst({ where: { establishmentId: actor.establishmentId, channel: kitchen.tab.table.isCounter ? "DELIVERY" : "FLOOR", active: true, variant: { isDefault: true, active: true, productId, product: { active: true, organizationId: actor.organizationId } } }, include: { variant: { include: { product: { include: { ingredientGroups: { where: { active: true }, include: { options: { where: { active: true } } } }, comboGroups: comboGroupsInclude } } } } } });
     if (!offering) fail("Produto indisponível no cadastro desta unidade.");
     const product = offering.variant.product;
     const groups = product.isCombo ? mapComboGroupsToIngredientGroups(product.comboGroups) : product.ingredientGroups.map(group => ({ ...group, options: group.options.map(option => ({ ...option, priceDelta: Number(option.priceDelta) })) }));

@@ -65,6 +65,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
   };
 
   const active = orders.filter(order => order.status !== "DELIVERED" && order.status !== "CANCELLED");
+  const currentCheckoutOrder = checkoutOrder ? orders.find(order => order.id === checkoutOrder.id) ?? checkoutOrder : null;
   const outForDelivery = orders.filter(order => order.status === "OUT_FOR_DELIVERY").length;
 
   return <div className="page-content">
@@ -112,7 +113,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
               if (order.status === "RECEIVED") { await act({ action: "CHANGE_STATUS", orderId: order.id, status: "PREPARING" }); return; }
               setSaving(true); setError("");
               try { const response = await fetch("/api/integrations/ifood-import", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: order.id }) }); const body = await response.json(); if (!response.ok) throw Error(body.error ?? "Não foi possível encerrar a produção."); await load(); onToast("Produção encerrada no Mordomê. Atualize a entrega no Gestor do iFood."); } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao concluir."); } finally { setSaving(false); }
-            }}>{order.status === "RECEIVED" ? "Iniciar preparo" : kitchenReady(order.kitchenStatus) ? "Retirado · encerrar produção" : "Aguardando cozinha"}</button> : payableOrderStage(order) ? <button disabled={waitingKitchen || saving} onClick={() => setCheckoutOrder(order)}><CircleDollarSign /> Cobrar e concluir</button> : nextStatus[order.status] ? <button disabled={saving || (nextStatus[order.status] === "OUT_FOR_DELIVERY" && (!order.courierId || waitingKitchen))} title={nextStatus[order.status] === "OUT_FOR_DELIVERY" && !order.courierId ? "Defina o entregador antes de iniciar a rota." : undefined} onClick={() => void act({ action: "CHANGE_STATUS", orderId: order.id, status: nextStatus[order.status] }, `Pedido de ${order.customerName}: ${statusLabels[nextStatus[order.status]!]}`)}>{nextStatus[order.status] === "OUT_FOR_DELIVERY" && waitingKitchen ? "Aguardando cozinha" : nextActionLabel[nextStatus[order.status]!]}</button> : null}
+            }}>{order.status === "RECEIVED" ? "Iniciar preparo" : kitchenReady(order.kitchenStatus) ? "Retirado · encerrar produção" : "Aguardando cozinha"}</button> : payableOrderStage(order) ? <button disabled={saving} onClick={() => setCheckoutOrder(order)}><CircleDollarSign /> Cobrar e concluir</button> : nextStatus[order.status] ? <button disabled={saving || (nextStatus[order.status] === "OUT_FOR_DELIVERY" && (!order.courierId || waitingKitchen))} title={nextStatus[order.status] === "OUT_FOR_DELIVERY" && !order.courierId ? "Defina o entregador antes de iniciar a rota." : undefined} onClick={() => void act({ action: "CHANGE_STATUS", orderId: order.id, status: nextStatus[order.status] }, `Pedido de ${order.customerName}: ${statusLabels[nextStatus[order.status]!]}`)}>{nextStatus[order.status] === "OUT_FOR_DELIVERY" && waitingKitchen ? "Aguardando cozinha" : nextActionLabel[nextStatus[order.status]!]}</button> : null}
           </div>
           {order.origin !== "IFOOD" && !order.saleId && ["RECEIVED", "PREPARING"].includes(order.status) && <button className="secondary" style={{ margin: "0 18px 12px" }} onClick={() => setAddingOrder(order)}><Plus/> Acrescentar itens / adicionais</button>}
           <button type="button" className="cancel-sent-item" style={{ margin: "0 18px 14px" }} disabled={saving} onClick={() => { if (window.confirm(`Cancelar o pedido de ${order.customerName}? O tíquete da cozinha também será cancelado.${order.origin === "IFOOD" ? " Cancele também no Gestor do iFood; esta ação só altera o Mordomê." : ""}`)) void act({ action: "CHANGE_STATUS", orderId: order.id, status: "CANCELLED" }, "Pedido cancelado"); }}>Cancelar pedido</button>
@@ -130,7 +131,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
       <button type="button" className="primary wide" disabled={!correctedPoint || saving} onClick={async () => { if (correctedPoint && await act({ action: "SET_LOCATION", orderId: locationOrder.id, destinationLat: correctedPoint.lat, destinationLng: correctedPoint.lng }, "Ponto de entrega corrigido")) setLocationOrder(null); }}>{saving ? "Salvando…" : "Salvar ponto de entrega"}</button>
     </div></div>}
     {creating && <NewOrderModal products={products} deliveryAreas={deliveryAreas} saving={saving} onClose={() => setCreating(false)} onCreate={async payload => { const ok = await act({ action: "CREATE", ...payload }, "Pedido de delivery criado"); if (ok) setCreating(false); return ok; }} />}
-    {checkoutOrder && <Checkout order={checkoutOrder} onCancel={() => setCheckoutOrder(null)} onConfirm={async checkout => { const items = checkoutOrder.items.map(item => ({ id: item.productId ?? "", quantity: item.quantity })); const { ok } = await onFinishSale(items, checkout, checkoutOrder.id); if (ok) { onToast(`Pedido de ${checkoutOrder.customerName} entregue e pago`); setCheckoutOrder(null); await load(); } return ok; }} />}
+    {currentCheckoutOrder && <Checkout key={currentCheckoutOrder.id} order={currentCheckoutOrder} onCancel={() => setCheckoutOrder(null)} onConfirm={async checkout => { const items = currentCheckoutOrder.items.map(item => ({ id: item.productId ?? "", quantity: item.quantity })); const { ok } = await onFinishSale(items, checkout, currentCheckoutOrder.id); if (ok) { onToast(`Pedido de ${currentCheckoutOrder.customerName} entregue e pago`); setCheckoutOrder(null); await load(); } return ok; }} />}
     {managingAreas && <DeliveryAreaSettings onClose={() => setManagingAreas(false)} onChanged={() => void load()} />}
   </div>;
 }
@@ -240,19 +241,27 @@ function Checkout({ order, onCancel, onConfirm }: { order: Order; onCancel: () =
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
+  const waitingKitchen = Boolean(order.kitchenOrderId) && !kitchenReady(order.kitchenStatus);
+  const canComplete = !order.saleId && payableOrderStage(order) && !waitingKitchen;
   const confirm = async () => {
+    if (!canComplete || saving) return;
     setSaving(true); setError("");
-    const ok = await onConfirm(serializeCheckout(payments, discount, discountReason, total));
-    setSaving(false); if (!ok) setError("Não foi possível concluir o pagamento.");
+    try {
+      const ok = await onConfirm(serializeCheckout(payments, discount, discountReason, total));
+      if (!ok) setError("Não foi possível concluir o pagamento. Confira a mensagem da operação.");
+    } catch { setError("Não foi possível conectar ao servidor. Tente novamente."); }
+    finally { setSaving(false); }
   };
 
   return <div className="modal-bg"><div className="modal">
     <button className="modal-close" onClick={onCancel}><X /></button>
     <span className="modal-icon"><CircleDollarSign /></span>
-    <h2>Cobrar entrega</h2>
+    <h2>Cobrar pedido</h2>
+    {waitingKitchen && <p role="status" className="auth-error">O pedido ou um complemento ainda aguarda a cozinha. Na tela Cozinha, marque todos os tíquetes deste cliente como prontos quando o preparo terminar. A cobrança será liberada automaticamente aqui.</p>}
+    {!waitingKitchen && !canComplete && <p role="status" className="auth-error">Este pedido mudou de etapa ou já foi pago. Feche esta janela e confira o pedido.</p>}
     <p>Pedido de {order.customerName} — {money(total)}{order.deliveryFee > 0 ? ` (inclui ${money(order.deliveryFee)} de taxa de entrega)` : ""}</p>
     {error && <div className="auth-error">{error}</div>}
     <PaymentComposer grossTotal={total} discount={discount} setDiscount={setDiscount} discountReason={discountReason} setDiscountReason={setDiscountReason} payments={payments} setPayments={setPayments} />
-    <button className="primary wide" disabled={saving} onClick={() => void confirm()}>{saving ? "Concluindo…" : "Concluir entrega"}</button>
+    <button className="primary wide" disabled={saving || !canComplete} onClick={() => void confirm()}>{saving ? "Concluindo…" : waitingKitchen ? "Aguardando cozinha" : "Cobrar e concluir"}</button>
   </div></div>;
 }

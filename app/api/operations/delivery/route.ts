@@ -74,13 +74,13 @@ export async function GET(request: Request) {
     db.establishmentAccess.findMany({ where: { establishmentId: actor.establishment.id, membership: { organizationId: actor.organization.id, status: MembershipStatus.ACTIVE } }, include: { membership: { include: { user: { select: { id: true, name: true, active: true } } } } } }),
     db.deliveryArea.findMany({ where: { establishmentId: actor.establishment.id, active: true }, orderBy: { name: "asc" } }),
   ]);
-  const kitchenOrders = await db.order.findMany({ where: { id: { in: orders.flatMap(order => order.kitchenOrderId ? [order.kitchenOrderId] : []) }, tab: { establishmentId: actor.establishment.id } }, select: { id: true, status: true } });
+  const kitchenOrders = await db.order.findMany({ where: { id: { in: orders.flatMap(order => order.kitchenOrderId ? [order.kitchenOrderId] : []) }, tab: { establishmentId: actor.establishment.id } }, select: { id: true, status: true, tab: { select: { table: { select: { isCounter: true } } } } } });
   const kitchenStages = new Map(await Promise.all(kitchenOrders.map(async order => [order.id, (await linkedKitchen(db, actor.establishment.id, order.id))?.status] as const)));
   const products = offerings.map(offering => ({ id: offering.variant.product.id, name: offering.variant.product.name, category: offering.variant.product.category?.name ?? "Sem categoria", price: Number(offering.price), ingredientGroups: offering.variant.product.isCombo ? mapComboGroupsToIngredientGroups(offering.variant.product.comboGroups) : offering.variant.product.ingredientGroups.map(group => ({ id: group.id, productId: group.productId, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) })) }));
   const couriers = accesses.map(access => access.membership.user).filter(user => user.active).filter((user, index, list) => list.findIndex(candidate => candidate.id === user.id) === index).map(user => ({ id: user.id, name: user.name }));
   const activeCourierIds = [...new Set(orders.filter(order => order.status === "OUT_FOR_DELIVERY" && order.courierId).map(order => order.courierId as string))];
   const courierLocations = activeCourierIds.length ? await db.courierLocation.findMany({ where: { courierId: { in: activeCourierIds } } }) : [];
-  return Response.json({ orders: orders.map(order => ({ ...serializeOrder(order), kitchenOrderId: order.kitchenOrderId, kitchenStatus: kitchenStages.get(order.kitchenOrderId ?? "") ?? null })), products, couriers, courierLocations: courierLocations.map(location => ({ courierId: location.courierId, lat: location.lat, lng: location.lng, updatedAt: location.updatedAt.toISOString() })), deliveryAreas: deliveryAreas.map(area => ({ ...area, deliveryFee: Number(area.deliveryFee) })), canManageDeliveryAreas: actor.canManageCatalog });
+  return Response.json({ orders: orders.filter(order => !kitchenOrders.some(k => k.id === order.kitchenOrderId && !k.tab.table.isCounter)).map(order => ({ ...serializeOrder(order), kitchenOrderId: order.kitchenOrderId, kitchenStatus: kitchenStages.get(order.kitchenOrderId ?? "") ?? null })), products, couriers, courierLocations: courierLocations.map(location => ({ courierId: location.courierId, lat: location.lat, lng: location.lng, updatedAt: location.updatedAt.toISOString() })), deliveryAreas: deliveryAreas.map(area => ({ ...area, deliveryFee: Number(area.deliveryFee) })), canManageDeliveryAreas: actor.canManageCatalog });
 }
 
 export async function POST(request: Request) {
@@ -217,6 +217,7 @@ export async function POST(request: Request) {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`delivery:${data.orderId}`}))`;
       const current = await tx.deliveryOrder.findFirst({ where: { id: data.orderId, establishmentId: actor.establishment.id } });
       if (!current) throw new Error("INVALID_TRANSITION");
+      if (current.kitchenOrderId && await tx.order.findFirst({ where: { id: current.kitchenOrderId, tab: { table: { isCounter: false } } } })) throw new Error("INVALID_TRANSITION");
       const kitchen = await linkedKitchen(tx, actor.establishment.id, current.kitchenOrderId);
       const problem = deliveryTransitionError(current, data.status, kitchen?.status ?? null);
       if (problem) throw new Error(problem);

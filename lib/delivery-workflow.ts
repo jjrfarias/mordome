@@ -16,7 +16,7 @@ export function deliveryTransitionError(order: { fulfillment?: string; status: D
 
 export const workflowMessages: Record<string, string> = {
   INVALID_TRANSITION: "Esta mudança de etapa não é permitida.",
-  KITCHEN_NOT_READY: "Aguarde a cozinha marcar o pedido como pronto antes de sair para entrega.",
+  KITCHEN_NOT_READY: "Aguarde a cozinha marcar o pedido e seus complementos como prontos antes de cobrar ou concluir.",
   COURIER_REQUIRED: "Defina o entregador antes de iniciar a rota.",
   DELIVERY_NOT_IN_ROUTE: "O pedido precisa sair para entrega antes de cobrar e concluir.",
   DELIVERY_HANDOFF_REQUIRED: "Registre a saída para entrega na tela de delivery.",
