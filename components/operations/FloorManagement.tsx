@@ -232,8 +232,9 @@ function ConferencePrint({ tabId, disabled, waiveService = false, discount = 0 }
     setPrinting(true); setMessage("");
     try {
       const response = await fetch("/api/operations/floor/conference", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ tabId, waiveService, discount }) });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível imprimir a conferência.");
+      if (typeof data.queued !== "boolean" || !data.receipt) throw new Error("Resposta inválida ao preparar a conferência. Atualize a página e tente novamente.");
       if (!data.queued) printReceipt(data.receipt, data.template);
       setMessage(data.queued ? "Conferência enviada à fila da impressora. A comanda continua aberta." : "Conferência preparada para impressão. A comanda continua aberta.");
     } catch (error) { setMessage(error instanceof Error ? error.message : "Falha na impressão."); }

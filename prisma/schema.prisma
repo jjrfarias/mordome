@@ -808,6 +808,7 @@ model Tab {
   sale            Sale?         @relation(fields: [saleId], references: [id], onDelete: SetNull)
   items           TabItem[]
   orders          Order[]
+  conferencePrintJobs KitchenPrintJob[]
 
   @@index([establishmentId, status, openedAt])
   @@index([tableId, status])
@@ -1865,6 +1866,8 @@ model KitchenPrintJob {
   agentId String
   orderId String?
   saleId String?
+  conferenceTabId String?
+  conferenceTab Tab? @relation(fields: [conferenceTabId], references: [id], onDelete: Restrict)
   status String @default("PENDING")
   payload String
   createdAt DateTime @default(now())
@@ -1873,6 +1876,7 @@ model KitchenPrintJob {
   order Order? @relation(fields: [orderId], references: [id], onDelete: Restrict)
   sale Sale? @relation(fields: [saleId], references: [id], onDelete: Restrict)
   @@unique([agentId, orderId])
+  @@index([conferenceTabId])
   @@unique([agentId, saleId])
   @@index([agentId, status, createdAt])
 }
