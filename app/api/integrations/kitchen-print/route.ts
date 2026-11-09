@@ -47,18 +47,18 @@ export async function POST(request: Request) {
   const parsed = action.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Dados inválidos." }, { status: 400 });
   const { jobId, action: operation } = parsed.data;
-  const job = await db.kitchenPrintJob.findFirst({ where: { id: jobId, agentId: agent.id }, include: { sale: true, order: { include: { items: { include: { cancellations: true } } } } } });
+  const job = await db.kitchenPrintJob.findFirst({ where: { id: jobId, agentId: agent.id }, include: { conferenceTab: true, sale: true, order: { include: { items: { include: { cancellations: true } } } } } });
   if (!job) return Response.json({ error: "Comanda não encontrada." }, { status: 404 });
   if (operation === "ACK") {
     await db.kitchenPrintJob.updateMany({ where: { id: job.id, agentId: agent.id, status: "SENDING" }, data: { status: "SENT" } });
     return Response.json({ ok: true });
   }
   // Changes after queuing need operator review; never print a stale cancelled item.
-  if ((job.sale && job.sale.status !== "COMPLETED") || (job.order && (job.order.status === "CANCELLED" || job.order.items.some(item => item.cancellations.length)))) {
+  if ((job.conferenceTab && (job.conferenceTab.status !== "OPEN" || job.conferenceTab.establishmentId !== agent.establishmentId)) || (job.sale && job.sale.status !== "COMPLETED") || (job.order && (job.order.status === "CANCELLED" || job.order.items.some(item => item.cancellations.length)))) {
     await db.kitchenPrintJob.updateMany({ where: { id: job.id, agentId: agent.id, status: "PENDING" }, data: { status: "REVIEW" } });
     return Response.json({ error: "Pedido cancelado ou alterado; confira na cozinha." }, { status: 409 });
   }
-  const claimed = await db.kitchenPrintJob.updateMany({ where: { id: job.id, agentId: agent.id, status: "PENDING", ...(job.saleId ? { sale: { status: "COMPLETED", establishmentId: agent.establishmentId } } : {}) }, data: { status: "SENDING" } });
+  const claimed = await db.kitchenPrintJob.updateMany({ where: { id: job.id, agentId: agent.id, status: "PENDING", ...(job.conferenceTabId ? { conferenceTab: { status: "OPEN", establishmentId: agent.establishmentId } } : {}), ...(job.saleId ? { sale: { status: "COMPLETED", establishmentId: agent.establishmentId } } : {}) }, data: { status: "SENDING" } });
   if (!claimed.count) return Response.json({ error: "Comanda já reservada." }, { status: 409 });
   return Response.json({ id: job.id, payload: job.payload }, { headers: { "Cache-Control": "no-store" } });
 }

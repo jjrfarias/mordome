@@ -1,0 +1,62 @@
+import assert from 'node:assert/strict';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
+import { PrismaPg } from '@prisma/adapter-pg';
+import { PrismaClient } from '../generated/prisma/client.ts';
+const url = process.env.TEST_DATABASE_URL!, base = process.env.TEST_APP_URL!;
+if (!url || !base || ![url, base].every(v => ['localhost', '127.0.0.1'].includes(new URL(v).hostname)) || !new URL(url).pathname.endsWith('_test')) throw Error('Isolated local test required');
+const db = new PrismaClient({ adapter: new PrismaPg({ connectionString: url }) });
+const stamp = randomUUID(), token = randomBytes(32).toString('hex'), agentToken = randomBytes(32).toString('hex');
+const hash = (v: string) => createHash('sha256').update(v).digest('hex');
+const org = await db.organization.create({ data: { name: 'Conference QA', slug: stamp } });
+const user = await db.user.create({ data: { username: stamp, name: 'QA', passwordHash: 'disabled' } });
+const call = async (path: string, body: object, auth = true, agent = false) => {
+  const r = await fetch(base + path, { method: 'POST', headers: { Origin: base, 'Content-Type': 'application/json', ...(auth ? agent ? { Authorization: `Bearer ${agentToken}` } : { Cookie: `mordome_session=${token}` } : {}) }, body: JSON.stringify(body) });
+  return { status: r.status, data: await r.json() };
+};
+try {
+  const unit = await db.establishment.create({ data: { organizationId: org.id, name: 'QA', slug: stamp, serviceRate: 10 } });
+  const permission = await db.permission.upsert({ where: { key: 'floor.operate' }, update: {}, create: { key: 'floor.operate', module: 'floor', description: 'QA' } });
+  const role = await db.customRole.create({ data: { organizationId: org.id, name: 'QA', permissions: { create: { permissionId: permission.id } } } });
+  await db.organizationMembership.create({ data: { organizationId: org.id, userId: user.id, status: 'ACTIVE', accesses: { create: { establishmentId: unit.id } }, roles: { create: { roleId: role.id } } } });
+  await db.session.create({ data: { userId: user.id, tokenHash: hash(token), activeEstablishmentId: unit.id, expiresAt: new Date(Date.now() + 3600000) } });
+  const table = await db.diningTable.create({ data: { establishmentId: unit.id, number: 1 } });
+  const tab = await db.tab.create({ data: { establishmentId: unit.id, tableId: table.id, openedById: user.id, name: 'TESTE', items: { create: { addedById: user.id, productName: 'Pastel', quantity: 2, unitPrice: 20 } } } });
+  const agent = await db.kitchenPrintAgent.create({ data: { establishmentId: unit.id, name: 'QA', tokenHash: hash(agentToken), receiptsActivatedAt: new Date() } });
+  await assert.rejects(db.kitchenPrintJob.create({ data: { agentId: agent.id, payload: 'invalid-no-source' } }));
+  const endpoint = '/api/operations/floor/conference';
+  assert.equal((await call(endpoint, { tabId: tab.id }, false)).status, 401);
+  assert.equal((await call(endpoint, { tabId: 'missing' })).status, 404);
+  assert.equal((await call(endpoint, { tabId: tab.id, discount: 999 })).status, 400);
+  const result = await call(endpoint, { tabId: tab.id, discount: 2 });
+  assert.equal(result.status, 200, JSON.stringify(result)); assert.equal(result.data.queued, true); assert.equal(result.data.receipt.total, 42);
+  const job = await db.kitchenPrintJob.findFirstOrThrow({ where: { agentId: agent.id } });
+  assert.equal(job.conferenceTabId, tab.id); assert.equal(job.saleId, null); assert.equal(job.orderId, null);
+  assert.equal(await db.sale.count({ where: { establishmentId: unit.id } }), 0);
+  assert.equal((await db.tab.findUniqueOrThrow({ where: { id: tab.id } })).status, 'OPEN');
+  const worker = '/api/integrations/kitchen-print';
+  const claims = await Promise.all(Array.from({ length: 4 }, () => call(worker, { jobId: job.id, action: 'CLAIM' }, true, true)));
+  assert.equal(claims.filter(r => r.status === 200).length, 1);
+  assert.match(Buffer.from(claims.find(r => r.status === 200)!.data.payload, 'base64').toString('ascii'), /CONTA EM ABERTO/);
+  assert.equal((await call(worker, { jobId: job.id, action: 'ACK' }, true, true)).status, 200);
+  assert.equal((await db.kitchenPrintJob.findUniqueOrThrow({ where: { id: job.id } })).status, 'SENT');
+  const second = await call(endpoint, { tabId: tab.id, waiveService: true }); assert.equal(second.data.receipt.total, 40);
+  await db.tab.update({ where: { id: tab.id }, data: { status: 'CANCELLED' } });
+  const pending = await db.kitchenPrintJob.findFirstOrThrow({ where: { agentId: agent.id, status: 'PENDING' } });
+  assert.equal((await call(worker, { jobId: pending.id, action: 'CLAIM' }, true, true)).status, 409);
+  assert.equal((await call(endpoint, { tabId: tab.id })).status, 404);
+  console.log('PASS: HTTP conference → persisted queue → concurrent CLAIM → ACK; no sale, tab remains open, waived service, closed-tab rejection');
+} finally {
+  await db.kitchenPrintAgent.deleteMany({ where: { establishment: { organizationId: org.id } } });
+  await db.tabItem.deleteMany({ where: { tab: { establishment: { organizationId: org.id } } } });
+  await db.tab.deleteMany({ where: { establishment: { organizationId: org.id } } });
+  await db.diningTable.deleteMany({ where: { establishment: { organizationId: org.id } } });
+  await db.session.deleteMany({ where: { userId: user.id } });
+  await db.establishmentAccess.deleteMany({ where: { establishment: { organizationId: org.id } } });
+  await db.organizationMembership.deleteMany({ where: { organizationId: org.id } });
+  await db.customRole.deleteMany({ where: { organizationId: org.id } });
+  await db.establishment.deleteMany({ where: { organizationId: org.id } });
+  await db.organization.delete({ where: { id: org.id } });
+  await db.user.delete({ where: { id: user.id } });
+  await db.$disconnect();
+}
+

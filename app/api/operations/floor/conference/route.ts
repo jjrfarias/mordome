@@ -10,6 +10,14 @@ const schema = z.object({ tabId: z.string().min(1), waiveService: z.boolean().de
 type FloorTable = { number: number; tabs: { id: string; name?: string; items: { productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: unknown; notes?: string | null }[] }[] };
 
 export async function POST(request: Request) {
+  try { return await printConference(request); }
+  catch (error) {
+    console.error("conference_print_failed", error instanceof Error ? error.name : "unknown");
+    return Response.json({ error: "Não foi possível enviar a conferência à impressora. A comanda continua aberta." }, { status: 500 });
+  }
+}
+
+async function printConference(request: Request) {
   if (!isSameOrigin(request)) return Response.json({ error: "Origem inválida." }, { status: 403 });
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Dados de conferência inválidos." }, { status: 400 });
@@ -33,7 +41,7 @@ export async function POST(request: Request) {
   const agent = isLocalAuthEnabled() ? null : await db.kitchenPrintAgent.findFirst({ where: { establishmentId: session.establishment.id, active: true, receiptsActivatedAt: { not: null } }, orderBy: { activatedAt: "desc" } });
   if (agent) {
     const payload = saleReceiptEscpos({ establishment: receipt.establishmentName, document: unit?.document, saleId: tab.id, completedAt: new Date(), label: `Mesa ${table.number}${tab.name ? ` - ${tab.name}` : ""}`, items, subtotal, discount, serviceAmount, serviceWaived: parsed.data.waiveService, deliveryFee: 0, total: receipt.total, payments: [], conference: true });
-    await db.kitchenPrintJob.create({ data: { agentId: agent.id, payload } });
+    await db.kitchenPrintJob.create({ data: { agentId: agent.id, conferenceTabId: tab.id, payload } });
   }
   return Response.json({ queued: Boolean(agent), receipt, template: { showDocument: true, establishmentDocument: unit?.document } }, { headers: { "Cache-Control": "no-store" } });
 }
