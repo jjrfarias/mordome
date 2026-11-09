@@ -21,6 +21,24 @@ Salão, PDV e delivery usam os pedidos persistidos, sem depender do navegador re
   ligado, conectado e com o usuário logado; fechar o navegador não interrompe o agente.
 - O log `agent.log` tem rotação de 2 MB. `lastSeenAt` indica o último contato no servidor.
 
+### Conexão USB pelo Windows (08/11/2026)
+
+O agente também aceita `printerName` no `config.json`, por exemplo
+`"printerName": "POS80 Printer"`. Esse campo seleciona a fila do Windows e tem
+prioridade sobre `port`; sem ele, a configuração serial existente continua válida.
+Distribuir `kitchen-print-windows.ps1` junto de `kitchen-print-agent.ps1`.
+Preservar `token.xml`, o restante do `config.json` e o diretório `journal` ao atualizar.
+Parar o agente entre trabalhos antes de trocar os arquivos/configuração e reiniciá-lo
+pelo mesmo mecanismo de inicialização existente, no mesmo usuário Windows.
+
+O envio RAW preserva os bytes ESC/POS, seguindo a
+[sequência documentada pela Microsoft](https://learn.microsoft.com/en-us/windows/win32/printdocs/sending-data-directly-to-a-printer).
+O agente abre a fila antes de reservar a comanda, registra o identificador do spooler
+e confirma o envio apenas depois de concluir o trabalho no spooler. Isso confirma
+aceitação pelo Windows, não saída física do papel. A fila do Windows pode aguardar a
+reconexão USB; não reenviar pelo Bluetooth nem recriar o trabalho enquanto houver uma
+cópia pendente. Não há troca automática entre transportes após falha.
+
 ## Entrega e recuperação
 
 Pedidos confirmados desde `activatedAt` geram KitchenPrintJob único por agente/pedido.

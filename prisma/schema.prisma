@@ -641,6 +641,7 @@ model Sale {
   deliveryOrder   DeliveryOrder?
   couponRedemption CouponRedemption?
   fiscalDocument  FiscalDocument?
+  receiptPrintJobs KitchenPrintJob[]
 
   @@index([organizationId, establishmentId, completedAt])
   @@index([cashSessionId, status])
@@ -1847,6 +1848,7 @@ model KitchenPrintAgent {
   active Boolean @default(true)
   activatedAt DateTime @default(now())
   lastSeenAt DateTime?
+  receiptsActivatedAt DateTime?
   establishment Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
   jobs KitchenPrintJob[]
   @@index([establishmentId, active])
@@ -1855,13 +1857,16 @@ model KitchenPrintAgent {
 model KitchenPrintJob {
   id String @id @default(cuid())
   agentId String
-  orderId String
+  orderId String?
+  saleId String?
   status String @default("PENDING")
   payload String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   agent KitchenPrintAgent @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  order Order @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  order Order? @relation(fields: [orderId], references: [id], onDelete: Restrict)
+  sale Sale? @relation(fields: [saleId], references: [id], onDelete: Restrict)
   @@unique([agentId, orderId])
+  @@unique([agentId, saleId])
   @@index([agentId, status, createdAt])
 }

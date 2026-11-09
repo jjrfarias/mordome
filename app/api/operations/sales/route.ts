@@ -260,9 +260,10 @@ export async function POST(request: Request) {
   if (data.channel === "FLOOR" && !actor.session.canOperateFloor) return Response.json({ error: "Acesso negado ao salão." }, { status: 403 });
   if (data.channel === "DELIVERY" && !actor.session.canOperateDelivery) return Response.json({ error: "Acesso negado ao delivery." }, { status: 403 });
 
+  const automaticReceipt = Boolean(await db.kitchenPrintAgent.findFirst({ where: { establishmentId: actor.session.establishment.id, active: true, receiptsActivatedAt: { lte: new Date() } }, select: { id: true } }));
   const saleIdempotency = { establishmentId: actor.session.establishment.id, idempotencyKey: data.idempotencyKey };
   const duplicate = await db.sale.findUnique({ where: { establishmentId_idempotencyKey: saleIdempotency } });
-  if (duplicate) return Response.json({ sale: { id: duplicate.id, total: Number(duplicate.total) } });
+  if (duplicate) return Response.json({ automaticReceipt, sale: { id: duplicate.id, total: Number(duplicate.total) } });
 
   try {
     const sale = await db.$transaction(async tx => {
@@ -433,7 +434,7 @@ export async function POST(request: Request) {
     // re-emitível na tela de Notas fiscais, não um erro 500 na hora de vender.
     const fiscalStatus = await tryEmitFiscalDocument(actor.session.establishment.id, sale.sale.id, sale.cnpj, sale.fiscalItems, sale.fiscalPayments);
     if (sale.deliveryOrderId) void dispatchDeliveryWhatsAppAutomation(sale.deliveryOrderId, "DELIVERED").catch(() => {});
-    return Response.json({ sale: { id: sale.sale.id, total: Number(sale.sale.total) }, kitchenTicket: sale.kitchenTicket, fiscal: fiscalStatus }, { status: 201 });
+    return Response.json({ automaticReceipt, sale: { id: sale.sale.id, total: Number(sale.sale.total) }, kitchenTicket: sale.kitchenTicket, fiscal: fiscalStatus }, { status: 201 });
   } catch (error) {
     if (error instanceof IngredientOptionError) return Response.json({ error: error.message }, { status: 400 });
     if (error instanceof Error && error.message === "PRODUCT_NOT_AVAILABLE") return Response.json({ error: "Produto indisponível nesta unidade ou canal." }, { status: 409 });
@@ -456,7 +457,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "CHANGE_ONLY_CASH") return Response.json({ error: "Valor recebido e troco são permitidos apenas em dinheiro." }, { status: 400 });
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
       const existing = await db.sale.findUnique({ where: { establishmentId_idempotencyKey: saleIdempotency } });
-      if (existing) return Response.json({ sale: { id: existing.id, total: Number(existing.total) } });
+      if (existing) return Response.json({ automaticReceipt, sale: { id: existing.id, total: Number(existing.total) } });
       return Response.json({ error: "Conflito ao concluir a venda. Atualize os dados e tente novamente." }, { status: 409 });
     }
     console.error({ event: "sale_completion_failed", code: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : "UNEXPECTED", establishmentId: actor.session.establishment.id });

@@ -3,6 +3,7 @@ import { fulfillmentLabel } from "@/lib/order-fulfillment";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { kitchenEscpos, printTokenHash, selectedOptionNames } from "@/lib/kitchen-print";
+import { queueSaleReceipts } from "@/lib/receipt-print-jobs";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,6 +32,7 @@ export async function GET(request: Request) {
     const label = delivery?.origin === "IFOOD" ? `iFood #${ifoodMetadata(delivery.ifoodImport)?.displayId ?? ""} - ${delivery.customerName}` : delivery ? `${fulfillmentLabel(delivery)} - ${delivery.customerName}` : order.tab.table.isCounter ? "Balcao" : `Mesa ${order.tab.table.number}${order.tab.name ? ` - ${order.tab.name}` : ""}`;
     await db.kitchenPrintJob.upsert({ where: { agentId_orderId: { agentId: agent.id, orderId: order.id } }, update: {}, create: { agentId: agent.id, orderId: order.id, status: items.length ? "PENDING" : "SKIPPED", payload: kitchenEscpos({ establishment: agent.establishment.name, label, orderId: order.id, sentAt: order.sentAt, items }) } });
   }
+  await queueSaleReceipts(db, agent);
   await db.kitchenPrintAgent.update({ where: { id: agent.id }, data: { lastSeenAt: new Date() } });
   const jobs = await db.kitchenPrintJob.findMany({ where: { agentId: agent.id, status: "PENDING" }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], take: 20, select: { id: true } });
   const uncertain = await db.kitchenPrintJob.count({ where: { agentId: agent.id, status: { in: ["SENDING", "REVIEW"] } } });
@@ -45,18 +47,18 @@ export async function POST(request: Request) {
   const parsed = action.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Dados inválidos." }, { status: 400 });
   const { jobId, action: operation } = parsed.data;
-  const job = await db.kitchenPrintJob.findFirst({ where: { id: jobId, agentId: agent.id }, include: { order: { include: { items: { include: { cancellations: true } } } } } });
+  const job = await db.kitchenPrintJob.findFirst({ where: { id: jobId, agentId: agent.id }, include: { sale: true, order: { include: { items: { include: { cancellations: true } } } } } });
   if (!job) return Response.json({ error: "Comanda não encontrada." }, { status: 404 });
   if (operation === "ACK") {
     await db.kitchenPrintJob.updateMany({ where: { id: job.id, agentId: agent.id, status: "SENDING" }, data: { status: "SENT" } });
     return Response.json({ ok: true });
   }
   // Changes after queuing need operator review; never print a stale cancelled item.
-  if (job.order.status === "CANCELLED" || job.order.items.some(item => item.cancellations.length)) {
+  if ((job.sale && job.sale.status !== "COMPLETED") || (job.order && (job.order.status === "CANCELLED" || job.order.items.some(item => item.cancellations.length)))) {
     await db.kitchenPrintJob.updateMany({ where: { id: job.id, agentId: agent.id, status: "PENDING" }, data: { status: "REVIEW" } });
     return Response.json({ error: "Pedido cancelado ou alterado; confira na cozinha." }, { status: 409 });
   }
-  const claimed = await db.kitchenPrintJob.updateMany({ where: { id: job.id, agentId: agent.id, status: "PENDING" }, data: { status: "SENDING" } });
+  const claimed = await db.kitchenPrintJob.updateMany({ where: { id: job.id, agentId: agent.id, status: "PENDING", ...(job.saleId ? { sale: { status: "COMPLETED", establishmentId: agent.establishmentId } } : {}) }, data: { status: "SENDING" } });
   if (!claimed.count) return Response.json({ error: "Comanda já reservada." }, { status: 409 });
   return Response.json({ id: job.id, payload: job.payload }, { headers: { "Cache-Control": "no-store" } });
 }
