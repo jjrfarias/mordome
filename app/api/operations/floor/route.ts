@@ -1,3 +1,4 @@
+import { isMarketplaceOrder } from "@/lib/ifood-import";
 import { ifoodMetadata } from "@/lib/ifood-import";
 import { manageNamedTab } from "@/lib/named-tabs-server";
 import { deliveryFinished } from "@/lib/delivery-workflow";
@@ -227,8 +228,8 @@ async function changeOrderStatus(session: Session, data: Extract<z.infer<typeof 
     const delivery = order.tab.table.isCounter ? await tx.deliveryOrder.findFirst({ where: { establishmentId: session.establishment.id, OR: [{ kitchenOrderId: order.id }, { id: order.deliveryParentId ?? "" }] } }) : null;
     const reconcile = delivery && deliveryFinished(delivery.status) && !["DELIVERED", "CANCELLED"].includes(order.status) && data.status === "DELIVERED";
     if (!reconcile && next[order.status] !== data.status) throw new Error("INVALID_ORDER_TRANSITION");
-    if (delivery && delivery.origin !== "IFOOD" && !deliveryFinished(delivery.status) && delivery.status !== "OUT_FOR_DELIVERY" && data.status === "DELIVERED") throw new Error("DELIVERY_HANDOFF_REQUIRED");
-    if (delivery?.origin === "IFOOD" && !reconcile && data.status === "DELIVERED") await tx.deliveryOrder.update({ where: { id: delivery.id }, data: { status: "DELIVERED" } });
+    if (delivery && !isMarketplaceOrder(delivery.origin) && !deliveryFinished(delivery.status) && delivery.status !== "OUT_FOR_DELIVERY" && data.status === "DELIVERED") throw new Error("DELIVERY_HANDOFF_REQUIRED");
+    if (delivery && isMarketplaceOrder(delivery.origin) && !reconcile && data.status === "DELIVERED") await tx.deliveryOrder.update({ where: { id: delivery.id }, data: { status: "DELIVERED" } });
     const status = reconcile ? (delivery.status === "CANCELLED" ? "CANCELLED" : "DELIVERED") : data.status;
     await tx.order.update({ where: { id: order.id }, data: { status } });
     await tx.orderStatusHistory.create({ data: { orderId: order.id, status, actorId: session.user.id } });
@@ -237,7 +238,7 @@ async function changeOrderStatus(session: Session, data: Extract<z.infer<typeof 
       await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "UPDATE", entityType: "DeliveryOrder", entityId: delivery.id, reason: "Preparo atualizado pela cozinha", before: { status: delivery.status }, after: { status: "PREPARING" } } });
     }
     await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "ORDER_STATUS_CHANGE", entityType: "Order", entityId: order.id, reason: reconcile ? "Encerramento de tíquete pendente de delivery já finalizado" : "Etapa da cozinha alterada", before: { status: order.status }, after: { status, tabId: order.tabId, deliveryOrderId: delivery?.id ?? null }, ...requestAuditMetadata(request) } });
-    return delivery?.origin !== "IFOOD" && delivery?.status === "RECEIVED" && (status === "PREPARING" || status === "READY") ? delivery.id : null;
+    return !isMarketplaceOrder(delivery?.origin) && delivery?.status === "RECEIVED" && (status === "PREPARING" || status === "READY") ? delivery.id : null;
   }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
   if (deliveryToNotify) void dispatchDeliveryWhatsAppAutomation(deliveryToNotify, "PREPARING").catch(() => {});
 }

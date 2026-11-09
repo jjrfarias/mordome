@@ -15,11 +15,11 @@ export async function PATCH(request: Request) {
   if (!parsed.success) return Response.json({ error: "Pedido inválido." }, { status: 400 });
   try {
     const result = await db.$transaction(async tx => {
-      const order = await tx.deliveryOrder.findFirst({ where: { id: parsed.data.orderId, establishmentId: session.establishment.id, origin: "IFOOD", status: "PREPARING" } });
+      const order = await tx.deliveryOrder.findFirst({ where: { id: parsed.data.orderId, establishmentId: session.establishment.id, origin: { in: ["IFOOD", "FOOD99"] }, status: "PREPARING" } });
       if (!order?.kitchenOrderId) return false;
       const kitchen = await tx.order.findFirst({ where: { id: order.kitchenOrderId, status: "READY", tab: { establishmentId: session.establishment.id } } });
       if (!kitchen) return false;
-      await setKitchenStage(tx, { establishmentId: session.establishment.id, organizationId: session.organization.id, actorId: session.user.id }, kitchen.id, "DELIVERED", "Retirada do pedido iFood; encerramento apenas da produção no Mordomê");
+      await setKitchenStage(tx, { establishmentId: session.establishment.id, organizationId: session.organization.id, actorId: session.user.id }, kitchen.id, "DELIVERED", "Retirada do pedido do marketplace; encerramento apenas da produção no Mordomê");
       await tx.deliveryOrder.update({ where: { id: order.id }, data: { status: "DELIVERED" } });
       return true;
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

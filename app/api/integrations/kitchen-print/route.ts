@@ -1,3 +1,4 @@
+import { isMarketplaceOrder, marketplaceLabel } from "@/lib/ifood-import";
 import { ifoodMetadata } from "@/lib/ifood-import";
 import { fulfillmentLabel } from "@/lib/order-fulfillment";
 import { z } from "zod";
@@ -29,7 +30,7 @@ export async function GET(request: Request) {
   for (const order of orders) {
     const items = order.items.map(item => ({ name: [item.productName, ...selectedOptionNames(item.tabItem.selectedOptionsSnapshot), ...(item.tabItem.notes ? [`OBS: ${item.tabItem.notes}`] : [])].join(" - "), quantity: Number(item.quantity) - item.cancellations.reduce((sum, item) => sum + Number(item.quantity), 0) })).filter(item => item.quantity > 0);
     const delivery = await db.deliveryOrder.findFirst({ where: { establishmentId: agent.establishmentId, OR: [{ kitchenOrderId: order.id }, { id: order.deliveryParentId ?? "" }] }, select: { customerName: true, fulfillment: true, origin: true, ifoodImport: true } });
-    const label = !order.tab.table.isCounter ? `Mesa ${order.tab.table.number}${order.tab.name ? ` - ${order.tab.name}` : ""}` : delivery?.origin === "IFOOD" ? `iFood #${ifoodMetadata(delivery.ifoodImport)?.displayId ?? ""} - ${delivery.customerName}` : delivery ? `${fulfillmentLabel(delivery)} - ${delivery.customerName}` : order.tab.table.isCounter ? "Balcao" : `Mesa ${order.tab.table.number}${order.tab.name ? ` - ${order.tab.name}` : ""}`;
+    const label = !order.tab.table.isCounter ? `Mesa ${order.tab.table.number}${order.tab.name ? ` - ${order.tab.name}` : ""}` : delivery && isMarketplaceOrder(delivery.origin) ? `${marketplaceLabel(delivery.origin)} #${ifoodMetadata(delivery.ifoodImport)?.displayId ?? ""} - ${delivery.customerName}` : delivery ? `${fulfillmentLabel(delivery)} - ${delivery.customerName}` : order.tab.table.isCounter ? "Balcao" : `Mesa ${order.tab.table.number}${order.tab.name ? ` - ${order.tab.name}` : ""}`;
     await db.kitchenPrintJob.upsert({ where: { agentId_orderId: { agentId: agent.id, orderId: order.id } }, update: {}, create: { agentId: agent.id, orderId: order.id, status: items.length ? "PENDING" : "SKIPPED", payload: kitchenEscpos({ establishment: agent.establishment.name, label: order.deliveryParentId ? `COMPLEMENTO - ${label}` : label, orderId: order.id, sentAt: order.sentAt, items }) } });
   }
   await queueSaleReceipts(db, agent);

@@ -1,9 +1,10 @@
+import { isMarketplaceOrder, marketplaceLabel } from "./ifood-import.ts";
 import { fulfillmentLabel, requiresDelivery } from "./order-fulfillment.ts";
 // Rótulo do pedido na fila da cozinha (KDS) e no tíquete impresso. Pedidos do PDV e do delivery
 // chegam à cozinha pela mesma mesa virtual "Balcão" (ADRs 0044 e 0050); o vínculo
 // `DeliveryOrder.kitchenOrderId` é o que diferencia um do outro.
 
-export type KitchenDeliverySource = { fulfillment?: "DELIVERY" | "PICKUP" | "DINE_IN"; status?: "RECEIVED" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED"; deliveryOrderId: string; origin: "ONLINE" | "INTERNAL" | "IFOOD"; customerName: string; externalNumber?: string };
+export type KitchenDeliverySource = { fulfillment?: "DELIVERY" | "PICKUP" | "DINE_IN"; status?: "RECEIVED" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED"; deliveryOrderId: string; origin: "ONLINE" | "INTERNAL" | "IFOOD" | "FOOD99"; customerName: string; externalNumber?: string };
 export type KitchenLabelInput = { isCounter?: boolean; tableNumber: number; tabName?: string; delivery?: KitchenDeliverySource | null };
 
 // Mesmo número curto mostrado ao cliente na confirmação do pedido online.
@@ -15,7 +16,7 @@ const firstName = (name: string) => name.trim().split(/\s+/)[0] ?? "";
 export function kitchenOrderLabel(order: KitchenLabelInput) {
   if (order.delivery) {
     const customer = firstName(order.delivery.customerName);
-    const mode = order.delivery.origin === "IFOOD" ? "iFood" : requiresDelivery(order.delivery) ? "Delivery" : fulfillmentLabel(order.delivery);
+    const mode = isMarketplaceOrder(order.delivery.origin) ? marketplaceLabel(order.delivery.origin) : requiresDelivery(order.delivery) ? "Delivery" : fulfillmentLabel(order.delivery);
     const number = order.delivery.externalNumber || deliveryShortNumber(order.delivery.deliveryOrderId);
     return {
       kicker: order.delivery.origin === "ONLINE" ? `${mode} · Online` : mode,

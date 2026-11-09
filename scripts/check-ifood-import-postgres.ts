@@ -7,6 +7,8 @@ import { importIfoodOrder } from "../lib/ifood-import-service.ts";
 import { ifoodRequestId, type IfoodCapture } from "../lib/ifood-import.ts";
 import { hashPassword } from "../lib/password.ts";
 
+const food99 = process.env.TEST_MARKETPLACE === "FOOD99";
+const externalId = () => food99 ? `5764${Date.now()}${Math.floor(Math.random() * 10000).toString().padStart(4, "0")}` : randomUUID();
 const connectionString = process.env.TEST_DATABASE_URL;
 if (!connectionString || !["127.0.0.1", "localhost"].includes(new URL(connectionString).hostname)) throw Error("Use um TEST_DATABASE_URL local e isolado.");
 const db = new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
@@ -16,7 +18,7 @@ try {
   const store = await db.establishment.create({ data: { organizationId: org.id, name: "Loja QA iFood", slug: suffix } });
   const user = await db.user.create({ data: { name: "Operador QA", username: suffix, passwordHash: "no-password" } });
   const actor = { establishmentId: store.id, organizationId: org.id, userId: user.id };
-  const input: IfoodCapture = { version: 1, externalId: randomUUID(), displayId: "4228", storeName: "Loja QA iFood", customerName: "Cliente de teste", address: "Rua de teste, 1", sourceStatus: "Em preparo", payment: "PAID_ONLINE", fulfillment: "DELIVERY", deliveryFeeCents: 1199, subtotalCents: 6999, orderNotes: "Não enviar talheres", sourceText: "Pedido de teste sintético. Pago via iFood, não precisa cobrar na entrega", items: [{ name: "Pastel de Carne", quantity: 2, lineTotalCents: 5800, details: "Sem cebola · 2 × queijo extra" }] };
+  const input: IfoodCapture = { version: 1, provider: food99 ? "FOOD99" : "IFOOD", externalId: externalId(), displayId: "4228", storeName: "Loja QA iFood", customerName: "Cliente de teste", address: "Rua de teste, 1", sourceStatus: "Em preparo", payment: food99 ? "UNKNOWN" : "PAID_ONLINE", fulfillment: "DELIVERY", deliveryFeeCents: food99 ? 0 : 1199, subtotalCents: food99 ? 5800 : 6999, orderNotes: "Não enviar talheres", sourceText: "Pedido de teste sintético. Pago via iFood, não precisa cobrar na entrega", items: [{ name: "Pastel de Carne", quantity: 2, lineTotalCents: 5800, details: "Sem cebola · 2 × queijo extra" }] };
   const results = await Promise.all(Array.from({ length: 8 }, () => importIfoodOrder(db, actor, input)));
   assert.equal(new Set(results.map(result => result.orderId)).size, 1);
   assert.equal(results.filter(result => !result.duplicate).length, 1);
@@ -25,16 +27,16 @@ try {
   assert.equal(await db.tab.count({ where: { establishmentId: store.id } }), 1);
   assert.equal(await db.auditEvent.count({ where: { establishmentId: store.id } }), 1);
   const delivery = await db.deliveryOrder.findUniqueOrThrow({ where: { id: results[0].orderId }, include: { items: true } });
-  assert.equal(delivery.origin, "IFOOD"); assert.equal(delivery.saleId, null);
+  assert.equal(delivery.origin, food99 ? "FOOD99" : "IFOOD"); assert.equal(delivery.saleId, null);
   assert.equal(delivery.items[0].quantity, 2); assert.equal(Number(delivery.items[0].unitPrice), 29);
   assert.equal(await db.sale.count({ where: { establishmentId: store.id } }), 0);
   const retry = await importIfoodOrder(db, actor, { ...input, sourceStatus: "Concluído" });
   assert.equal(retry.duplicate, true);
-  const bad = { ...input, externalId: randomUUID() };
+  const bad = { ...input, externalId: externalId() };
   await assert.rejects(importIfoodOrder(db, { ...actor, organizationId: randomUUID() }, bad));
-  assert.equal(await db.deliveryOrder.count({ where: { clientRequestId: ifoodRequestId(bad.externalId) } }), 0);
+  assert.equal(await db.deliveryOrder.count({ where: { clientRequestId: ifoodRequestId(bad.externalId, input.provider) } }), 0);
   assert.equal(await db.order.count({ where: { tab: { establishmentId: store.id } } }), 1);
-  await assert.rejects(importIfoodOrder(db, actor, { ...input, externalId: randomUUID(), sourceStatus: "Concluído" }));
+  await assert.rejects(importIfoodOrder(db, actor, { ...input, externalId: externalId(), sourceStatus: "Concluído" }));
   const other = await db.establishment.create({ data: { organizationId: org.id, name: "Outra loja QA", slug: `${suffix}-other` } });
   const second = await importIfoodOrder(db, { ...actor, establishmentId: other.id }, input);
   assert.notEqual(second.orderId, results[0].orderId);
@@ -46,7 +48,7 @@ try {
     await db.organizationMembership.create({ data: { organizationId: org.id, userId: user.id, status: "ACTIVE", accesses: { create: { establishmentId: store.id } }, roles: { create: { roleId: role.id } } } });
     const token = randomUUID();
     await db.session.create({ data: { userId: user.id, activeEstablishmentId: store.id, tokenHash: createHash("sha256").update(token).digest("hex"), expiresAt: new Date(Date.now() + 3600000) } });
-    const payload = { establishmentId: store.id, confirmed: true, order: { ...input, externalId: randomUUID() } };
+    const payload = { establishmentId: store.id, confirmed: true, order: { ...input, externalId: externalId() } };
     const request = async (body: object, expected: number, authenticated = true, origin = base.origin) => {
       const response = await fetch(new URL("/api/integrations/ifood-import", base), { method: "POST", headers: { "content-type": "application/json", origin, ...(authenticated ? { cookie: `mordome_session=${token}` } : {}) }, body: JSON.stringify(body) });
       const json = await response.json(); assert.equal(response.status, expected, JSON.stringify(json)); return json;
@@ -82,8 +84,8 @@ try {
     assert.equal((await db.order.findUniqueOrThrow({ where: { id: created.kitchenOrderId } })).status, "CANCELLED");
     if (process.env.TEST_UI_FIXTURE) {
       await db.user.update({ where: { id: user.id }, data: { passwordHash: await hashPassword("Ifood-QA-local-2026!") } });
-      await writeFile(process.env.TEST_UI_FIXTURE, JSON.stringify({ base: base.origin, payload: { ...input, externalId: randomUUID() }, username: user.username, storeId: store.id }));
+      await writeFile(process.env.TEST_UI_FIXTURE, JSON.stringify({ base: base.origin, payload: { ...input, externalId: externalId() }, username: user.username, storeId: store.id }));
     }
   }
-  console.log("PASS: 8 concurrent imports => 1 order, 1 kitchen ticket, 1 audit; retry, rollback, tenant isolation, API authentication, CSRF, confirmation, lifecycle and payment guard.");
+  console.log(`PASS ${food99 ? "99Food" : "iFood"}: 8 concurrent imports => 1 order, 1 kitchen ticket, 1 audit; retry, rollback, tenant isolation${process.env.TEST_APP_URL ? "; API authentication, CSRF, confirmation, lifecycle and payment guard" : " (API checks not requested)"}.`);
 } finally { await db.$disconnect(); }

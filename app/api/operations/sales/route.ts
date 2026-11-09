@@ -1,3 +1,4 @@
+import { isMarketplaceOrder } from "@/lib/ifood-import";
 import { payableOrderStage } from "@/lib/order-fulfillment";
 import { syncPosSale, cancelPosReceipts } from "@/lib/pos-finance";
 import { getLocalCounterOrder } from "@/lib/local-floor";
@@ -281,7 +282,7 @@ export async function POST(request: Request) {
       const deliveryOrderId = data.deliveryOrderId ?? linkedDelivery?.id;
       const deliveryOrder = deliveryOrderId ? await tx.deliveryOrder.findFirst({ where: { id: deliveryOrderId, establishmentId: actor.session.establishment.id, saleId: null }, include: { items: true } }) : null;
       if (data.deliveryOrderId && (!deliveryOrder || data.channel !== "DELIVERY")) throw new Error("DELIVERY_NOT_FOUND");
-      if (deliveryOrder?.origin === "IFOOD" || (tab && await tx.deliveryOrder.findFirst({ where: { origin: "IFOOD", kitchenOrderId: { in: (await tx.order.findMany({ where: { tabId: tab.id }, select: { id: true } })).map(order => order.id) } } }))) throw new Error("IFOOD_EXTERNAL_PAYMENT");
+      if (isMarketplaceOrder(deliveryOrder?.origin) || (tab && await tx.deliveryOrder.findFirst({ where: { origin: { in: ["IFOOD", "FOOD99"] }, kitchenOrderId: { in: (await tx.order.findMany({ where: { tabId: tab.id }, select: { id: true } })).map(order => order.id) } } }))) throw new Error("IFOOD_EXTERNAL_PAYMENT");
       if (linkedDelivery && (!deliveryOrder || tab?.table.isCounter)) throw Error("DELIVERY_CHECKOUT_REQUIRED");
       if (data.deliveryOrderId && deliveryOrder?.kitchenOrderId && await tx.order.findFirst({ where: { id: deliveryOrder.kitchenOrderId, tab: { table: { isCounter: false } } } })) throw Error("TABLE_CHECKOUT_REQUIRED");
       // Grupos de ingrediente são resolvidos no momento da venda direta do PDV (ver ADR 0022).
@@ -453,7 +454,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "TAB_EMPTY") return Response.json({ error: "A comanda está vazia." }, { status: 409 });
     if (error instanceof Error && error.message === "DELIVERY_NOT_FOUND") return Response.json({ error: "Pedido de delivery não encontrado ou já pago." }, { status: 409 });
     if (error instanceof Error && error.message === "DELIVERY_EMPTY") return Response.json({ error: "O pedido de delivery está vazio." }, { status: 409 });
-    if (error instanceof Error && error.message === "IFOOD_EXTERNAL_PAYMENT") return Response.json({ error: "Pedido importado do iFood: confira a cobrança no Gestor. Esta ponte não registra recebimentos no caixa." }, { status: 409 });
+    if (error instanceof Error && error.message === "IFOOD_EXTERNAL_PAYMENT") return Response.json({ error: "Pedido importado do iFood ou 99Food: confira a cobrança no Gestor. Esta ponte não registra recebimentos no caixa." }, { status: 409 });
     if (error instanceof Error && error.message === "UNSENT_ITEMS") return Response.json({ error: "Envie os itens pendentes para a cozinha antes de fechar." }, { status: 409 });
     if (error instanceof Error && error.message === "DISCOUNT_FORBIDDEN") return Response.json({ error: "Você não tem permissão para aplicar descontos." }, { status: 403 });
     if (error instanceof Error && error.message === "DISCOUNT_INVALID") return Response.json({ error: "O desconto não pode superar o total da venda." }, { status: 400 });

@@ -1,12 +1,13 @@
 import { Prisma, type PrismaClient } from "../generated/prisma/client.ts";
 import { getCounterTable } from "./counter-table.ts";
-import { ifoodImportProblem, ifoodPaymentLabel, ifoodRequestId, type IfoodCapture } from "./ifood-import.ts";
+import { marketplaceLabel, ifoodImportProblem, ifoodPaymentLabel, ifoodRequestId, type IfoodCapture } from "./ifood-import.ts";
 
 type Actor = { establishmentId: string; organizationId: string; userId: string };
 // The unique constraint is acquired BEFORE any kitchen writes; all effects commit together.
 // Retrying, concurrent clicks and a lost HTTP response all return the original order.
 export async function importIfoodOrder(db: PrismaClient, actor: Actor, input: IfoodCapture) {
-  const clientRequestId = ifoodRequestId(input.externalId);
+  const providerName = marketplaceLabel(input.provider);
+  const clientRequestId = ifoodRequestId(input.externalId, input.provider);
   const where = { establishmentId_clientRequestId: { establishmentId: actor.establishmentId, clientRequestId } };
   const existing = await db.deliveryOrder.findUnique({ where });
   if (existing) return { orderId: existing.id, kitchenOrderId: existing.kitchenOrderId, duplicate: true };
@@ -14,10 +15,10 @@ export async function importIfoodOrder(db: PrismaClient, actor: Actor, input: If
   if (problem) throw new Error(problem);
   try {
     return await db.$transaction(async tx => {
-      const notes = `iFood #${input.displayId} · ${ifoodPaymentLabel(input.payment)}\nAceite, cobrança, entrega e cancelamento: conferir no Gestor do iFood.\n${input.sourceText}`;
+      const notes = `${providerName} #${input.displayId} · ${ifoodPaymentLabel(input.payment, input.provider)}\nAceite, cobrança, entrega e cancelamento: conferir no Gestor do ${providerName}.\n${input.sourceText}`;
       const created = await tx.deliveryOrder.create({ data: {
         establishmentId: actor.establishmentId, createdById: actor.userId, clientRequestId,
-        origin: "IFOOD", customerName: input.customerName, customerPhone: "", address: input.address,
+        origin: input.provider ?? "IFOOD", customerName: input.customerName, customerPhone: "", address: input.address,
         fulfillment: input.fulfillment, notes, deliveryFee: input.deliveryFeeCents / 100,
         ifoodImport: input,
         items: { create: input.items.map(item => ({ productName: item.name, quantity: item.quantity,
@@ -26,7 +27,7 @@ export async function importIfoodOrder(db: PrismaClient, actor: Actor, input: If
         })) },
       } });
       const table = await getCounterTable(tx, actor.establishmentId);
-      const tab = await tx.tab.create({ data: { establishmentId: actor.establishmentId, tableId: table.id, openedById: actor.userId, name: `iFood #${input.displayId}` } });
+      const tab = await tx.tab.create({ data: { establishmentId: actor.establishmentId, tableId: table.id, openedById: actor.userId, name: `${providerName} #${input.displayId}` } });
       const tabItems = await Promise.all(input.items.map((item, index) => tx.tabItem.create({ data: {
         tabId: tab.id, addedById: actor.userId, productName: item.name, quantity: item.quantity,
         sentQuantity: item.quantity, unitPrice: Math.round(item.lineTotalCents / item.quantity) / 100,
@@ -39,7 +40,7 @@ export async function importIfoodOrder(db: PrismaClient, actor: Actor, input: If
       } });
       await tx.deliveryOrder.update({ where: { id: created.id }, data: { kitchenOrderId: kitchen.id } });
       await tx.auditEvent.create({ data: { organizationId: actor.organizationId, establishmentId: actor.establishmentId, actorId: actor.userId,
-        action: "ORDER_SENT", entityType: "Order", entityId: kitchen.id, reason: `Importação assistida do iFood #${input.displayId}`,
+        action: "ORDER_SENT", entityType: "Order", entityId: kitchen.id, reason: `Importação assistida do ${providerName} #${input.displayId}`,
         after: { deliveryOrderId: created.id, externalId: input.externalId, payment: input.payment, tabId: tab.id },
       } });
       return { orderId: created.id, kitchenOrderId: kitchen.id, duplicate: false };

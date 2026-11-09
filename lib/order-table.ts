@@ -1,3 +1,4 @@
+import { isMarketplaceOrder } from "./ifood-import.ts";
 import { Prisma, type PrismaClient } from "../generated/prisma/client.ts";
 
 export class OrderTableError extends Error {}
@@ -5,7 +6,7 @@ export async function linkOrderTable(db: PrismaClient, actor: { establishmentId:
   return db.$transaction(async tx => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`delivery:${input.orderId}`}))`;
     const order = await tx.deliveryOrder.findFirst({ where: { id: input.orderId, establishmentId: actor.establishmentId, establishment: { organizationId: actor.organizationId } } });
-    if (!order || order.origin === "IFOOD" || order.saleId || !["RECEIVED", "PREPARING"].includes(order.status)) throw new OrderTableError("Selecione um pedido aberto, ainda não pago nem despachado. Pedidos do iFood continuam no Gestor.");
+    if (!order || isMarketplaceOrder(order.origin) || order.saleId || !["RECEIVED", "PREPARING"].includes(order.status)) throw new OrderTableError("Selecione um pedido aberto, ainda não pago nem despachado. Pedidos do iFood e 99Food continuam no Gestor.");
     const table = await tx.diningTable.findFirst({ where: { id: input.tableId, establishmentId: actor.establishmentId, active: true, isCounter: false, ...(actor.canManageFloor ? {} : { OR: [{ assignedWaiterId: null }, { assignedWaiterId: actor.userId }] }) } });
     if (!table) throw new OrderTableError("Mesa indisponível para este operador.");
     const kitchen = order.kitchenOrderId ? await tx.order.findFirst({ where: { id: order.kitchenOrderId, tab: { establishmentId: actor.establishmentId, status: "OPEN" } }, include: { tab: { include: { table: true } } } }) : null;
