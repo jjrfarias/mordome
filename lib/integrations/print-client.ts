@@ -13,7 +13,7 @@ function printHtml(html: string) {
   doc.open(); doc.write(html); doc.close(); iframe.onload = () => { iframe.contentWindow?.focus(); iframe.contentWindow?.print(); setTimeout(() => document.body.removeChild(iframe), 1000); };
 }
 
-export function buildReceiptHtml(input: { establishmentName: string; items: ReceiptLine[]; total: number; payment: string; channel: "POS" | "FLOOR"; table?: number; tabName?: string }, template?: ReceiptTemplate) {
+export function buildReceiptHtml(input: { establishmentName: string; items: ReceiptLine[]; total: number; payment: string; channel: "POS" | "FLOOR"; table?: number; tabName?: string; conference?: boolean; subtotal?: number; serviceAmount?: number; discount?: number }, template?: ReceiptTemplate) {
   const money = (value: number) => value.toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
   const rows = input.items.map(item => `<tr><td>${item.quantity}x ${escapeHtml(item.name)}</td><td class="right">${money(item.unitPrice * item.quantity)}</td></tr>`).join("");
   const title = input.channel === "POS" ? "Venda direta" : `Mesa ${input.table ?? ""}${input.tabName ? ` · ${input.tabName}` : ""}`;
@@ -32,17 +32,19 @@ export function buildReceiptHtml(input: { establishmentName: string; items: Rece
     ${template?.showDocument && template.establishmentDocument ? `<p>${escapeHtml(template.establishmentDocument)}</p>` : ""}
     ${template?.headerText ? `<p>${escapeHtml(template.headerText)}</p>` : ""}
     <p>${escapeHtml(title)}</p>
+    ${input.conference ? "<h1>CONFERÊNCIA DA COMANDA</h1><p>CONTA EM ABERTO — NÃO COMPROVA PAGAMENTO<br>SEM VALOR FISCAL</p>" : ""}
     <div class="divider"></div>
     <table>${rows}</table>
     <div class="divider"></div>
+    ${input.conference ? `<table><tr><td>Subtotal</td><td class="right">${money(input.subtotal ?? 0)}</td></tr><tr><td>Serviço</td><td class="right">${money(input.serviceAmount ?? 0)}</td></tr><tr><td>Desconto</td><td class="right">${money(input.discount ?? 0)}</td></tr></table>` : ""}
     <table><tr class="total"><td>Total</td><td class="right">${money(input.total)}</td></tr></table>
-    <p>Pagamento: ${escapeHtml(input.payment)}</p>
+    ${input.conference ? "<p>Valores sujeitos a alteração até o fechamento.</p>" : `<p>Pagamento: ${escapeHtml(input.payment)}</p>`}
     <p>${new Date().toLocaleString("pt-BR")}</p>
     ${template?.footerText ? `<div class="divider"></div><p>${escapeHtml(template.footerText)}</p>` : ""}
   </body></html>`;
 }
 
-export function printReceipt(input: { establishmentName: string; items: ReceiptLine[]; total: number; payment: string; channel: "POS" | "FLOOR"; table?: number; tabName?: string }, template?: ReceiptTemplate) {
+export function printReceipt(input: { establishmentName: string; items: ReceiptLine[]; total: number; payment: string; channel: "POS" | "FLOOR"; table?: number; tabName?: string; conference?: boolean; subtotal?: number; serviceAmount?: number; discount?: number }, template?: ReceiptTemplate) {
   printHtml(buildReceiptHtml(input, template));
 }
 
