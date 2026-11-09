@@ -19,3 +19,9 @@ test("CNPJ is printed only when the unit registration contains one", () => {
   assert.ok(text("12.345.678/0001-95").includes("CNPJ: 12.345.678/0001-95"));
   for (const document of [undefined, null, "", "12345678901"]) assert.ok(!text(document).includes("CNPJ:"));
 });
+
+test("receipt identifies service waived at the customer's request", () => {
+  const text = Buffer.from(saleReceiptEscpos({ establishment: "QA", saleId: "test", completedAt: new Date(), label: "Mesa 3", items: [], subtotal: 20, discount: 0, serviceAmount: 0, serviceWaived: true, deliveryFee: 0, total: 20, payments: [] }), "base64").toString("ascii");
+  assert.ok(text.includes("Servico retirado a pedido do cliente"));
+  assert.match(text, /TOTAL A PAGAR\s+R\$ 20,00/);
+});

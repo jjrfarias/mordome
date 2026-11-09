@@ -9,7 +9,7 @@ export async function queueSaleReceipts(db: PrismaClient, agent: { id: string; e
     const label = sale.tab ? `Mesa ${sale.tab.table.number}${sale.tab.name ? ` - ${sale.tab.name}` : ""}` : sale.deliveryOrder ? `Pedido - ${sale.deliveryOrder.customerName}` : "Balcao";
     const payload = saleReceiptEscpos({ establishment: agent.establishment.name, document: agent.establishment.document, saleId: sale.id, completedAt: sale.completedAt, label,
       items: sale.items.map(item => ({ name: [item.productName, ...selectedOptionNames(item.selectedOptionsSnapshot)].join(" - "), quantity: Number(item.quantity), unitPrice: Number(item.unitPrice), total: Number(item.total) })),
-      subtotal: Number(sale.subtotal), discount: Number(sale.discount), serviceAmount: Number(sale.serviceAmount), deliveryFee: Number(sale.deliveryFee), total: Number(sale.total),
+      subtotal: Number(sale.subtotal), discount: Number(sale.discount), serviceAmount: Number(sale.serviceAmount), serviceWaived: sale.serviceWaived, deliveryFee: Number(sale.deliveryFee), total: Number(sale.total),
       payments: sale.payments.map(payment => ({ method: payment.method, amount: Number(payment.amount), receivedAmount: payment.receivedAmount === null ? null : Number(payment.receivedAmount), changeAmount: Number(payment.changeAmount) })) });
     await db.kitchenPrintJob.createMany({ data: [{ agentId: agent.id, saleId: sale.id, payload }], skipDuplicates: true });
   }
