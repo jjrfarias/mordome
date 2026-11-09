@@ -72,3 +72,26 @@ test("bloqueia histórico, divergência de valores e pagamento desconhecido", ()
     assert.equal(ifoodCaptureSchema.safeParse({ ...order, externalId: "4228" }).success, false);
   } finally { dom.window.close(); }
 });
+
+
+test("identifica loja no seletor semântico do Gestor, sem exigir tag button", () => {
+  const dom = fixture();
+  try {
+    dom.window.document.querySelector("button").outerHTML = '<div role="button"><span>Loja de teste</span>\n<span data-testid="button-merchant-status">Loja aberta</span></div>';
+    const order = captureIfoodOrder();
+    assert.equal(order.storeName, "Loja de teste");
+    assert.equal(ifoodCaptureSchema.safeParse(order).success, true);
+    assert.equal(ifoodImportProblem(order), null);
+  } finally { dom.window.close(); }
+});
+
+test("loja ausente ou ambígua interrompe captura antes de abrir o Mordomê", () => {
+  for (const ambiguous of [false, true]) {
+    const dom = fixture();
+    try {
+      if (ambiguous) dom.window.document.body.insertAdjacentHTML("beforeend", '<div role="button">Outra loja\nLoja fechada</div>');
+      else dom.window.document.querySelector("button").remove();
+      assert.throws(captureIfoodOrder, /identificar a loja/);
+    } finally { dom.window.close(); }
+  }
+});

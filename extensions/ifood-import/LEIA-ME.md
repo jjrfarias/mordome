@@ -42,3 +42,7 @@ A extensão guarda somente o endereço do Mordomê. O pedido é transferido pelo
 ## Validação
 
 Estrutura DOM inspecionada no Gestor em 08/11/2026, versão Web 9.353.0. Os testes usam clientes e pedidos fictícios. Quantidade em `data-quantity`, preço de linha, subtotal, pagamento, falhas de leitura e duplicação concorrente foram cobertos. Não foram criados pedidos reais durante os testes.
+
+## Atualização 0.1.1
+
+Corrige a identificação da loja quando o Gestor usa `div role="button"`. Se a loja estiver ausente ou ambígua, explica a falha antes de abrir o Mordomê. Substitua os arquivos da pasta instalada e clique em Recarregar na extensão; depois abra o pedido e importe novamente.
