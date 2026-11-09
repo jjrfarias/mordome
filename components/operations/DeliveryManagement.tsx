@@ -1,4 +1,5 @@
 "use client";
+import { DeliveryPrintButton, requestDeliveryPrint } from "./DeliveryPrintButton";
 import { DeliveryAddition } from "./DeliveryAddition";
 import { fulfillmentLabel, requiresDelivery, payableOrderStage, type OrderFulfillment } from "@/lib/order-fulfillment";
 
@@ -31,6 +32,8 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
   const [couriers, setCouriers] = useState<Courier[]>([]);
   const [courierLocations, setCourierLocations] = useState<CourierLocation[]>([]);
   const [deliveryAreas, setDeliveryAreas] = useState<DeliveryArea[]>([]);
+  const [canReprint, setCanReprint] = useState(false);
+  const [paidOrder, setPaidOrder] = useState<Order | null>(null);
   const [canManageDeliveryAreas, setCanManageDeliveryAreas] = useState(false);
   const [loading, setLoading] = useState(true);
   const [lastRefreshAt, setLastRefreshAt] = useState(0);
@@ -48,7 +51,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
       const response = await fetch("/api/operations/delivery", { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar o delivery.");
-      setLastRefreshAt(Date.now());
+      setLastRefreshAt(Date.now()); setCanReprint(Boolean(data.canReprint));
       setOrders(data.orders ?? []); setProducts(data.products ?? []); setCouriers(data.couriers ?? []); setCourierLocations(data.courierLocations ?? []); setDeliveryAreas(data.deliveryAreas ?? []); setCanManageDeliveryAreas(Boolean(data.canManageDeliveryAreas)); setError("");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar o delivery."); } finally { setLoading(false); }
   };
@@ -71,6 +74,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
   return <div className="page-content">
     <div className="hero-row"><div><span className="section-kicker">Pedidos online e delivery</span><p>Entrega, retirada e consumo na loja, identificados por cliente.</p></div><div style={{ display: "flex", gap: 8 }}>{canManageDeliveryAreas && <button className="secondary" onClick={() => setManagingAreas(true)}><Settings /> Áreas de entrega</button>}<button className="primary" onClick={() => setCreating(true)}><Plus /> Novo pedido</button></div></div>
     {error && <div className="auth-error">{error}</div>}
+    {paidOrder && <section className="ticket"><h2>Pagamento concluído — {paidOrder.customerName}</h2><p>O pedido já foi pago. A impressão não realiza outra cobrança.</p><DeliveryPrintButton orderId={paidOrder.id} mode="RECEIPT"/><button className="back" onClick={() => setPaidOrder(null)}>Fechar</button></section>}
     <div className="stats-row">
       <div className="stat"><div><Package /></div><section><b>{active.length}</b><span>pedidos ativos</span></section></div>
       <div className="stat"><div><Truck /></div><section><b>{outForDelivery}</b><span>em rota</span></section></div>
@@ -107,6 +111,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
             </select></label>}
             {courier && <small style={{ display: "block", marginTop: 4, color: "var(--muted)", fontSize: 9 }}>Atribuído: {courier.name}</small>}
           </div>
+          <div style={{ margin: "0 18px 12px" }}><DeliveryPrintButton orderId={order.id} mode="CONFERENCE" disabled={saving}/></div>
           <div className="kds-foot">
             <span>{money(total)}</span>
             {order.origin === "IFOOD" ? <button disabled={saving || (order.status !== "RECEIVED" && !kitchenReady(order.kitchenStatus))} onClick={async () => {
@@ -121,6 +126,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
       })}
     </div>}
 
+    {orders.some(order => order.saleId && order.status === "DELIVERED") && <details style={{ marginTop: 20 }}><summary>Comprovantes dos pedidos pagos recentes</summary><p>Pedidos pagos presentes nos últimos 100 pedidos carregados.</p>{orders.filter(order => order.saleId && order.status === "DELIVERED").map(order => <section key={order.id} style={{ padding: 12 }}><b>{order.customerName}</b><p>{new Date(order.createdAt).toLocaleString("pt-BR")}</p><DeliveryPrintButton orderId={order.id} mode="RECEIPT" reprint={canReprint}/></section>)}</details>}
     {addingOrder && <DeliveryAddition order={addingOrder} products={products} onClose={() => setAddingOrder(null)} onSaved={async () => { setAddingOrder(null); await load(); onToast("Pedido atualizado. Complemento enviado à cozinha."); }}/>}
     {locationOrder && <div className="modal-bg"><div className="modal" style={{ width: "min(650px,100%)" }}>
       <button className="modal-close" aria-label="Fechar correção do ponto" disabled={saving} onClick={() => setLocationOrder(null)}><X /></button>
@@ -131,7 +137,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
       <button type="button" className="primary wide" disabled={!correctedPoint || saving} onClick={async () => { if (correctedPoint && await act({ action: "SET_LOCATION", orderId: locationOrder.id, destinationLat: correctedPoint.lat, destinationLng: correctedPoint.lng }, "Ponto de entrega corrigido")) setLocationOrder(null); }}>{saving ? "Salvando…" : "Salvar ponto de entrega"}</button>
     </div></div>}
     {creating && <NewOrderModal products={products} deliveryAreas={deliveryAreas} saving={saving} onClose={() => setCreating(false)} onCreate={async payload => { const ok = await act({ action: "CREATE", ...payload }, "Pedido de delivery criado"); if (ok) setCreating(false); return ok; }} />}
-    {currentCheckoutOrder && <Checkout key={currentCheckoutOrder.id} order={currentCheckoutOrder} onCancel={() => setCheckoutOrder(null)} onConfirm={async checkout => { const items = currentCheckoutOrder.items.map(item => ({ id: item.productId ?? "", quantity: item.quantity })); const { ok } = await onFinishSale(items, checkout, currentCheckoutOrder.id); if (ok) { onToast(`Pedido de ${currentCheckoutOrder.customerName} entregue e pago`); setCheckoutOrder(null); await load(); } return ok; }} />}
+    {currentCheckoutOrder && <Checkout key={currentCheckoutOrder.id} order={currentCheckoutOrder} onCancel={() => setCheckoutOrder(null)} onConfirm={async checkout => { const items = currentCheckoutOrder.items.map(item => ({ id: item.productId ?? "", quantity: item.quantity })); const { ok } = await onFinishSale(items, checkout, currentCheckoutOrder.id); if (ok) { setPaidOrder(currentCheckoutOrder); setCheckoutOrder(null); await load(); try { onToast(`Pagamento concluído. ${await requestDeliveryPrint(currentCheckoutOrder.id, "RECEIPT")}`); } catch { onToast("Pagamento concluído. Não foi possível confirmar a impressão; use Imprimir comprovante."); } } return ok; }} />}
     {managingAreas && <DeliveryAreaSettings onClose={() => setManagingAreas(false)} onChanged={() => void load()} />}
   </div>;
 }
@@ -262,6 +268,8 @@ function Checkout({ order, onCancel, onConfirm }: { order: Order; onCancel: () =
     <p>Pedido de {order.customerName} — {money(total)}{order.deliveryFee > 0 ? ` (inclui ${money(order.deliveryFee)} de taxa de entrega)` : ""}</p>
     {error && <div className="auth-error">{error}</div>}
     <PaymentComposer grossTotal={total} discount={discount} setDiscount={setDiscount} discountReason={discountReason} setDiscountReason={setDiscountReason} payments={payments} setPayments={setPayments} />
+    <DeliveryPrintButton orderId={order.id} mode="CONFERENCE" discount={Number(discount.replace(",", ".")) || 0} disabled={saving}/>
+    <p>Ao concluir o pagamento, o comprovante será enviado à impressora configurada.</p>
     <button className="primary wide" disabled={saving || !canComplete} onClick={() => void confirm()}>{saving ? "Concluindo…" : waitingKitchen ? "Aguardando cozinha" : "Cobrar e concluir"}</button>
   </div></div>;
 }

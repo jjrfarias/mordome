@@ -1,6 +1,7 @@
 import { printerText } from "./kitchen-print.ts";
 
-type Receipt = {
+export type Receipt = {
+  delivery?: boolean; notice?: string; totalLabel?: string;
   conference?: boolean;
   establishment: string; document?: string | null; saleId: string; completedAt: Date; label: string;
   items: { name: string; quantity: number; unitPrice: number; total: number }[];
@@ -21,7 +22,7 @@ export function saleReceiptEscpos(receipt: Receipt) {
     Buffer.from([27, 64, 27, 77, 0, 27, 97, 1, 27, 69, 1]),
     ascii([wrap(receipt.establishment)]),
     Buffer.from([27, 69, 0]),
-    ascii([...(cnpj ? [`CNPJ: ${cnpj}`] : []), receipt.conference ? "CONFERENCIA DA COMANDA" : "COMPROVANTE DE VENDA", "SEM VALOR FISCAL", receipt.completedAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }), wrap(receipt.label), rule]),
+    ascii([...(cnpj ? [`CNPJ: ${cnpj}`] : []), receipt.conference ? (receipt.delivery ? "CONFERENCIA DO PEDIDO" : "CONFERENCIA DA COMANDA") : "COMPROVANTE DE VENDA", "SEM VALOR FISCAL", receipt.completedAt.toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" }), wrap(receipt.label), ...(receipt.notice ? [wrap(receipt.notice)] : []), rule]),
     Buffer.from([27, 97, 0]),
     ascii(["ITEM / DESCRICAO", columns("QTD x VALOR UNITARIO", "VALOR TOTAL"), rule,
       ...receipt.items.flatMap((item, index) => [wrap(`${String(index + 1).padStart(3, "0")} ${item.name}`), columns(`${item.quantity} x ${money(item.unitPrice)}`, money(item.total))]),
@@ -31,14 +32,14 @@ export function saleReceiptEscpos(receipt: Receipt) {
       ...(receipt.serviceWaived ? ["Servico retirado a pedido do cliente"] : []),
       ...(receipt.deliveryFee ? [columns("Entrega", money(receipt.deliveryFee))] : [])]),
     Buffer.from([27, 69, 1, 29, 33, 1]),
-    ascii([columns("TOTAL A PAGAR", money(receipt.total))]),
+    ascii([columns(receipt.totalLabel ?? "TOTAL A PAGAR", money(receipt.total))]),
     Buffer.from([29, 33, 0, 27, 69, 0]),
     ascii(receipt.conference ? [rule, "CONTA EM ABERTO - NAO COMPROVA PAGAMENTO", "Valores sujeitos a alteracao ate o fechamento", rule] : [rule, columns("FORMA DE PAGAMENTO", "VALOR"),
       ...receipt.payments.flatMap(payment => [columns(names[payment.method] ?? payment.method, money(payment.amount)),
         ...(payment.receivedAmount !== null ? [columns("Valor recebido", money(payment.receivedAmount))] : []),
         ...(payment.changeAmount ? [columns("Troco", money(payment.changeAmount))] : [])]), rule]),
     Buffer.from([27, 97, 1]),
-    ascii([wrap(`${receipt.conference ? "Comanda" : "Venda"}: ${receipt.saleId}`), "SEM VALOR FISCAL", "Obrigado pela preferencia!", "", "", "", ""]),
+    ascii([wrap(`${receipt.conference ? (receipt.delivery ? "Pedido" : "Comanda") : "Venda"}: ${receipt.saleId}`), "SEM VALOR FISCAL", "Obrigado pela preferencia!", "", "", "", ""]),
     Buffer.from([27, 97, 0, 29, 86, 1]),
   ]).toString("base64");
 }

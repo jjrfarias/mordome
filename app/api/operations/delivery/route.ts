@@ -62,7 +62,7 @@ export async function GET(request: Request) {
     const activeCourierIds = [...new Set(orders.filter(order => order.status === "OUT_FOR_DELIVERY" && order.courierId).map(order => order.courierId as string))];
     const couriers = listLocalUsers().filter(user => user.userActive && user.establishmentIds.includes(session.establishment.id)).map(user => ({ id: user.userId, name: user.name }));
     const deliveryAreas = listLocalDeliveryAreas(session.establishment.id);
-    return Response.json({ orders, products, couriers, courierLocations: getLocalCourierLocations(activeCourierIds), deliveryAreas, canManageDeliveryAreas: session.canManageCatalog });
+    return Response.json({ orders, products, couriers, courierLocations: getLocalCourierLocations(activeCourierIds), deliveryAreas, canReprint: session.canReprint, canManageDeliveryAreas: session.canManageCatalog });
   }
 
   const actor = await resolveActor();
@@ -80,7 +80,7 @@ export async function GET(request: Request) {
   const couriers = accesses.map(access => access.membership.user).filter(user => user.active).filter((user, index, list) => list.findIndex(candidate => candidate.id === user.id) === index).map(user => ({ id: user.id, name: user.name }));
   const activeCourierIds = [...new Set(orders.filter(order => order.status === "OUT_FOR_DELIVERY" && order.courierId).map(order => order.courierId as string))];
   const courierLocations = activeCourierIds.length ? await db.courierLocation.findMany({ where: { courierId: { in: activeCourierIds } } }) : [];
-  return Response.json({ orders: orders.filter(order => !kitchenOrders.some(k => k.id === order.kitchenOrderId && !k.tab.table.isCounter)).map(order => ({ ...serializeOrder(order), kitchenOrderId: order.kitchenOrderId, kitchenStatus: kitchenStages.get(order.kitchenOrderId ?? "") ?? null })), products, couriers, courierLocations: courierLocations.map(location => ({ courierId: location.courierId, lat: location.lat, lng: location.lng, updatedAt: location.updatedAt.toISOString() })), deliveryAreas: deliveryAreas.map(area => ({ ...area, deliveryFee: Number(area.deliveryFee) })), canManageDeliveryAreas: actor.canManageCatalog });
+  return Response.json({ orders: orders.filter(order => !kitchenOrders.some(k => k.id === order.kitchenOrderId && !k.tab.table.isCounter)).map(order => ({ ...serializeOrder(order), kitchenOrderId: order.kitchenOrderId, kitchenStatus: kitchenStages.get(order.kitchenOrderId ?? "") ?? null })), products, couriers, courierLocations: courierLocations.map(location => ({ courierId: location.courierId, lat: location.lat, lng: location.lng, updatedAt: location.updatedAt.toISOString() })), deliveryAreas: deliveryAreas.map(area => ({ ...area, deliveryFee: Number(area.deliveryFee) })), canReprint: actor.canReprint, canManageDeliveryAreas: actor.canManageCatalog });
 }
 
 export async function POST(request: Request) {
