@@ -69,7 +69,7 @@ export default function Home() {
       setSession(data.session); notify(`Unidade alterada para ${data.session.establishment.name}`);
     } catch { notify("Não foi possível conectar ao servidor"); } finally { setSwitchingUnit(false); }
   };
-  const completeSale = async (items: { id: string; quantity: number; selectedOptions?: { groupId: string; optionIds: string[] }[] }[], checkout: SaleCheckout, channel: "POS" | "FLOOR" | "DELIVERY", table?: number, tabId?: string, deliveryOrderId?: string): Promise<{ ok: boolean; fiscal: FiscalPrintInfo }> => {
+  const completeSale = async (items: { id: string; quantity: number; selectedOptions?: { groupId: string; optionIds: string[] }[] }[], checkout: SaleCheckout, channel: "POS" | "FLOOR" | "DELIVERY", table?: number, tabId?: string, deliveryOrderId?: string): Promise<{ ok: boolean; fiscal: FiscalPrintInfo; automaticReceipt?: boolean }> => {
     try {
       const response = await fetch("/api/operations/sales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "COMPLETE", channel, items: items.map(item => ({ productId: item.id, quantity: item.quantity, selectedOptions: item.selectedOptions })), ...checkout, table, tabId, deliveryOrderId, idempotencyKey: crypto.randomUUID() }) });
       const data = await response.json().catch(() => ({}));
@@ -78,7 +78,7 @@ export default function Home() {
       // aqui só dispara a impressão de cada um, mesmo critério do Salão ao enviar um pedido.
       const kitchenTicket = data.kitchenTicket as { orderId: string; sentAt: string; tickets: { stationName: string; printerDriver: string; items: { name: string; quantity: number }[] }[] } | null | undefined;
       if (kitchenTicket) for (const ticket of kitchenTicket.tickets) if (ticket.printerDriver === "browser_print") printKitchenOrder({ establishmentName: session.establishment.name, stationName: ticket.stationName, label: "Balcão", orderId: kitchenTicket.orderId, sentAt: kitchenTicket.sentAt, items: ticket.items });
-      return { ok: true, fiscal: (data.fiscal as FiscalPrintInfo) ?? null };
+      return { ok: true, fiscal: (data.fiscal as FiscalPrintInfo) ?? null, automaticReceipt: data.automaticReceipt === true };
     } catch { notify("Não foi possível conectar ao servidor"); return { ok: false, fiscal: null }; }
   };
 
@@ -122,9 +122,9 @@ export default function Home() {
       <header><div><span className="header-date">{new Date().toLocaleDateString("pt-BR", { weekday: "long", day: "2-digit", month: "short" })}</span><h1>{view === "pdv" ? "PDV rápido" : view === "salão" ? "Gestão do salão" : view === "cozinha" ? "Cozinha" : view === "delivery" ? "Delivery" : view === "entregas" ? "Minhas entregas" : view === "caixa" ? "Caixa" : view === "vendas" ? "Vendas" : view === "historico" ? "Histórico" : view === "relatorios" ? "Relatórios" : view === "dashboards" ? "Dashboards" : view === "finance" ? "Financeiro" : view === "config" ? "Configurações" : "Resumo do dia"}</h1></div><div className="header-actions"><Link href="/minha-conta" className="account-access" aria-label="Minha conta e segurança" title="Minha conta e segurança"><ShieldCheck size={18} /><span>Minha conta</span></Link><span className="sync-state"><i /> Sincronizado agora</span><button className="icon-button" aria-label="Notificações"><Bell /></button><button className={`open-pill ${cashOpen ? "" : "closed"}`} onClick={() => setView("caixa")}><span /> {cashOpen ? "Caixa aberto" : "Caixa fechado"}</button></div></header>
       {view === "pdv" && <Pos establishmentId={session.establishment.id} onFinish={async (items, checkout) => {
         const saleItems = items.map(item => ({ id: item.id, quantity: item.quantity, selectedOptions: item.optionSelections }));
-        const { ok, fiscal } = await completeSale(saleItems, checkout, "POS");
+        const { ok, fiscal, automaticReceipt } = await completeSale(saleItems, checkout, "POS");
         if (!ok) return false;
-        if (session.printerDriver === "browser_print") {
+        if (session.printerDriver === "browser_print" && (!automaticReceipt || (fiscal?.printDanfe && fiscal.status === "AUTHORIZED"))) {
           const receiptItems = items.map(item => ({ name: item.selectedOptions?.length ? `${item.name} — ${item.selectedOptions.map(option => option.optionName).join(", ")}` : item.name, quantity: item.quantity, unitPrice: item.price }));
           const total = items.reduce((sum, item) => sum + item.price * item.quantity, 0) - checkout.discount;
           const payment = checkout.payments.map(p => p.method).join(" + ");
