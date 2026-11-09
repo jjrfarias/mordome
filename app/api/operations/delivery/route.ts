@@ -1,3 +1,4 @@
+import { isMarketplaceOrder } from "@/lib/ifood-import";
 import { ifoodMetadata } from "@/lib/ifood-import";
 import { requiresDelivery, type OrderFulfillment } from "@/lib/order-fulfillment";
 import { linkedKitchen, setKitchenStage } from "@/lib/delivery-kitchen";
@@ -234,7 +235,7 @@ export async function POST(request: Request) {
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
     const event: Partial<Record<typeof data.status, WhatsAppAutomationEventName>> = { PREPARING: "PREPARING", OUT_FOR_DELIVERY: "OUT_FOR_DELIVERY", DELIVERED: "DELIVERED" };
     const automationEvent = event[data.status];
-    if (automationEvent && updated.origin !== "IFOOD") void dispatchDeliveryWhatsAppAutomation(updated.id, automationEvent).catch(() => {});
+    if (automationEvent && !isMarketplaceOrder(updated.origin)) void dispatchDeliveryWhatsAppAutomation(updated.id, automationEvent).catch(() => {});
     return Response.json({ order: { ...updated, items: [] } });
     } catch (error) {
       if (error instanceof Error && workflowMessages[error.message]) return Response.json({ error: workflowMessages[error.message] }, { status: 409 });

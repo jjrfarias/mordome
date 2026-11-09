@@ -1,3 +1,4 @@
+import { isMarketplaceOrder } from "./ifood-import.ts";
 import { Prisma, type PrismaClient } from "../generated/prisma/client.ts";
 import { z } from "zod";
 import { resolveIngredientSelections, type SelectedOptionSnapshot } from "./ingredient-options.ts";
@@ -20,7 +21,7 @@ export async function addToDelivery(db: PrismaClient, actor: { establishmentId: 
     if (!order) fail("Pedido não encontrado.");
     const prior = await tx.order.findUnique({ where: { deliveryParentId_amendmentKey: { deliveryParentId: order.id, amendmentKey: input.idempotencyKey } } });
     if (prior) return { kitchenOrderId: prior.id, duplicate: true };
-    if (order.origin === "IFOOD") fail("Altere pedidos do iFood pelo Gestor.");
+    if (isMarketplaceOrder(order.origin)) fail("Altere pedidos do iFood e 99Food pelo Gestor.");
     if (order.saleId || !["RECEIVED", "PREPARING"].includes(order.status)) fail("Só é possível acrescentar itens antes do pagamento e da saída/retirada.");
     const kitchen = order.kitchenOrderId ? await tx.order.findFirst({ where: { id: order.kitchenOrderId, tab: { establishmentId: actor.establishmentId, status: "OPEN" } }, include: { tab: { include: { table: true } } } }) : null;
     if (!kitchen || kitchen.status === "CANCELLED" || (kitchen.status === "DELIVERED" && kitchen.tab.table.isCounter)) fail("Pedido sem comanda de cozinha aberta para complementos.");

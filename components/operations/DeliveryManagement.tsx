@@ -1,4 +1,6 @@
 "use client";
+import { isMarketplaceOrder, marketplaceLabel } from "@/lib/ifood-import";
+
 import { DeliveryPrintButton, requestDeliveryPrint } from "./DeliveryPrintButton";
 import { DeliveryAddition } from "./DeliveryAddition";
 import { fulfillmentLabel, requiresDelivery, payableOrderStage, type OrderFulfillment } from "@/lib/order-fulfillment";
@@ -19,7 +21,7 @@ type Product = { id: string; name: string; category: string; price: number; ingr
 type Courier = { id: string; name: string };
 type CourierLocation = { courierId: string; lat: number; lng: number; updatedAt: string };
 type OrderItem = { id: string; productId: string | null; productName: string; quantity: number; unitPrice: number; selectedOptionsSnapshot?: SelectedIngredientOption[] | null };
-type Order = { fulfillment?: OrderFulfillment; kitchenOrderId: string | null; kitchenStatus: string | null; id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: DeliveryStatus; origin: "INTERNAL" | "ONLINE" | "IFOOD"; ifood?: { displayId: string; payment: string; subtotalCents: number } | null; courierId: string | null; deliveryAreaId: string | null; deliveryFee: number; saleId: string | null; createdAt: string; items: OrderItem[] };
+type Order = { fulfillment?: OrderFulfillment; kitchenOrderId: string | null; kitchenStatus: string | null; id: string; customerName: string; customerPhone: string; address: string; destinationLat: number | null; destinationLng: number | null; notes: string | null; status: DeliveryStatus; origin: "INTERNAL" | "ONLINE" | "IFOOD" | "FOOD99"; ifood?: { displayId: string; payment: string; subtotalCents: number } | null; courierId: string | null; deliveryAreaId: string | null; deliveryFee: number; saleId: string | null; createdAt: string; items: OrderItem[] };
 
 const statusLabels: Record<DeliveryStatus, string> = { RECEIVED: "Recebido", PREPARING: "Em preparo", OUT_FOR_DELIVERY: "Saiu para entrega", DELIVERED: "Entregue", CANCELLED: "Cancelado" };
 const nextStatus: Partial<Record<DeliveryStatus, DeliveryStatus>> = { RECEIVED: "PREPARING", PREPARING: "OUT_FOR_DELIVERY" };
@@ -97,15 +99,15 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
         const waitingKitchen = Boolean(order.kitchenOrderId) && !kitchenReady(order.kitchenStatus);
         const courier = couriers.find(candidate => candidate.id === order.courierId);
         return <article key={order.id} className={`kds-card ${order.status === "PREPARING" ? "em-preparo" : order.status === "OUT_FOR_DELIVERY" ? "pronto" : ""}`}>
-          <div className="kds-head"><div><span>{statusLabels[order.status]}{order.origin === "IFOOD" ? ` · iFood #${order.ifood?.displayId ?? ""}` : order.origin === "ONLINE" ? " · Pedido online" : ""}</span><b>{order.customerName}</b><small>{fulfillmentLabel(order)}</small></div><span><Phone />{order.customerPhone}</span></div>
+          <div className="kds-head"><div><span>{statusLabels[order.status]}{isMarketplaceOrder(order.origin) ? ` · ${marketplaceLabel(order.origin)} #${order.ifood?.displayId ?? ""}` : order.origin === "ONLINE" ? " · Pedido online" : ""}</span><b>{order.customerName}</b><small>{fulfillmentLabel(order)}</small></div><span><Phone />{order.customerPhone}</span></div>
           <div className="kds-items">
-            {order.origin === "IFOOD" && <p><strong>{order.ifood?.payment === "PAID_ONLINE" ? "PAGO NO IFOOD — NÃO COBRAR" : "Cobrança conforme o Gestor do iFood"}</strong><br />Aceite, entrega e cancelamento continuam no Gestor.</p>}
+            {isMarketplaceOrder(order.origin) && <p><strong>{order.ifood?.payment === "PAID_ONLINE" ? `PAGO NO ${marketplaceLabel(order.origin).toUpperCase()} — NÃO COBRAR` : `Confira o pagamento no Gestor do ${marketplaceLabel(order.origin)}`}</strong><br />Aceite, entrega e cancelamento continuam no Gestor.</p>}
             {order.kitchenOrderId && <p style={{ fontSize: 12 }}>Cozinha: {order.kitchenStatus === "READY" ? "Pronto para retirada" : order.kitchenStatus === "DELIVERED" ? "Retirado da cozinha" : order.kitchenStatus === "PREPARING" ? "Em preparo" : order.kitchenStatus === "CANCELLED" ? "Cancelado" : "Aguardando preparo"}</p>}
             <div style={{ marginBottom: 10, fontSize: 11, color: "var(--muted)", display: "flex", gap: 6, alignItems: "flex-start" }}><MapPin style={{ width: 14, flex: "0 0 auto", marginTop: 1 }} />{order.address}</div>
             {delivery && <button type="button" className="secondary" onClick={() => { setLocationOrder(order); setCorrectedPoint(null); }}>{order.destinationLat !== null ? "Corrigir ponto no mapa" : "Marcar ponto de entrega"}</button>}
             {order.items.map(item => <div key={item.id}><span>{item.quantity}x</span><span>{item.productName}{item.selectedOptionsSnapshot?.length ? <small className="kds-item-options">{item.selectedOptionsSnapshot.map(option => option.optionName).join(", ")}</small> : null}</span></div>)}
             {order.deliveryFee > 0 && <div><span /><span>Taxa de entrega <em style={{ fontStyle: "normal", color: "var(--muted)" }}>{money(order.deliveryFee)}</em></span></div>}
-            {delivery && order.origin !== "IFOOD" && <label className="field" style={{ marginTop: 10 }}><span>Entregador</span><select value={order.courierId ?? ""} disabled={saving} onChange={event => void act({ action: "ASSIGN_COURIER", orderId: order.id, courierId: event.target.value || null })}>
+            {delivery && !isMarketplaceOrder(order.origin) && <label className="field" style={{ marginTop: 10 }}><span>Entregador</span><select value={order.courierId ?? ""} disabled={saving} onChange={event => void act({ action: "ASSIGN_COURIER", orderId: order.id, courierId: event.target.value || null })}>
               <option value="">Sem entregador definido</option>
               {couriers.map(candidate => <option key={candidate.id} value={candidate.id}>{candidate.name}</option>)}
             </select></label>}
@@ -113,15 +115,15 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
           </div>
           <div style={{ margin: "0 18px 12px" }}><DeliveryPrintButton orderId={order.id} mode="CONFERENCE" disabled={saving}/></div>
           <div className="kds-foot">
-            <span>{money(total)}</span>
-            {order.origin === "IFOOD" ? <button disabled={saving || (order.status !== "RECEIVED" && !kitchenReady(order.kitchenStatus))} onClick={async () => {
+            <span>{order.origin === "FOOD99" ? "Itens: " : ""}{money(total)}</span>
+            {isMarketplaceOrder(order.origin) ? <button disabled={saving || (order.status !== "RECEIVED" && !kitchenReady(order.kitchenStatus))} onClick={async () => {
               if (order.status === "RECEIVED") { await act({ action: "CHANGE_STATUS", orderId: order.id, status: "PREPARING" }); return; }
               setSaving(true); setError("");
-              try { const response = await fetch("/api/integrations/ifood-import", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: order.id }) }); const body = await response.json(); if (!response.ok) throw Error(body.error ?? "Não foi possível encerrar a produção."); await load(); onToast("Produção encerrada no Mordomê. Atualize a entrega no Gestor do iFood."); } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao concluir."); } finally { setSaving(false); }
+              try { const response = await fetch("/api/integrations/ifood-import", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: order.id }) }); const body = await response.json(); if (!response.ok) throw Error(body.error ?? "Não foi possível encerrar a produção."); await load(); onToast("Produção encerrada no Mordomê. Atualize a entrega no Gestor de origem."); } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao concluir."); } finally { setSaving(false); }
             }}>{order.status === "RECEIVED" ? "Iniciar preparo" : kitchenReady(order.kitchenStatus) ? "Retirado · encerrar produção" : "Aguardando cozinha"}</button> : payableOrderStage(order) ? <button disabled={saving} onClick={() => setCheckoutOrder(order)}><CircleDollarSign /> Cobrar e concluir</button> : nextStatus[order.status] ? <button disabled={saving || (nextStatus[order.status] === "OUT_FOR_DELIVERY" && (!order.courierId || waitingKitchen))} title={nextStatus[order.status] === "OUT_FOR_DELIVERY" && !order.courierId ? "Defina o entregador antes de iniciar a rota." : undefined} onClick={() => void act({ action: "CHANGE_STATUS", orderId: order.id, status: nextStatus[order.status] }, `Pedido de ${order.customerName}: ${statusLabels[nextStatus[order.status]!]}`)}>{nextStatus[order.status] === "OUT_FOR_DELIVERY" && waitingKitchen ? "Aguardando cozinha" : nextActionLabel[nextStatus[order.status]!]}</button> : null}
           </div>
-          {order.origin !== "IFOOD" && !order.saleId && ["RECEIVED", "PREPARING"].includes(order.status) && <button className="secondary" style={{ margin: "0 18px 12px" }} onClick={() => setAddingOrder(order)}><Plus/> Acrescentar itens / adicionais</button>}
-          <button type="button" className="cancel-sent-item" style={{ margin: "0 18px 14px" }} disabled={saving} onClick={() => { if (window.confirm(`Cancelar o pedido de ${order.customerName}? O tíquete da cozinha também será cancelado.${order.origin === "IFOOD" ? " Cancele também no Gestor do iFood; esta ação só altera o Mordomê." : ""}`)) void act({ action: "CHANGE_STATUS", orderId: order.id, status: "CANCELLED" }, "Pedido cancelado"); }}>Cancelar pedido</button>
+          {!isMarketplaceOrder(order.origin) && !order.saleId && ["RECEIVED", "PREPARING"].includes(order.status) && <button className="secondary" style={{ margin: "0 18px 12px" }} onClick={() => setAddingOrder(order)}><Plus/> Acrescentar itens / adicionais</button>}
+          <button type="button" className="cancel-sent-item" style={{ margin: "0 18px 14px" }} disabled={saving} onClick={() => { if (window.confirm(`Cancelar o pedido de ${order.customerName}? O tíquete da cozinha também será cancelado.${isMarketplaceOrder(order.origin) ? " Cancele também no Gestor de origem; esta ação só altera o Mordomê." : ""}`)) void act({ action: "CHANGE_STATUS", orderId: order.id, status: "CANCELLED" }, "Pedido cancelado"); }}>Cancelar pedido</button>
         </article>;
       })}
     </div>}

@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   if (!isSameOrigin(request)) return Response.json({ error: "Origem inválida." }, { status: 403 });
   const session = await getCurrentSession();
   if (!session?.canOperateFloor) return Response.json({ error: "Acesso negado ao salão." }, { status: 403 });
-  const orders = await db.deliveryOrder.findMany({ where: { establishmentId: session.establishment.id, saleId: null, origin: { not: "IFOOD" }, status: { in: ["RECEIVED", "PREPARING"] } }, orderBy: { createdAt: "desc" }, take: 100, include: { items: true } });
+  const orders = await db.deliveryOrder.findMany({ where: { establishmentId: session.establishment.id, saleId: null, origin: { notIn: ["IFOOD", "FOOD99"] }, status: { in: ["RECEIVED", "PREPARING"] } }, orderBy: { createdAt: "desc" }, take: 100, include: { items: true } });
   const kitchens = await db.order.findMany({ where: { id: { in: orders.flatMap(o => o.kitchenOrderId ? [o.kitchenOrderId] : []) }, tab: { establishmentId: session.establishment.id, status: "OPEN", table: { isCounter: true } } }, select: { id: true } });
   const eligible = new Set(kitchens.map(o => o.id));
   return Response.json({ orders: orders.filter(o => eligible.has(o.kitchenOrderId ?? "")).map(o => ({ id: o.id, customerName: o.customerName, customerPhone: o.customerPhone, total: o.items.reduce((s, i) => s + Number(i.unitPrice) * i.quantity, 0) })) });

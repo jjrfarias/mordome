@@ -108,6 +108,7 @@ enum DeliveryOrigin {
   INTERNAL
   ONLINE
   IFOOD
+  FOOD99
 }
 
 enum TabStatus {

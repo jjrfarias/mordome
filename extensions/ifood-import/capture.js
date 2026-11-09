@@ -43,7 +43,13 @@ export function captureIfoodOrder() {
   const deliveryFeeMatch = text.match(/Taxa de entrega\s*\n\s*(R\$\s*[\d.]+,\d{2})/i);
   const subtotalMatch = text.match(/Subtotal\s*\n\s*(R\$\s*[\d.]+,\d{2})/i);
   if (!subtotalMatch) throw Error("Subtotal não encontrado. Confira o formato do pedido.");
-  const store = [...document.querySelectorAll("button")].find(el => /Loja (aberta|fechada)/i.test(el.innerText))?.innerText.replace(/Loja (aberta|fechada)/i, "").trim() ?? "";
+  // The Gestor also renders its store selector as a div with role="button".
+  const stores = [...new Set([...document.querySelectorAll('button, [role="button"]')]
+    .filter(el => el.getClientRects().length && /Loja (aberta|fechada)/i.test(el.innerText))
+    .map(el => el.innerText.replace(/Loja (aberta|fechada)/i, "").trim())
+    .filter(Boolean))];
+  if (stores.length !== 1 || stores[0].length > 200) throw Error("Não consegui identificar a loja no Gestor. Atualize a página e reabra o pedido antes de importar.");
+  const store = stores[0];
   const orderNotes = [...root.querySelectorAll(".SectionItem")].filter(el => !el.querySelector('[data-test-id="item-price"]') && /^observa[çc][aã]o|^observa[çc][oõ]es/i.test(el.querySelector(".SectionItem__label")?.innerText.trim() ?? "")).map(el => el.innerText.trim()).join("\n");
   return {
     version: 1, externalId: externalId.toLowerCase(), displayId: match[1], customerName: match[2].trim(),
