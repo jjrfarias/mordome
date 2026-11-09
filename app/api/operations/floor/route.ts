@@ -47,10 +47,13 @@ async function actor() {
   return membership ? session : null;
 }
 
-function serializeTables(tables: Awaited<ReturnType<typeof loadTables>>, byProduct: Map<string, string>) {
+async function serializeTables(tables: Awaited<ReturnType<typeof loadTables>>, byProduct: Map<string, string>) {
+  const ids = tables.flatMap(table => table.tabs.flatMap(tab => tab.orders.map(order => order.id)));
+  const deliveries = ids.length ? await db.deliveryOrder.findMany({ where: { kitchenOrderId: { in: ids } }, include: { items: true } }) : [];
   return tables.map(table => {
     const allTabs = table.tabs.map(tab => ({ ...tab,
-      items: tab.items.map(item => ({ ...item, quantity: Number(item.quantity), sentQuantity: Number(item.sentQuantity), unitPrice: Number(item.unitPrice) })),
+      linkedOrder: deliveries.find(d => tab.orders.some(o => o.id === d.kitchenOrderId)) ? { id: deliveries.find(d => tab.orders.some(o => o.id === d.kitchenOrderId))!.id, customerName: deliveries.find(d => tab.orders.some(o => o.id === d.kitchenOrderId))!.customerName } : null,
+      items: deliveries.find(d => tab.orders.some(o => o.id === d.kitchenOrderId))?.items.map(item => ({ ...item, quantity: Number(item.quantity), sentQuantity: Number(item.quantity), unitPrice: Number(item.unitPrice), active: true, notes: null })) ?? tab.items.map(item => ({ ...item, quantity: Number(item.quantity), sentQuantity: Number(item.sentQuantity), unitPrice: Number(item.unitPrice) })),
       orders: tab.orders.map(order => ({ ...order, tabName: tab.name, tableNumber: table.number,
         items: order.items.map(item => ({ ...item, quantity: Number(item.quantity), stationId: byProduct.get(item.tabItem.productId ?? "") ?? null, selectedOptionsSnapshot: item.tabItem.selectedOptionsSnapshot, notes: item.tabItem.notes, cancelledQuantity: item.cancellations.reduce((sum, cancellation) => sum + Number(cancellation.quantity), 0), cancellations: item.cancellations.map(cancellation => ({ ...cancellation, quantity: Number(cancellation.quantity) })) })) }))
     }));
@@ -92,7 +95,7 @@ export async function GET(request: Request) {
   if (isLocalAuthEnabled()) { const session = await getLocalSession(); if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 }); if (!session.canOperateFloor) return Response.json({ error: "Acesso negado ao salão." }, { status: 403 }); return Response.json(getLocalFloor(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor })); }
   const session = await actor(); if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 }); if (!session.canOperateFloor) return Response.json({ error: "Acesso negado ao salão." }, { status: 403 });
   const { byProduct, stations } = await stationLookup(session.establishment.id);
-  const tables = serializeTables(await loadTables(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), byProduct);
+  const tables = await serializeTables(await loadTables(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), byProduct);
   const tableOrders = tables.flatMap(table => table.kitchenOrders);
   const counterOrders = serializeCounterOrders(await loadCounterOrders(session.establishment.id), byProduct);
   const unit = await db.establishment.findUniqueOrThrow({ where: { id: session.establishment.id }, select: { serviceRate: true } });
@@ -132,6 +135,11 @@ export async function POST(request: Request) {
 
   const session = await actor(); if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 }); if (!session.canOperateFloor) return Response.json({ error: "Acesso negado ao salão." }, { status: 403 });
   try {
+    if (["ADD_ITEM", "CHANGE_ITEM", "CANCEL_SENT_ITEM", "SEND_ORDER"].includes(data.action)) {
+      const tabId = "tabItemId" in data ? (await db.tabItem.findUnique({ where: { id: data.tabItemId }, select: { tabId: true } }))?.tabId : "tabId" in data ? data.tabId : undefined;
+      const ids = tabId ? (await db.order.findMany({ where: { tabId, tab: { establishmentId: session.establishment.id } }, select: { id: true } })).map(o => o.id) : [];
+      if (ids.length && await db.deliveryOrder.findFirst({ where: { kitchenOrderId: { in: ids }, establishmentId: session.establishment.id } })) return Response.json({ error: "Use Acrescentar itens / adicionais nesta comanda vinculada." }, { status: 409 });
+    }
     let createdTabId: string | undefined;
     if (data.action === "CREATE_TAB" || data.action === "RENAME_TAB" || data.action === "CLOSE_EMPTY_TAB") createdTabId = await manageNamedTab(session, data, request);
     else if (data.action === "ADD_ITEM") await addItem(session, data, request);
@@ -140,7 +148,7 @@ export async function POST(request: Request) {
     else if (data.action === "SEND_ORDER") await sendOrder(session, data, request);
     else await changeOrderStatus(session, data, request);
     const { byProduct, stations } = await stationLookup(session.establishment.id);
-    const tables = serializeTables(await loadTables(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), byProduct); const tableOrders = tables.flatMap(table => table.kitchenOrders);
+    const tables = await serializeTables(await loadTables(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), byProduct); const tableOrders = tables.flatMap(table => table.kitchenOrders);
     const counterOrders = serializeCounterOrders(await loadCounterOrders(session.establishment.id), byProduct);
     return Response.json({ tables, orders: [...tableOrders, ...counterOrders], stations, createdTabId });
   } catch (error) {
@@ -168,6 +176,7 @@ async function addItem(session: Session, data: Extract<z.infer<typeof actionSche
     if (data.tabId && !openTabs.length) throw new Error("TAB_NOT_FOUND");
     let tab = openTabs[0] ?? null;
     if (!tab) { tab = await tx.tab.create({ data: { establishmentId: session.establishment.id, tableId: table.id, openedById: session.user.id } }); await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "TAB_OPEN", entityType: "Tab", entityId: tab.id, reason: `Comanda aberta na mesa ${table.number}`, after: { tableId: table.id, tableNumber: table.number }, ...requestAuditMetadata(request) } }); }
+    if (await tx.deliveryOrder.findFirst({ where: { establishmentId: session.establishment.id, kitchenOrderId: { in: (await tx.order.findMany({ where: { tabId: tab.id }, select: { id: true } })).map(o => o.id) } } })) throw new IngredientOptionError("Use Acrescentar itens / adicionais nesta comanda vinculada.");
     // Itens com opções escolhidas nunca são agrupados com outra linha existente — cada personalização
     // vira sua própria linha na comanda, espelhando o critério do carrinho local (lib/local-floor.ts).
     const current = resolved.snapshot.length || data.notes ? null : await tx.tabItem.findFirst({ where: { tabId: tab.id, productId: product.id, active: true, notes: null, selectedOptionsSnapshot: { equals: Prisma.JsonNull } } });
