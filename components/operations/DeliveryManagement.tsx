@@ -1,4 +1,5 @@
 "use client";
+import { DeliveryAddition } from "./DeliveryAddition";
 import { fulfillmentLabel, requiresDelivery, payableOrderStage, type OrderFulfillment } from "@/lib/order-fulfillment";
 
 import { kitchenReady } from "@/lib/delivery-workflow";
@@ -36,6 +37,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [creating, setCreating] = useState(false);
+  const [addingOrder, setAddingOrder] = useState<Order | null>(null);
   const [managingAreas, setManagingAreas] = useState(false);
   const [checkoutOrder, setCheckoutOrder] = useState<Order | null>(null);
   const [locationOrder, setLocationOrder] = useState<Order | null>(null);
@@ -112,11 +114,13 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
               try { const response = await fetch("/api/integrations/ifood-import", { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ orderId: order.id }) }); const body = await response.json(); if (!response.ok) throw Error(body.error ?? "Não foi possível encerrar a produção."); await load(); onToast("Produção encerrada no Mordomê. Atualize a entrega no Gestor do iFood."); } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao concluir."); } finally { setSaving(false); }
             }}>{order.status === "RECEIVED" ? "Iniciar preparo" : kitchenReady(order.kitchenStatus) ? "Retirado · encerrar produção" : "Aguardando cozinha"}</button> : payableOrderStage(order) ? <button disabled={waitingKitchen || saving} onClick={() => setCheckoutOrder(order)}><CircleDollarSign /> Cobrar e concluir</button> : nextStatus[order.status] ? <button disabled={saving || (nextStatus[order.status] === "OUT_FOR_DELIVERY" && (!order.courierId || waitingKitchen))} title={nextStatus[order.status] === "OUT_FOR_DELIVERY" && !order.courierId ? "Defina o entregador antes de iniciar a rota." : undefined} onClick={() => void act({ action: "CHANGE_STATUS", orderId: order.id, status: nextStatus[order.status] }, `Pedido de ${order.customerName}: ${statusLabels[nextStatus[order.status]!]}`)}>{nextStatus[order.status] === "OUT_FOR_DELIVERY" && waitingKitchen ? "Aguardando cozinha" : nextActionLabel[nextStatus[order.status]!]}</button> : null}
           </div>
+          {order.origin !== "IFOOD" && !order.saleId && ["RECEIVED", "PREPARING"].includes(order.status) && <button className="secondary" style={{ margin: "0 18px 12px" }} onClick={() => setAddingOrder(order)}><Plus/> Acrescentar itens / adicionais</button>}
           <button type="button" className="cancel-sent-item" style={{ margin: "0 18px 14px" }} disabled={saving} onClick={() => { if (window.confirm(`Cancelar o pedido de ${order.customerName}? O tíquete da cozinha também será cancelado.${order.origin === "IFOOD" ? " Cancele também no Gestor do iFood; esta ação só altera o Mordomê." : ""}`)) void act({ action: "CHANGE_STATUS", orderId: order.id, status: "CANCELLED" }, "Pedido cancelado"); }}>Cancelar pedido</button>
         </article>;
       })}
     </div>}
 
+    {addingOrder && <DeliveryAddition order={addingOrder} products={products} onClose={() => setAddingOrder(null)} onSaved={async () => { setAddingOrder(null); await load(); onToast("Pedido atualizado. Complemento enviado à cozinha."); }}/>}
     {locationOrder && <div className="modal-bg"><div className="modal" style={{ width: "min(650px,100%)" }}>
       <button className="modal-close" aria-label="Fechar correção do ponto" disabled={saving} onClick={() => setLocationOrder(null)}><X /></button>
       <h2>Corrigir ponto de entrega</h2><p>{locationOrder.address}</p>

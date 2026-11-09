@@ -18,7 +18,7 @@ export function formatSelectedOptions(options: SelectedIngredientOption[] | null
   return options && options.length ? options.map(option => option.optionName).join(", ") : "";
 }
 
-export function IngredientPicker({ product, onClose, onConfirm, allowNotes = false, submitError }: { product: IngredientPickerProduct; allowNotes?: boolean; submitError?: string; onClose: () => void; onConfirm: (unitPrice: number, selectedOptions: SelectedIngredientOption[], optionSelections: { groupId: string; optionIds: string[] }[], notes?: string) => void | Promise<void> }) {
+export function IngredientPicker({ product, onClose, onConfirm, allowNotes = false, submitError, quantity = 1, confirmationLabel = "Adicionar ao carrinho", description = "Personalize o pedido antes de adicionar ao carrinho." }: { product: IngredientPickerProduct; quantity?: number; confirmationLabel?: string; description?: string; allowNotes?: boolean; submitError?: string; onClose: () => void; onConfirm: (unitPrice: number, selectedOptions: SelectedIngredientOption[], optionSelections: { groupId: string; optionIds: string[] }[], notes?: string) => void | Promise<void> }) {
   const groups = (product.ingredientGroups ?? []).filter((group: IngredientGroup) => group.active && group.options.some(option => option.active));
   // Grupo com só 1 opção ativa não é de fato uma escolha (ex.: combo fixo com um único item por
   // etapa) — pré-seleciona pra não obrigar o cliente a clicar num radio sem alternativa real.
@@ -54,7 +54,7 @@ export function IngredientPicker({ product, onClose, onConfirm, allowNotes = fal
   return <div className="modal-bg"><div className="modal ingredient-picker-modal" role="dialog" aria-modal="true" aria-label={`Personalizar ${product.name}`}>
     <button className="modal-close" aria-label="Fechar personalização" disabled={submitting} onClick={onClose}><X/></button>
     <h2>{product.name}</h2>
-    <p>Personalize o pedido antes de adicionar ao carrinho.</p>
+    <p>{description}</p>
     {groups.map(group => <div className="ingredient-picker-group" key={group.id}>
       <div className="ingredient-picker-group-head"><strong>{group.name}</strong><span>{group.minSelections > 0 ? `Obrigatório · até ${group.maxSelections}` : `Opcional · até ${group.maxSelections}`}</span></div>
       <div className="ingredient-picker-options">
@@ -67,7 +67,7 @@ export function IngredientPicker({ product, onClose, onConfirm, allowNotes = fal
     </div>)}
     {allowNotes && <label className="ingredient-picker-notes"><span>Observação para a cozinha <small>Opcional</small></span><textarea value={notes} maxLength={300} rows={2} placeholder="Ex.: sem cebola, tirar o molho, bem passado" onChange={event => setNotes(event.target.value)} /><small>{notes.length}/300</small></label>}
     {(error || submitError) && <p role="alert" className="ingredient-picker-error">{error || submitError}</p>}
-    <div className="ingredient-picker-summary"><span>Preço com escolhas</span><strong>{money(unitPrice)}</strong></div>
-    <button className="primary wide" disabled={submitting} onClick={() => void confirm()}><Plus/> Adicionar ao carrinho</button>
+    <div className="ingredient-picker-summary"><span>{quantity > 1 ? `Total para ${quantity} unidades` : "Preço com escolhas"}</span><strong>{money(unitPrice * quantity)}</strong></div>
+    <button className="primary wide" disabled={submitting} onClick={() => void confirm()}><Plus/> {confirmationLabel}</button>
   </div></div>;
 }

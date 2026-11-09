@@ -74,8 +74,8 @@ async function loadCounterOrders(establishmentId: string) {
   // Delivery também usa a mesa virtual "Balcão" (ADR 0050); o vínculo kitchenOrderId identifica quais
   // pedidos da fila vieram do delivery, para a cozinha não confundi-los com vendas do PDV.
   const orderIds = tabs.flatMap(tab => tab.orders.map(order => order.id));
-  const deliveries = orderIds.length ? await db.deliveryOrder.findMany({ where: { establishmentId, kitchenOrderId: { in: orderIds } }, select: { id: true, kitchenOrderId: true, ifoodImport: true, origin: true, customerName: true, status: true, fulfillment: true } }) : [];
-  const deliveryByOrder = new Map(deliveries.map(delivery => [delivery.kitchenOrderId!, { externalNumber: ifoodMetadata(delivery.ifoodImport)?.displayId, fulfillment: delivery.fulfillment, deliveryOrderId: delivery.id, status: delivery.status, origin: delivery.origin, customerName: delivery.customerName.trim().split(/\s+/)[0] ?? "" }]));
+  const deliveries = orderIds.length ? await db.deliveryOrder.findMany({ where: { establishmentId, OR: [{ kitchenOrderId: { in: orderIds } }, { supplements: { some: { id: { in: orderIds } } } }] }, select: { supplements: { select: { id: true } }, id: true, kitchenOrderId: true, ifoodImport: true, origin: true, customerName: true, status: true, fulfillment: true } }) : [];
+  const deliveryByOrder = new Map(deliveries.flatMap(delivery => [delivery.kitchenOrderId!, ...delivery.supplements.map(item => item.id)].map(id => [id, { externalNumber: ifoodMetadata(delivery.ifoodImport)?.displayId, fulfillment: delivery.fulfillment, deliveryOrderId: delivery.id, status: delivery.status, origin: delivery.origin, customerName: delivery.customerName.trim().split(/\s+/)[0] ?? "" }] as const)));
   return { tabs, deliveryByOrder };
 }
 
@@ -95,7 +95,8 @@ export async function GET(request: Request) {
   const tables = serializeTables(await loadTables(session.establishment.id, { userId: session.user.id, canManageFloor: session.canManageFloor }), byProduct);
   const tableOrders = tables.flatMap(table => table.kitchenOrders);
   const counterOrders = serializeCounterOrders(await loadCounterOrders(session.establishment.id), byProduct);
-  return Response.json({ tables, orders: [...tableOrders, ...counterOrders], stations });
+  const unit = await db.establishment.findUniqueOrThrow({ where: { id: session.establishment.id }, select: { serviceRate: true } });
+  return Response.json({ tables, orders: [...tableOrders, ...counterOrders], stations, serviceRate: Number(unit.serviceRate) });
 }
 
 export async function POST(request: Request) {
@@ -214,7 +215,7 @@ async function changeOrderStatus(session: Session, data: Extract<z.infer<typeof 
   const deliveryToNotify = await db.$transaction(async tx => {
     const order = await tx.order.findFirst({ where: { id: data.orderId, tab: { establishmentId: session.establishment.id, status: { in: ["OPEN", "PAID"] } } }, include: { tab: { include: { table: true } } } });
     if (!order) throw new Error("ORDER_NOT_FOUND");
-    const delivery = order.tab.table.isCounter ? await tx.deliveryOrder.findFirst({ where: { establishmentId: session.establishment.id, kitchenOrderId: order.id } }) : null;
+    const delivery = order.tab.table.isCounter ? await tx.deliveryOrder.findFirst({ where: { establishmentId: session.establishment.id, OR: [{ kitchenOrderId: order.id }, { id: order.deliveryParentId ?? "" }] } }) : null;
     const reconcile = delivery && deliveryFinished(delivery.status) && !["DELIVERED", "CANCELLED"].includes(order.status) && data.status === "DELIVERED";
     if (!reconcile && next[order.status] !== data.status) throw new Error("INVALID_ORDER_TRANSITION");
     if (delivery && delivery.origin !== "IFOOD" && !deliveryFinished(delivery.status) && delivery.status !== "OUT_FOR_DELIVERY" && data.status === "DELIVERED") throw new Error("DELIVERY_HANDOFF_REQUIRED");

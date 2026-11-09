@@ -3,7 +3,7 @@ import { printerText } from "./kitchen-print.ts";
 type Receipt = {
   establishment: string; document?: string | null; saleId: string; completedAt: Date; label: string;
   items: { name: string; quantity: number; unitPrice: number; total: number }[];
-  subtotal: number; discount: number; serviceAmount: number; deliveryFee: number; total: number;
+  subtotal: number; discount: number; serviceAmount: number; serviceWaived?: boolean; deliveryFee: number; total: number;
   payments: { method: string; amount: number; receivedAmount: number | null; changeAmount: number }[];
 };
 const money = (value: number) => `R$ ${value.toFixed(2).replace(".", ",")}`;
@@ -27,6 +27,7 @@ export function saleReceiptEscpos(receipt: Receipt) {
       rule, columns("Subtotal", money(receipt.subtotal)),
       ...(receipt.discount ? [columns("Desconto", money(receipt.discount))] : []),
       ...(receipt.serviceAmount ? [columns("Servico", money(receipt.serviceAmount))] : []),
+      ...(receipt.serviceWaived ? ["Servico retirado a pedido do cliente"] : []),
       ...(receipt.deliveryFee ? [columns("Entrega", money(receipt.deliveryFee))] : [])]),
     Buffer.from([27, 69, 1, 29, 33, 1]),
     ascii([columns("TOTAL A PAGAR", money(receipt.total))]),

@@ -563,3 +563,5 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 /* Keep all permitted destinations reachable on narrow phones. */
 
 @media(max-width:760px){.mobile-nav{overflow-x:auto;justify-content:flex-start;gap:6px}.mobile-nav button{flex:1 0 55px;min-height:44px}}
+
+.service-waiver{display:flex;align-items:flex-start;gap:10px;padding:12px;margin:12px 0;border:1px solid var(--line);border-radius:10px;font-size:14px}.service-waiver input{width:20px;height:20px;flex-shrink:0}

@@ -75,7 +75,7 @@ export async function GET(request: Request) {
     db.deliveryArea.findMany({ where: { establishmentId: actor.establishment.id, active: true }, orderBy: { name: "asc" } }),
   ]);
   const kitchenOrders = await db.order.findMany({ where: { id: { in: orders.flatMap(order => order.kitchenOrderId ? [order.kitchenOrderId] : []) }, tab: { establishmentId: actor.establishment.id } }, select: { id: true, status: true } });
-  const kitchenStages = new Map(kitchenOrders.map(order => [order.id, order.status]));
+  const kitchenStages = new Map(await Promise.all(kitchenOrders.map(async order => [order.id, (await linkedKitchen(db, actor.establishment.id, order.id))?.status] as const)));
   const products = offerings.map(offering => ({ id: offering.variant.product.id, name: offering.variant.product.name, category: offering.variant.product.category?.name ?? "Sem categoria", price: Number(offering.price), ingredientGroups: offering.variant.product.isCombo ? mapComboGroupsToIngredientGroups(offering.variant.product.comboGroups) : offering.variant.product.ingredientGroups.map(group => ({ id: group.id, productId: group.productId, name: group.name, minSelections: group.minSelections, maxSelections: group.maxSelections, active: group.active, options: group.options.map(option => ({ id: option.id, name: option.name, priceDelta: Number(option.priceDelta), active: option.active })) })) }));
   const couriers = accesses.map(access => access.membership.user).filter(user => user.active).filter((user, index, list) => list.findIndex(candidate => candidate.id === user.id) === index).map(user => ({ id: user.id, name: user.name }));
   const activeCourierIds = [...new Set(orders.filter(order => order.status === "OUT_FOR_DELIVERY" && order.courierId).map(order => order.courierId as string))];
@@ -214,6 +214,7 @@ export async function POST(request: Request) {
   if (data.action === "CHANGE_STATUS") {
     try {
     const updated = await db.$transaction(async tx => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`delivery:${data.orderId}`}))`;
       const current = await tx.deliveryOrder.findFirst({ where: { id: data.orderId, establishmentId: actor.establishment.id } });
       if (!current) throw new Error("INVALID_TRANSITION");
       const kitchen = await linkedKitchen(tx, actor.establishment.id, current.kitchenOrderId);

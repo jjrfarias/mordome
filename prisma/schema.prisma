@@ -612,6 +612,7 @@ model CashMovement {
 }
 
 model Sale {
+  serviceWaived Boolean @default(false)
   financeTracked Boolean @default(false)
   id              String        @id @default(cuid())
   organizationId  String
@@ -675,6 +676,7 @@ enum OrderFulfillment {
 }
 
 model DeliveryOrder {
+  supplements Order[] @relation("DeliverySupplements")
   ifoodImport Json?
   fulfillment OrderFulfillment @default(DELIVERY)
   customerAccountId String?
@@ -835,6 +837,10 @@ model TabItem {
 }
 
 model Order {
+  deliveryParentId String?
+  amendmentKey String?
+  deliveryParent DeliveryOrder? @relation("DeliverySupplements", fields: [deliveryParentId], references: [id], onDelete: Restrict)
+  @@unique([deliveryParentId, amendmentKey])
   kitchenPrintJobs KitchenPrintJob[]
   id              String               @id @default(cuid())
   tabId           String

@@ -32,7 +32,7 @@ import type { FiscalPaymentInput, FiscalSaleItemInput } from "@/lib/fiscal/types
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const saleItemSchema = z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(999), discount: z.number().finite().min(0).optional(), selectedOptions: z.array(optionSelectionSchema).max(10).optional() });
 const paymentSchema = z.object({ method: z.string().min(2).max(40), amount: z.number().finite().positive(), receivedAmount: z.number().finite().positive().optional() });
-const completeSchema = z.object({ action: z.literal("COMPLETE"), channel: z.enum(SaleChannel).refine(channel => channel === "POS" || channel === "FLOOR" || channel === "DELIVERY"), items: z.array(saleItemSchema).min(1), payments: z.array(paymentSchema).min(1).max(10), discount: z.number().finite().min(0).default(0), discountReason: z.string().trim().min(3).max(200).optional(), couponCode: z.string().trim().min(1).max(40).optional(), table: z.number().int().positive().optional(), tabId: z.string().min(1).optional(), deliveryOrderId: z.string().min(1).optional(), idempotencyKey: z.string().uuid() });
+const completeSchema = z.object({ waiveService: z.boolean().default(false), action: z.literal("COMPLETE"), channel: z.enum(SaleChannel).refine(channel => channel === "POS" || channel === "FLOOR" || channel === "DELIVERY"), items: z.array(saleItemSchema).min(1), payments: z.array(paymentSchema).min(1).max(10), discount: z.number().finite().min(0).default(0), discountReason: z.string().trim().min(3).max(200).optional(), couponCode: z.string().trim().min(1).max(40).optional(), table: z.number().int().positive().optional(), tabId: z.string().min(1).optional(), deliveryOrderId: z.string().min(1).optional(), idempotencyKey: z.string().uuid() });
 const cancelSchema = z.object({ action: z.literal("CANCEL"), saleId: z.string().min(1), reason: z.string().trim().min(3).max(200), idempotencyKey: z.string().uuid() });
 const refundSchema = z.object({ action: z.literal("REFUND"), saleId: z.string().min(1), amount: z.number().finite().positive(), payments: z.array(paymentSchema).min(1).max(10), restoreStock: z.boolean().default(false), reason: z.string().trim().min(3).max(200), idempotencyKey: z.string().uuid() });
 const actionSchema = z.discriminatedUnion("action", [completeSchema, cancelSchema, refundSchema]);
@@ -162,7 +162,8 @@ export async function POST(request: Request) {
     if (localDelivery?.kitchenOrderId && !kitchenReady(getLocalCounterOrder(session.establishment.id, localDelivery.kitchenOrderId)?.status)) return Response.json({ error: workflowMessages.KITCHEN_NOT_READY }, { status: 409 });
     const localItems = localTab ? localTab.tab.items.filter(item => item.active && item.quantity > 0).map(item => ({ productId: item.productId, quantity: item.quantity })) : localDelivery ? localDelivery.items.map(item => ({ productId: item.productId, quantity: item.quantity })) : data.items;
     if (!localItems.length) return Response.json({ error: localDelivery ? "O pedido de delivery está vazio." : "A comanda está vazia." }, { status: 409 });
-    // Grupos de ingrediente são resolvidos no momento da venda direta do PDV (ver ADR 0022).
+
+      // Grupos de ingrediente são resolvidos no momento da venda direta do PDV (ver ADR 0022).
     // Salão e Delivery já resolveram a escolha quando o item foi adicionado à comanda/pedido —
     // o retrato (selectedOptionsSnapshot) já vem travado no item local, propagado abaixo.
     const directCatalogForOptions = !localTab && !localDelivery ? listLocalCatalog(session.establishment.id) : null;
@@ -188,7 +189,7 @@ export async function POST(request: Request) {
       const items = localTab ? localTab.tab.items.filter(item => item.active && item.quantity > 0).map(item => ({ productId: item.productId, quantity: item.quantity, productName: item.productName, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot })) : localDelivery ? localDelivery.items.map(item => ({ productId: item.productId, quantity: item.quantity, productName: item.productName, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot })) : localItems.map((item, index) => ({ productId: item.productId, quantity: item.quantity, productName: catalog.find(product => product.id === item.productId)?.name ?? "Produto", unitPrice: directResolved[index]?.unitPrice ?? catalog.find(product => product.id === item.productId)?.price ?? 0, selectedOptionsSnapshot: directResolved[index]?.snapshot }));
       const subtotal = items.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0);
       const deliveryFee = localDelivery?.deliveryFee ?? 0;
-      const grossTotal = roundMoney(subtotal * (data.channel === "FLOOR" ? 1.1 : 1) + deliveryFee);
+      const grossTotal = roundMoney(subtotal * (data.channel === "FLOOR" && !data.waiveService ? 1.1 : 1) + deliveryFee);
       // Cupom (ADR 0041): forma alternativa e assistida de preencher `discount`/`discountReason` —
       // quando informado, substitui o que o cliente tenha mandado nesses dois campos, recalculado
       // aqui no servidor (nunca confiando no desconto que o cliente já tenha calculado sozinho).
@@ -274,9 +275,11 @@ export async function POST(request: Request) {
       const tab = data.tabId ? await tx.tab.findFirst({ where: { id: data.tabId, establishmentId: actor.session.establishment.id, status: "OPEN" }, include: { table: true, items: { where: { active: true, quantity: { gt: 0 } } } } }) : null;
       if (data.tabId && (!tab || data.channel !== "FLOOR")) throw new Error("TAB_NOT_FOUND");
       if (tab?.items.some(item => Number(item.quantity) > Number(item.sentQuantity))) throw new Error("UNSENT_ITEMS");
+      if (data.deliveryOrderId) await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`delivery:${data.deliveryOrderId}`}))`;
       const deliveryOrder = data.deliveryOrderId ? await tx.deliveryOrder.findFirst({ where: { id: data.deliveryOrderId, establishmentId: actor.session.establishment.id, saleId: null }, include: { items: true } }) : null;
       if (data.deliveryOrderId && (!deliveryOrder || data.channel !== "DELIVERY")) throw new Error("DELIVERY_NOT_FOUND");
       if (deliveryOrder?.origin === "IFOOD" || (tab && await tx.deliveryOrder.findFirst({ where: { origin: "IFOOD", kitchenOrderId: { in: (await tx.order.findMany({ where: { tabId: tab.id }, select: { id: true } })).map(order => order.id) } } }))) throw new Error("IFOOD_EXTERNAL_PAYMENT");
+      if (tab && await tx.deliveryOrder.findFirst({ where: { establishmentId: actor.session.establishment.id, kitchenOrderId: { in: (await tx.order.findMany({ where: { tabId: tab.id }, select: { id: true } })).map(o => o.id) } } })) throw Error("DELIVERY_CHECKOUT_REQUIRED");
       // Grupos de ingrediente são resolvidos no momento da venda direta do PDV (ver ADR 0022).
       // Salão e Delivery já resolveram a escolha quando o item foi adicionado à comanda/pedido —
       // aqui só propagamos o preço e o retrato (selectedOptionsSnapshot) já travados no TabItem/DeliveryOrderItem.
@@ -346,7 +349,7 @@ export async function POST(request: Request) {
         await tx.stockMovement.create({ data: { establishmentItemId, type: "CONSUMPTION", quantity: -consumption.quantity, unitCost, actorId: actor.session.user.id, sourceType: "SALE", sourceId: data.idempotencyKey, reason: `Consumo automático da venda ${data.channel}`, idempotencyKey: `${data.idempotencyKey}:${establishmentItemId}` } });
       }
       const subtotal = roundMoney(saleItems.reduce((sum, item) => sum + item.total, 0));
-      const serviceAmount = data.channel === "FLOOR" ? roundMoney(subtotal * Number(establishment.serviceRate) / 100) : 0;
+      const serviceAmount = data.channel === "FLOOR" && !data.waiveService ? roundMoney(subtotal * Number(establishment.serviceRate) / 100) : 0;
       const deliveryFee = deliveryOrder?.deliveryFee ? Number(deliveryOrder.deliveryFee) : 0;
       const grossTotal = roundMoney(subtotal + serviceAmount + deliveryFee);
       // Cupom (ADR 0041): mesma decisão do modo local — substitui `discount`/`discountReason`
@@ -373,9 +376,9 @@ export async function POST(request: Request) {
       const total = roundMoney(grossTotal - resolvedDiscount); const payments = resolvePayments(data.payments);
       if (roundMoney(payments.reduce((sum, payment) => sum + payment.amount, 0)) !== total) throw new Error("PAYMENT_MISMATCH");
       if (payments.some(payment => payment.method !== "CASH" && payment.receivedAmount !== undefined)) throw new Error("CHANGE_ONLY_CASH");
-      const created = await tx.sale.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, cashSessionId: cash.id, operatorId: actor.session.user.id, channel: data.channel, financeTracked: true, subtotal, discount: resolvedDiscount, serviceAmount, deliveryFee, total, idempotencyKey: data.idempotencyKey, items: { create: saleItems }, payments: { create: payments } } });
+      const created = await tx.sale.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, cashSessionId: cash.id, operatorId: actor.session.user.id, channel: data.channel, financeTracked: true, serviceWaived: data.channel === "FLOOR" && data.waiveService, subtotal, discount: resolvedDiscount, serviceAmount, deliveryFee, total, idempotencyKey: data.idempotencyKey, items: { create: saleItems }, payments: { create: payments } } });
       await syncPosSale(tx, { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id }, created.id);
-      await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "SALE_COMPLETE", entityType: "Sale", entityId: created.id, reason: tab ? `Fechamento da mesa ${tab.table.number}` : deliveryOrder ? `Pedido de delivery para ${deliveryOrder.customerName}` : "Venda direta no PDV", after: { channel: data.channel, table: tab?.table.number, tabId: tab?.id, tabName: tab?.name ?? "", deliveryOrderId: deliveryOrder?.id, payments, discount: resolvedDiscount, discountReason: resolvedDiscountReason, couponCode: appliedCoupon?.code ?? null, items: saleItems.map(item => ({ productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, total: item.total })), subtotal, serviceAmount, total, cashSessionId: cash.id }, ...requestAuditMetadata(request) } });
+      await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "SALE_COMPLETE", entityType: "Sale", entityId: created.id, reason: tab ? `Fechamento da mesa ${tab.table.number}` : deliveryOrder ? `Pedido de delivery para ${deliveryOrder.customerName}` : "Venda direta no PDV", after: { channel: data.channel, table: tab?.table.number, tabId: tab?.id, tabName: tab?.name ?? "", deliveryOrderId: deliveryOrder?.id, payments, discount: resolvedDiscount, discountReason: resolvedDiscountReason, couponCode: appliedCoupon?.code ?? null, items: saleItems.map(item => ({ productId: item.productId, productName: item.productName, quantity: item.quantity, unitPrice: item.unitPrice, total: item.total })), subtotal, serviceAmount, serviceWaived: data.channel === "FLOOR" && data.waiveService, serviceWaiverReason: data.channel === "FLOOR" && data.waiveService ? "Solicitação do cliente" : null, total, cashSessionId: cash.id }, ...requestAuditMetadata(request) } });
       if (resolvedDiscount > 0) await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "DISCOUNT_APPLY", entityType: "Sale", entityId: created.id, reason: resolvedDiscountReason!, after: { amount: resolvedDiscount, percent: grossTotal ? roundMoney(resolvedDiscount / grossTotal * 100) : 0 }, ...requestAuditMetadata(request) } });
       if (appliedCoupon) {
         await tx.couponRedemption.create({ data: { couponId: appliedCoupon.id, saleId: created.id, establishmentId: actor.session.establishment.id, discountApplied: resolvedDiscount } });
@@ -451,6 +454,7 @@ export async function POST(request: Request) {
     if (error instanceof Error && error.message === "DISCOUNT_FORBIDDEN") return Response.json({ error: "Você não tem permissão para aplicar descontos." }, { status: 403 });
     if (error instanceof Error && error.message === "DISCOUNT_INVALID") return Response.json({ error: "O desconto não pode superar o total da venda." }, { status: 400 });
     if (error instanceof Error && error.message === "DISCOUNT_REASON_REQUIRED") return Response.json({ error: "Informe o motivo do desconto." }, { status: 400 });
+    if (error instanceof Error && error.message === "DELIVERY_CHECKOUT_REQUIRED") return Response.json({ error: "Feche este pedido pela tela de Pedidos online e delivery." }, { status: 409 });
     if (error instanceof Error && error.message === "DISCOUNT_APPROVAL_REQUIRED") return Response.json({ error: "Desconto acima de 10% exige um perfil autorizador." }, { status: 403 });
     if (error instanceof Error && error.message === "COUPON_INVALID") return Response.json({ error: "Cupom inválido para esta venda." }, { status: 400 });
     if (error instanceof Error && error.message === "PAYMENT_MISMATCH") return Response.json({ error: "A soma dos pagamentos deve ser igual ao total da venda." }, { status: 400 });
