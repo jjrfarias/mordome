@@ -676,6 +676,7 @@ enum OrderFulfillment {
 }
 
 model DeliveryOrder {
+  conferencePrintJobs KitchenPrintJob[]
   supplements Order[] @relation("DeliverySupplements")
   ifoodImport Json?
   fulfillment OrderFulfillment @default(DELIVERY)
@@ -1866,6 +1867,8 @@ model KitchenPrintJob {
   agentId String
   orderId String?
   saleId String?
+  conferenceDeliveryOrderId String?
+  conferenceDeliveryOrder DeliveryOrder? @relation(fields: [conferenceDeliveryOrderId], references: [id], onDelete: Restrict)
   conferenceTabId String?
   conferenceTab Tab? @relation(fields: [conferenceTabId], references: [id], onDelete: Restrict)
   status String @default("PENDING")
@@ -1877,6 +1880,7 @@ model KitchenPrintJob {
   sale Sale? @relation(fields: [saleId], references: [id], onDelete: Restrict)
   @@unique([agentId, orderId])
   @@index([conferenceTabId])
+  @@index([conferenceDeliveryOrderId])
   @@unique([agentId, saleId])
   @@index([agentId, status, createdAt])
 }
