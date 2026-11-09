@@ -560,3 +560,6 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 @media(max-width:760px){.modal.ingredient-picker-modal{width:calc(100vw - 20px);padding:16px}.ingredient-picker-modal h2{font-size:20px}}
 .modal.ingredient-picker-modal{max-width:100%;min-width:0}
 .modal-bg:has(>.ingredient-picker-modal){grid-template-columns:minmax(0,1fr)}
+/* Keep all permitted destinations reachable on narrow phones. */
+
+@media(max-width:760px){.mobile-nav{overflow-x:auto;justify-content:flex-start;gap:6px}.mobile-nav button{flex:1 0 55px;min-height:44px}}
