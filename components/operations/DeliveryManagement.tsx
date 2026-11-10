@@ -1,12 +1,13 @@
 "use client";
 import { isMarketplaceOrder, marketplaceLabel } from "@/lib/ifood-import";
 
+import { useLiveRefresh } from "./useLiveRefresh";
 import { DeliveryPrintButton, requestDeliveryPrint } from "./DeliveryPrintButton";
 import { DeliveryAddition } from "./DeliveryAddition";
 import { fulfillmentLabel, requiresDelivery, payableOrderStage, type OrderFulfillment } from "@/lib/order-fulfillment";
 
 import { kitchenReady } from "@/lib/delivery-workflow";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Bike, CircleDollarSign, MapPin, Minus, Package, Phone, Plus, Settings, Truck, X } from "lucide-react";
 import { money, IngredientGroup, SelectedIngredientOption } from "@/lib/domain";
 import { PaymentComposer, serializeCheckout, type SaleCheckout } from "./PaymentComposer";
@@ -29,6 +30,8 @@ const nextActionLabel: Record<string, string> = { PREPARING: "Iniciar preparo", 
 const boardColumns: DeliveryStatus[] = ["RECEIVED", "PREPARING", "OUT_FOR_DELIVERY"];
 
 export function DeliveryManagement({ establishmentId, establishmentName, onFinishSale, onToast }: { establishmentId: string; establishmentName: string; onFinishSale: (items: { id: string; quantity: number }[], checkout: SaleCheckout, deliveryOrderId: string) => Promise<{ ok: boolean; fiscal: FiscalPrintInfo }>; onToast: (message: string) => void }) {
+  const requestVersion = useRef(0);
+  const [syncError, setSyncError] = useState("");
   const [orders, setOrders] = useState<Order[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [couriers, setCouriers] = useState<Courier[]>([]);
@@ -48,19 +51,22 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
   const [locationOrder, setLocationOrder] = useState<Order | null>(null);
   const [correctedPoint, setCorrectedPoint] = useState<{ lat: number; lng: number } | null>(null);
 
-  const load = async () => {
+  const load = useCallback(async () => {
+    const version = ++requestVersion.current;
     try {
       const response = await fetch("/api/operations/delivery", { cache: "no-store" });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar o delivery.");
+      if (version !== requestVersion.current) return;
       setLastRefreshAt(Date.now()); setCanReprint(Boolean(data.canReprint));
-      setOrders(data.orders ?? []); setProducts(data.products ?? []); setCouriers(data.couriers ?? []); setCourierLocations(data.courierLocations ?? []); setDeliveryAreas(data.deliveryAreas ?? []); setCanManageDeliveryAreas(Boolean(data.canManageDeliveryAreas)); setError("");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar o delivery."); } finally { setLoading(false); }
-  };
-  useEffect(() => { queueMicrotask(() => { void load(); }); const interval = setInterval(() => void load(), 10000); return () => clearInterval(interval); }, [establishmentId]);
+      setOrders(data.orders ?? []); setProducts(data.products ?? []); setCouriers(data.couriers ?? []); setCourierLocations(data.courierLocations ?? []); setDeliveryAreas(data.deliveryAreas ?? []); setCanManageDeliveryAreas(Boolean(data.canManageDeliveryAreas)); setSyncError("");
+    } catch (cause) { if (version === requestVersion.current) setSyncError(cause instanceof Error ? cause.message : "Não foi possível carregar o delivery."); } finally { if (version === requestVersion.current) setLoading(false); }
+  }, []);
+  useEffect(() => () => { requestVersion.current++; }, [establishmentId]);
+  useLiveRefresh(load, establishmentId, !saving);
 
   const act = async (body: Record<string, unknown>, successMessage?: string) => {
-    setSaving(true); setError("");
+    requestVersion.current++; setSaving(true); setError("");
     try {
       const response = await fetch("/api/operations/delivery", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
       const data = await response.json().catch(() => ({}));
@@ -75,7 +81,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
 
   return <div className="page-content">
     <div className="hero-row"><div><span className="section-kicker">Pedidos online e delivery</span><p>Entrega, retirada e consumo na loja, identificados por cliente.</p></div><div style={{ display: "flex", gap: 8 }}>{canManageDeliveryAreas && <button className="secondary" onClick={() => setManagingAreas(true)}><Settings /> Áreas de entrega</button>}<button className="primary" onClick={() => setCreating(true)}><Plus /> Novo pedido</button></div></div>
-    {error && <div className="auth-error">{error}</div>}
+    {(error || syncError) && <div className="auth-error">{error || syncError}</div>}
     {paidOrder && <section className="ticket"><h2>Pagamento concluído — {paidOrder.customerName}</h2><p>O pedido já foi pago. A impressão não realiza outra cobrança.</p><DeliveryPrintButton orderId={paidOrder.id} mode="RECEIPT"/><button className="back" onClick={() => setPaidOrder(null)}>Fechar</button></section>}
     <div className="stats-row">
       <div className="stat"><div><Package /></div><section><b>{active.length}</b><span>pedidos ativos</span></section></div>
