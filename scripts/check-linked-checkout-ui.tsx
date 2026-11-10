@@ -7,16 +7,18 @@ const { JSDOM } = createRequire(import.meta.url)("jsdom");
 const dom = new JSDOM('<div id="root"></div>', { url: "http://localhost" });
 Object.assign(globalThis, { React, window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true });
 let stage = "PREPARING";
+let linked = true;
+let tabId = "t";
 let confirmations = 0;
 const item = { id:"i", productId:"p", productName:"Produto QA", quantity:1, sentQuantity:1, unitPrice:20, active:true };
 globalThis.fetch = async () => {
  const order = {id:"o",status:stage,sentAt:new Date().toISOString(),items:[],tableNumber:1,tabId:"t"};
- const tab = {id:"t",name:"Cliente QA",openedAt:new Date().toISOString(),openedById:"u",items:[item],orders:[order],linkedOrder:{id:"d",customerName:"Cliente QA"}};
+ const tab = {id:tabId,name:"Cliente QA",openedAt:new Date().toISOString(),openedById:"u",items:[item],orders:[order],linkedOrder:linked ? {id:"d",customerName:"Cliente QA"} : null};
  return Response.json({serviceRate:10,products:[],tables:[{id:"m",number:1,seats:4,tab,tabs:[tab]}],orders:[order],stations:[]});
 };
 const root = createRoot(document.getElementById("root")!);
 const click = async (selector: string) => { await act(async()=>{ (document.querySelector(selector) as HTMLButtonElement).click(); }); };
-const button = (label:string) => [...document.querySelectorAll("button")].find(el=>el.textContent===label)!;
+const button = (label:string) => [...document.querySelectorAll("button")].find(el=>el.textContent?.trim()===label)!;
 try {
  await act(async()=>root.render(<FloorManagement establishmentId="qa" establishmentName="QA" printerDriver="none" mode="salon" canCancelSentItems={false} canReprint={false} onToast={()=>{}} onFinishSale={async()=>{confirmations++;return {ok:false,fiscal:null};}}/>));
  await click(".table-card");
@@ -28,10 +30,17 @@ try {
  await click(".service-waiver input");
  assert.equal((document.querySelector(".service-waiver input") as HTMLInputElement).checked,true);
  stage="READY";
- await act(async()=>button("Atualizar comanda").click());
- assert.ok(document.querySelector(".payment-modal"),"refresh must preserve the open payment dialog");
- assert.equal((document.querySelector(".service-waiver input") as HTMLInputElement).checked,true,"refresh must preserve waiver");
+ await act(async()=>window.dispatchEvent(new dom.window.Event("focus")));
+ assert.ok(document.querySelector(".payment-modal"),"live refresh must preserve the open payment dialog");
+ assert.equal((document.querySelector(".service-waiver input") as HTMLInputElement).checked,true,"live refresh must preserve waiver");
  assert.equal(button("Confirmar pagamento").disabled,false);
  assert.equal(confirmations,0,"opening/refreshing never charges the customer");
+ linked=false;
+ await act(async()=>window.dispatchEvent(new dom.window.Event("focus")));
+ await act(async()=>button("Pagar esta comanda").click());
+ assert.ok(document.querySelector(".payment-modal"));
+ tabId="other-tab";
+ await act(async()=>window.dispatchEvent(new dom.window.Event("focus")));
+ assert.equal(document.querySelector(".payment-modal"),null,"a closed tab must not transfer its checkout to another tab");
  console.log("PASS: linked checkout opens while pending, shows status, blocks confirmation, preserves payment state on refresh and unlocks when ready without creating a sale.");
 } finally { await act(async()=>root.unmount()); dom.window.close(); }

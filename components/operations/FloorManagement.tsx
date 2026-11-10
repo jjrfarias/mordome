@@ -1,5 +1,6 @@
 "use client";
 
+import { useLiveRefresh } from "./useLiveRefresh";
 import { OrderTableDialog } from "./OrderTableDialog";
 import { DeliveryAddition } from "./DeliveryAddition";
 import { kitchenReady } from "@/lib/delivery-workflow";
@@ -7,7 +8,7 @@ import { requiresDelivery } from "@/lib/order-fulfillment";
 
 import { deliveryFinished } from "@/lib/delivery-workflow";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChefHat, ChevronLeft, CircleDollarSign, Clock3, LayoutGrid, Minus, Plus, Printer, Search, ShoppingBag, UtensilsCrossed, X } from "lucide-react";
 import { money, IngredientGroup, SelectedIngredientOption } from "@/lib/domain";
 import { PaymentComposer, serializeCheckout, type SaleCheckout } from "./PaymentComposer";
@@ -32,6 +33,8 @@ const nextStatus: Partial<Record<Order["status"], Order["status"]>> = { RECEIVED
 type ReceiptTemplate = { headerText: string | null; footerText: string | null; showDocument: boolean; paperWidth: number; establishmentDocument: string | null };
 
 export function FloorManagement({ establishmentId, establishmentName, printerDriver, printTemplate, mode, canCancelSentItems, canReprint, onFinishSale, onToast }: { establishmentId: string; establishmentName: string; printerDriver: string; printTemplate?: ReceiptTemplate; mode: "salon" | "kitchen"; canCancelSentItems: boolean; canReprint: boolean; onFinishSale: (items: { id: string; quantity: number }[], checkout: SaleCheckout, table: number, tabId: string) => Promise<{ ok: boolean; fiscal: FiscalPrintInfo; automaticReceipt?: boolean }>; onToast: (message: string) => void }) {
+  const requestVersion = useRef(0);
+  const [syncError, setSyncError] = useState("");
   const [snapshot, setSnapshot] = useState<Snapshot>({ tables: [], orders: [], stations: [] });
   const [products, setProducts] = useState<Product[]>([]);
   const [selectedTabId, setSelectedTabId] = useState<string | null>(null);
@@ -43,31 +46,33 @@ export function FloorManagement({ establishmentId, establishmentName, printerDri
   const [category, setCategory] = useState("Todos");
   const [filter, setFilter] = useState<"Todas" | "Livres" | "Ocupadas">("Todas");
   const [linking, setLinking] = useState(false);
-  const [checkout, setCheckout] = useState(false);
+  const [checkoutTabId, setCheckoutTabId] = useState<string | null>(null);
   const [cancelTarget, setCancelTarget] = useState<TabItem | null>(null);
 
   const load = useCallback(async () => {
-    setLoading(true); setError("");
+    const version = ++requestVersion.current;
     try {
       const [floorResponse, catalogResponse] = await Promise.all([fetch("/api/operations/floor", { cache: "no-store" }), fetch("/api/operations/catalog?channel=FLOOR", { cache: "no-store" })]);
       const floor = await floorResponse.json().catch(() => ({})); const catalog = await catalogResponse.json().catch(() => ({}));
       if (!floorResponse.ok) throw new Error(floor.error ?? "Não foi possível carregar o salão.");
       if (!catalogResponse.ok) throw new Error(catalog.error ?? "Não foi possível carregar o cardápio.");
-      setSnapshot(floor); setProducts(catalog.products ?? []);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível carregar o salão."); }
-    finally { setLoading(false); }
+      if (version !== requestVersion.current) return;
+      setSnapshot(floor); setProducts(catalog.products ?? []); setSyncError("");
+    } catch (cause) { if (version === requestVersion.current) setSyncError(cause instanceof Error ? cause.message : "Não foi possível carregar o salão."); }
+    finally { if (version === requestVersion.current) setLoading(false); }
   }, []);
-  useEffect(() => { void establishmentId; void Promise.resolve().then(load); }, [establishmentId, load]);
+  useEffect(() => () => { requestVersion.current++; }, [establishmentId]);
+  useLiveRefresh(load, establishmentId, !saving);
 
   const mutate = async (payload: object, success: string) => {
-    setSaving(true); setError("");
+    requestVersion.current++; setSaving(true); setError("");
     try { const response = await fetch("/api/operations/floor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }); const data = await response.json().catch(() => ({})); if (!response.ok) throw new Error(data.error ?? "Não foi possível atualizar o salão."); setSnapshot(current => ({ ...data, serviceRate: data.serviceRate ?? current.serviceRate })); if (data.createdTabId) setSelectedTabId(data.createdTabId); onToast(success); return true; }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o salão."); return false; }
     finally { setSaving(false); }
   };
 
   const sendOrder = async (tabId: string, tableNumber: number) => {
-    const knownOrderIds = new Set(snapshot.orders.map(order => order.id)); setSaving(true); setError("");
+    const knownOrderIds = new Set(snapshot.orders.map(order => order.id)); requestVersion.current++; setSaving(true); setError("");
     try {
       const response = await fetch("/api/operations/floor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "SEND_ORDER", tabId }) }); const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível enviar o pedido."); setSnapshot(current => ({ ...data, serviceRate: data.serviceRate ?? current.serviceRate })); onToast("Pedido enviado para a cozinha");
@@ -77,17 +82,19 @@ export function FloorManagement({ establishmentId, establishmentName, printerDri
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível enviar o pedido."); return false; } finally { setSaving(false); }
   };
 
-  if (loading && !snapshot.tables.length) return <div className="page-content"><div className="empty"><span>Carregando salão…</span></div></div>;
-  if (mode === "kitchen") return <KitchenView establishmentId={establishmentId} establishmentName={establishmentName} orders={snapshot.orders} stations={snapshot.stations} saving={saving} error={error} canReprint={canReprint} onToast={onToast} onAdvance={async order => { const status = deliveryFinished(order.delivery?.status) ? "DELIVERED" : nextStatus[order.status]; if (status) await mutate({ action: "CHANGE_ORDER_STATUS", orderId: order.id, status }, `${orderLabel(order)}: ${statusLabels[status]}`); }} />;
+  if (loading) return <div className="page-content"><div className="empty"><span>Carregando salão…</span></div></div>;
+  if (mode === "kitchen") return <KitchenView establishmentId={establishmentId} establishmentName={establishmentName} orders={snapshot.orders} stations={snapshot.stations} saving={saving} error={error || syncError} canReprint={canReprint} onToast={onToast} onAdvance={async order => { const status = deliveryFinished(order.delivery?.status) ? "DELIVERED" : nextStatus[order.status]; if (status) await mutate({ action: "CHANGE_ORDER_STATUS", orderId: order.id, status }, `${orderLabel(order)}: ${statusLabels[status]}`); }} />;
 
   const selectedTable = snapshot.tables.find(table => table.id === selectedId);
   const selected = selectedTable ? { ...selectedTable, tab: selectedTable.tabs?.find(tab => tab.id === selectedTabId) ?? selectedTable.tab } : undefined;
-  if (selected?.tab?.linkedOrder) return <LinkedCommand key={selected.tab.id} error={error} onSelectTab={setSelectedTabId} table={selected} tab={selected.tab} products={products} serviceRate={snapshot.serviceRate ?? 10} onBack={() => setSelectedId(null)} onReload={load} onClose={async checkoutData => {
+  const checkout = Boolean(checkoutTabId && checkoutTabId === selected?.tab?.id);
+  const setCheckout = (open: boolean) => setCheckoutTabId(open ? selected?.tab?.id ?? null : null);
+  if (selected?.tab?.linkedOrder) return <LinkedCommand key={selected.tab.id} error={error || syncError} onSelectTab={setSelectedTabId} table={selected} tab={selected.tab} products={products} serviceRate={snapshot.serviceRate ?? 10} onBack={() => setSelectedId(null)} onReload={load} onClose={async checkoutData => {
     const result = await onFinishSale(selected.tab!.items.map(item => ({ id: item.productId ?? "", quantity: item.quantity })), checkoutData, selected.number, selected.tab!.id);
     if (result.ok) { await load(); setSelectedId(null); onToast("Comanda paga e concluída"); }
     return result.ok;
   }}/>;
-  if (selected) return <CommandView serviceRate={snapshot.serviceRate ?? 10} key={selected.tab?.id ?? selected.id} onSelectTab={id => { setSelectedTabId(id); setCheckout(false); setCancelTarget(null); }} onManageTab={(payload) => mutate(payload, "Comanda atualizada")} table={selected} products={products} query={query} setQuery={setQuery} category={category} setCategory={setCategory} saving={saving} error={error} checkout={checkout} setCheckout={setCheckout} canCancelSentItems={canCancelSentItems} cancelTarget={cancelTarget} setCancelTarget={setCancelTarget} onBack={() => setSelectedId(null)} onAdd={(product, optionSelections, notes) => mutate({ action: "ADD_ITEM", tableId: selected.id, tabId: selected.tab?.id, productId: product.id, selectedOptions: optionSelections, notes }, `${product.name} adicionado`)} onQuantity={(item, quantity) => mutate({ action: "CHANGE_ITEM", tabItemId: item.id, quantity }, quantity === 0 ? "Item removido" : "Quantidade atualizada")} onCancelSent={(item, quantity, reason) => mutate({ action: "CANCEL_SENT_ITEM", tabItemId: item.id, quantity, reason }, `${quantity} item(ns) cancelado(s)`)} onSend={() => selected.tab ? sendOrder(selected.tab.id, selected.number) : Promise.resolve(false)} onClose={async checkoutData => {
+  if (selected) return <CommandView serviceRate={snapshot.serviceRate ?? 10} key={selected.tab?.id ?? selected.id} onSelectTab={id => { setSelectedTabId(id); setCheckout(false); setCancelTarget(null); }} onManageTab={(payload) => mutate(payload, "Comanda atualizada")} table={selected} products={products} query={query} setQuery={setQuery} category={category} setCategory={setCategory} saving={saving} error={error || syncError} checkout={checkout} setCheckout={setCheckout} canCancelSentItems={canCancelSentItems} cancelTarget={cancelTarget} setCancelTarget={setCancelTarget} onBack={() => setSelectedId(null)} onAdd={(product, optionSelections, notes) => mutate({ action: "ADD_ITEM", tableId: selected.id, tabId: selected.tab?.id, productId: product.id, selectedOptions: optionSelections, notes }, `${product.name} adicionado`)} onQuantity={(item, quantity) => mutate({ action: "CHANGE_ITEM", tabItemId: item.id, quantity }, quantity === 0 ? "Item removido" : "Quantidade atualizada")} onCancelSent={(item, quantity, reason) => mutate({ action: "CANCEL_SENT_ITEM", tabItemId: item.id, quantity, reason }, `${quantity} item(ns) cancelado(s)`)} onSend={() => selected.tab ? sendOrder(selected.tab.id, selected.number) : Promise.resolve(false)} onClose={async checkoutData => {
           if (!selected.tab) return false;
           const { ok, fiscal, automaticReceipt } = await onFinishSale(selected.tab.items.map(item => ({ id: item.productId ?? "", quantity: item.quantity })), checkoutData, selected.number, selected.tab.id);
           if (ok) {
@@ -110,7 +117,7 @@ export function FloorManagement({ establishmentId, establishmentName, printerDri
 
   const occupied = snapshot.tables.filter(table => table.tab).length;
   const visible = snapshot.tables.filter(table => filter === "Todas" || (filter === "Livres" ? !table.tab : Boolean(table.tab)));
-  return <div className="page-content">{linking && <OrderTableDialog tables={snapshot.tables} onClose={() => setLinking(false)} onLinked={async (tableId, tabId) => { setLinking(false); await load(); setSelectedId(tableId); setSelectedTabId(tabId); onToast("Pedido vinculado à mesa sem reenviar a produção"); }}/>} {error && <div className="auth-error">{error}</div>}<div className="hero-row"><button className="secondary" onClick={() => setLinking(true)}>Vincular pedido à mesa</button><div><span className="section-kicker">Mapa operacional</span><p>Mesas e comandas sincronizadas com o histórico do sistema.</p></div><button className="primary" onClick={() => setSelectedId(snapshot.tables.find(table => !table.tab)?.id ?? snapshot.tables[0]?.id)}><Plus/> Nova comanda</button></div><div className="stats-row"><div className="stat"><div><LayoutGrid/></div><section><b>{snapshot.tables.length}</b><span>mesas no salão</span></section></div><div className="stat"><div><UtensilsCrossed/></div><section><b>{occupied}</b><span>mesas ocupadas</span></section></div><div className="stat"><div><Clock3/></div><section><b>{snapshot.orders.filter(order => order.status !== "DELIVERED").length}</b><span>pedidos em preparo</span></section></div></div><div className="section-title section-title-rich"><div><span className="room-label">Ambiente 01</span><h2>Salão principal</h2></div><div className="table-filters">{(["Todas", "Livres", "Ocupadas"] as const).map(item => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}<span>{item === "Todas" ? snapshot.tables.length : item === "Livres" ? snapshot.tables.length - occupied : occupied}</span></button>)}</div></div><div className="tables-grid">{visible.map(table => { const tableItems = table.tabs.flatMap(tab => tab.items); const total = tableItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0); return <button key={table.id} className={`table-card ${table.tab ? "ocupada" : "livre"}`} onClick={() => setSelectedId(table.id)}><div className="table-top"><span>Mesa</span><b>{String(table.number).padStart(2, "0")}</b><em>{table.seats} lugares</em></div>{table.area && <span className="table-area-tag">{table.area}</span>}<div className="table-icon"><UtensilsCrossed/></div><div className="table-meta"><span><i />{table.tab ? "Ocupada" : "Livre"}</span><small>{table.tab ? `${table.tabs.length} comanda(s) • ${money(total)}` : "Disponível agora"}</small></div></button>; })}</div></div>;
+  return <div className="page-content">{linking && <OrderTableDialog tables={snapshot.tables} onClose={() => setLinking(false)} onLinked={async (tableId, tabId) => { setLinking(false); await load(); setSelectedId(tableId); setSelectedTabId(tabId); onToast("Pedido vinculado à mesa sem reenviar a produção"); }}/>} {(error || syncError) && <div className="auth-error">{error || syncError}</div>}<div className="hero-row"><button className="secondary" onClick={() => setLinking(true)}>Vincular pedido à mesa</button><div><span className="section-kicker">Mapa operacional</span><p>Mesas e comandas sincronizadas com o histórico do sistema.</p></div><button className="primary" onClick={() => setSelectedId(snapshot.tables.find(table => !table.tab)?.id ?? snapshot.tables[0]?.id)}><Plus/> Nova comanda</button></div><div className="stats-row"><div className="stat"><div><LayoutGrid/></div><section><b>{snapshot.tables.length}</b><span>mesas no salão</span></section></div><div className="stat"><div><UtensilsCrossed/></div><section><b>{occupied}</b><span>mesas ocupadas</span></section></div><div className="stat"><div><Clock3/></div><section><b>{snapshot.orders.filter(order => order.status !== "DELIVERED").length}</b><span>pedidos em preparo</span></section></div></div><div className="section-title section-title-rich"><div><span className="room-label">Ambiente 01</span><h2>Salão principal</h2></div><div className="table-filters">{(["Todas", "Livres", "Ocupadas"] as const).map(item => <button key={item} className={filter === item ? "active" : ""} onClick={() => setFilter(item)}>{item}<span>{item === "Todas" ? snapshot.tables.length : item === "Livres" ? snapshot.tables.length - occupied : occupied}</span></button>)}</div></div><div className="tables-grid">{visible.map(table => { const tableItems = table.tabs.flatMap(tab => tab.items); const total = tableItems.reduce((sum, item) => sum + item.unitPrice * item.quantity, 0); return <button key={table.id} className={`table-card ${table.tab ? "ocupada" : "livre"}`} onClick={() => setSelectedId(table.id)}><div className="table-top"><span>Mesa</span><b>{String(table.number).padStart(2, "0")}</b><em>{table.seats} lugares</em></div>{table.area && <span className="table-area-tag">{table.area}</span>}<div className="table-icon"><UtensilsCrossed/></div><div className="table-meta"><span><i />{table.tab ? "Ocupada" : "Livre"}</span><small>{table.tab ? `${table.tabs.length} comanda(s) • ${money(total)}` : "Disponível agora"}</small></div></button>; })}</div></div>;
 }
 
 function CommandView({ serviceRate, onSelectTab, onManageTab, table, products, query, setQuery, category, setCategory, saving, error, checkout, setCheckout, canCancelSentItems, cancelTarget, setCancelTarget, onBack, onAdd, onQuantity, onCancelSent, onSend, onClose }: { serviceRate: number; onSelectTab: (id: string) => void; onManageTab: (payload: object) => Promise<boolean>; table: Table; products: Product[]; query: string; setQuery: (value: string) => void; category: string; setCategory: (value: string) => void; saving: boolean; error: string; checkout: boolean; setCheckout: (value: boolean) => void; canCancelSentItems: boolean; cancelTarget: TabItem | null; setCancelTarget: (item: TabItem | null) => void; onBack: () => void; onAdd: (product: Product, optionSelections?: { groupId: string; optionIds: string[] }[], notes?: string) => Promise<boolean>; onQuantity: (item: TabItem, quantity: number) => Promise<boolean>; onCancelSent: (item: TabItem, quantity: number, reason: string) => Promise<boolean>; onSend: () => Promise<boolean>; onClose: (checkout: SaleCheckout) => Promise<boolean> }) {
@@ -218,7 +225,6 @@ function LinkedCommand({ error, onSelectTab, table, tab, products, serviceRate, 
   const pendingOrders = tab.orders.filter(order => !kitchenReady(order.status));
   const pending = pendingOrders.length > 0;
   const blockedReason = error || (pending ? `Aguardando a cozinha: ${pendingOrders.map((order, index) => `rodada ${index + 1} — ${statusLabels[order.status]}`).join("; ")}. Marque o preparo como pronto na Cozinha para liberar a confirmação. O status é atualizado automaticamente.` : undefined);
-  useEffect(() => { const timer = setInterval(() => { void onReload(); }, 10000); return () => clearInterval(timer); }, [onReload]);
   return <div className="page-content"><button className="secondary" onClick={onBack}>Voltar às mesas</button><div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginTop: 16 }}>{table.tabs.map(candidate => <button key={candidate.id} className={candidate.id === tab.id ? "primary" : "secondary"} onClick={() => onSelectTab(candidate.id)}>{candidate.name || "Comanda da mesa"}</button>)}</div><h2>Mesa {table.number} · {tab.name}</h2><p>Pedido vinculado à mesa. Os acréscimos entram nesta mesma conta e somente a nova rodada vai para a cozinha.</p>
     <div className="ticket-items">{tab.items.map(item => <div style={{ display: "flex", justifyContent: "space-between", alignItems: "start", gap: 16, padding: "16px 0", borderBottom: "1px solid var(--line)" }} key={item.id}><div style={{ flex: 1, minWidth: 0 }}><b>{item.quantity} × {item.productName}</b><small style={{ display: "block" }}>{item.selectedOptionsSnapshot?.map(option => option.optionName).join(", ")}</small></div><b>{money(item.quantity * item.unitPrice)}</b></div>)}</div>
     <ConferencePrint tabId={tab.id}/><p>Subtotal: <b>{money(total)}</b> · Serviço: {money(Math.round(total * serviceRate) / 100)}</p>
