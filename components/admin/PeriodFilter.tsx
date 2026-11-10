@@ -1,19 +1,20 @@
+import { businessDate, businessDayStart } from "@/lib/business-time";
 // Filtro de período reutilizável (De/Até + atalhos Hoje/Esta semana/Este mês). Extraído do padrão
 // que estava duplicado três vezes em `FinanceManagement.tsx` (Conciliação bancária, Fluxo de caixa
 // e Acertos) — ver ADR 0033. Novas telas com filtro de período (incluindo os relatórios) devem usar
 // este componente em vez de reimplementar `applyShortcut`/inputs de data.
 export function toDateInput(date: Date) {
-  return date.toISOString().slice(0, 10);
+  return businessDate(date);
 }
 
 export function startOfWeek(date: Date) {
-  const result = new Date(date);
-  result.setDate(result.getDate() - result.getDay()); // domingo como início da semana
-  return result;
+  const result = new Date(`${businessDate(date)}T12:00:00Z`);
+  result.setUTCDate(result.getUTCDate() - result.getUTCDay());
+  return businessDayStart(result.toISOString().slice(0, 10));
 }
 
 export function startOfMonth(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), 1);
+  return businessDayStart(`${businessDate(date).slice(0, 7)}-01`);
 }
 
 export type PeriodShortcut = "today" | "week" | "month";

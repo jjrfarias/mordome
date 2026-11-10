@@ -1,3 +1,4 @@
+import { businessHour } from "../business-time.ts";
 // Cálculos puros dos dashboards de "Acompanhamento de vendas" (unidade única) e "Acompanhamento de
 // vendas multilojas" (consolidado da organização). Ver ADR 0042 (dashboards de vendas).
 //
@@ -22,7 +23,7 @@ export function buildHourlyRevenue(sales: SaleRecord[]): HourlyRevenuePoint[] {
   const byHour = new Map<number, HourlyRevenuePoint>();
   for (let hour = 0; hour < 24; hour++) byHour.set(hour, { hour, revenue: 0, salesCount: 0 });
   for (const sale of sales) {
-    const hour = new Date(sale.completedAt).getHours();
+    const hour = businessHour(sale.completedAt);
     const point = byHour.get(hour);
     if (!point) continue;
     point.revenue += sale.total - sale.refunded;

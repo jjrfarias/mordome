@@ -6,7 +6,7 @@ import { listLocalSalesForReport } from "@/lib/local-finance";
 import { DASHBOARDS_CHANNELS_VIEW } from "@/lib/permissions";
 import { buildChannelDailyRevenue, buildChannelKpis, rankChannels } from "@/lib/dashboards/channels";
 import type { SaleRecord } from "@/lib/reports/sales";
-import { defaultMonthRange } from "@/lib/cashflow";
+import { businessMonthRange as defaultMonthRange, businessRange } from "@/lib/business-time";
 
 // Dashboard "Canais" (ADR 0043): diferente de "Acompanhamento de vendas" e "Acompanhamento de
 // vendas multilojas" (ADR 0042, sempre UM dia), este olha para um INTERVALO de dias — mesmo
@@ -18,10 +18,7 @@ function resolveRange(from?: string, to?: string) {
     const { from: defaultFrom, to: defaultTo } = defaultMonthRange();
     return { fromDate: defaultFrom, toDate: defaultTo };
   }
-  const fromDate = new Date(from);
-  const toDate = new Date(to);
-  toDate.setUTCHours(23, 59, 59, 999);
-  return { fromDate, toDate };
+  return businessRange(from, to);
 }
 
 export async function GET(request: Request) {

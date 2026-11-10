@@ -6,7 +6,7 @@ import { listLocalSalesForReport } from "@/lib/local-finance";
 import { DASHBOARDS_SALES_BY_HOUR_VIEW } from "@/lib/permissions";
 import { buildHourlyAverageRevenue, summarizeSalesByHour } from "@/lib/dashboards/sales-by-hour";
 import type { SaleRecord } from "@/lib/reports/sales";
-import { defaultMonthRange } from "@/lib/cashflow";
+import { businessMonthRange as defaultMonthRange, businessRange } from "@/lib/business-time";
 
 // Dashboard "Vendas por Data/Hora" (ADR 0043): mesmo contrato de intervalo `?from=&to=` do
 // dashboard "Canais" — ver justificativa em `lib/dashboards/sales-by-hour.ts`.
@@ -17,10 +17,7 @@ function resolveRange(from?: string, to?: string) {
     const { from: defaultFrom, to: defaultTo } = defaultMonthRange();
     return { fromDate: defaultFrom, toDate: defaultTo };
   }
-  const fromDate = new Date(from);
-  const toDate = new Date(to);
-  toDate.setUTCHours(23, 59, 59, 999);
-  return { fromDate, toDate };
+  return businessRange(from, to);
 }
 
 export async function GET(request: Request) {

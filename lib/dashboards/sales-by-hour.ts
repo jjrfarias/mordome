@@ -1,3 +1,4 @@
+import { businessDate, businessHour } from "../business-time.ts";
 // Cálculo puro do dashboard "Vendas por Data/Hora" (ADR 0043, continuação do ADR 0042).
 // Diferente de `buildHourlyRevenue` em `lib/dashboards/sales-tracking.ts` (faturamento por hora de
 // UM dia), aqui a agregação é sobre um INTERVALO de dias: faturamento MÉDIO por hora do dia,
@@ -26,8 +27,8 @@ export function buildHourlyAverageRevenue(sales: SaleRecord[]): HourlyAveragePoi
   for (let hour = 0; hour < 24; hour++) byHour.set(hour, { hour, totalRevenue: 0, salesCount: 0 });
   const daysObserved = new Set<string>();
   for (const sale of sales) {
-    daysObserved.add(sale.completedAt.slice(0, 10));
-    const hour = new Date(sale.completedAt).getHours();
+    daysObserved.add(businessDate(sale.completedAt));
+    const hour = businessHour(sale.completedAt);
     const point = byHour.get(hour);
     if (!point) continue;
     point.totalRevenue += sale.total - sale.refunded;
@@ -52,7 +53,7 @@ export type SalesByHourKpis = {
 // período — o número que o dono realmente quer ver de relance ("sexta à noite" vira "21h", por
 // exemplo, quando o período cobrir só sextas).
 export function summarizeSalesByHour(sales: SaleRecord[], points: HourlyAveragePoint[]): SalesByHourKpis {
-  const daysObserved = new Set(sales.map(sale => sale.completedAt.slice(0, 10))).size;
+  const daysObserved = new Set(sales.map(sale => businessDate(sale.completedAt))).size;
   const peak = points.reduce<HourlyAveragePoint | null>((best, point) => {
     if (!best || point.averageRevenue > best.averageRevenue) return point;
     return best;

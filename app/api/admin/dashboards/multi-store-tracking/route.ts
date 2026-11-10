@@ -1,3 +1,4 @@
+import { businessDate, businessRange } from "@/lib/business-time";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
@@ -10,11 +11,9 @@ import type { SaleRecord } from "@/lib/reports/sales";
 const querySchema = z.object({ date: z.string().min(1).optional() });
 
 function resolveDay(date?: string) {
-  const base = date ? new Date(`${date}T00:00:00`) : new Date();
-  if (Number.isNaN(base.getTime())) return null;
-  const fromDate = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
-  const toDate = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 23, 59, 59, 999);
-  return { fromDate, toDate };
+  const day = date ?? businessDate();
+  const range = businessRange(day, day);
+  return Number.isFinite(range.fromDate.getTime()) && Number.isFinite(range.toDate.getTime()) ? range : null;
 }
 
 export async function GET(request: Request) {

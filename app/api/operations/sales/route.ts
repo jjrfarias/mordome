@@ -1,3 +1,4 @@
+import { businessDate, businessRange } from "@/lib/business-time";
 import { isMarketplaceOrder } from "@/lib/ifood-import";
 import { payableOrderStage } from "@/lib/order-fulfillment";
 import { syncPosSale, cancelPosReceipts } from "@/lib/pos-finance";
@@ -69,12 +70,7 @@ async function tryEmitFiscalDocument(establishmentId: string, saleId: string, cn
 
 const listQuerySchema = z.object({ from: z.string().min(1).optional(), to: z.string().min(1).optional() });
 
-function todayRange() {
-  const now = new Date();
-  const from = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-  const to = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
-  return { fromDate: from, toDate: to };
-}
+function todayRange() { const today = businessDate(); return businessRange(today, today); }
 
 // Histórico de vendas para cancelamento/reembolso (ADR 0046): lista TODAS as vendas do período
 // (qualquer status), diferente dos relatórios (que só mostram vendas concluídas/parcialmente
@@ -84,7 +80,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const parsed = listQuerySchema.safeParse({ from: url.searchParams.get("from") ?? undefined, to: url.searchParams.get("to") ?? undefined });
   if (!parsed.success) return Response.json({ error: "Período inválido." }, { status: 400 });
-  const { fromDate, toDate } = parsed.data.from && parsed.data.to ? { fromDate: new Date(parsed.data.from), toDate: (() => { const date = new Date(parsed.data.to!); date.setUTCHours(23, 59, 59, 999); return date; })() } : todayRange();
+  const { fromDate, toDate } = parsed.data.from && parsed.data.to ? businessRange(parsed.data.from, parsed.data.to) : todayRange();
   if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) return Response.json({ error: "Período inválido." }, { status: 400 });
 
   if (isLocalAuthEnabled()) {
