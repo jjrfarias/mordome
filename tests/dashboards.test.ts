@@ -28,7 +28,7 @@ const sales: SaleRecord[] = [
 test("agregacao por hora soma faturamento liquido por hora e preserva as 24 horas", () => {
   const hourly = buildHourlyRevenue(sales);
   assert.equal(hourly.length, 24);
-  const hour10 = hourly.find(point => point.hour === new Date(sales[0]!.completedAt).getHours());
+  const hour10 = hourly.find(point => point.hour === 7);
   assert.equal(hour10?.revenue, 100 + (200 - 20));
   assert.equal(hour10?.salesCount, 2);
   const hourWithoutSales = hourly.find(point => point.hour === 3);
@@ -138,11 +138,9 @@ const hourlySales: SaleRecord[] = [
   { id: "h3", completedAt: "2026-09-12T08:00:00.000Z", channel: "POS", table: null, payment: "Dinheiro", subtotal: 30, discount: 0, total: 30, refunded: 0 },
 ];
 
-// Horas esperadas calculadas a partir do fuso horário local do processo (mesma técnica já usada
-// pelo teste de `buildHourlyRevenue` acima), já que `buildHourlyAverageRevenue` agrupa por hora
-// local (`Date.getHours()`), não por hora UTC.
-const busyHour = new Date(hourlySales[0]!.completedAt).getHours();
-const quietHour = new Date(hourlySales[2]!.completedAt).getHours();
+// Horas esperadas em São Paulo, independentemente do fuso do processo.
+const busyHour = 16; // 19h UTC = 16h São Paulo
+const quietHour = 5; // 08h UTC = 05h São Paulo
 const emptyHour = (busyHour + 12) % 24 === quietHour ? (busyHour + 6) % 24 : (busyHour + 12) % 24;
 
 test("vendas por hora: media calculada corretamente sobre multiplos dias, preservando as 24 horas", () => {

@@ -1,3 +1,4 @@
+import { businessDate, businessRange } from "@/lib/business-time";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
@@ -9,15 +10,13 @@ import type { SaleRecord } from "@/lib/reports/sales";
 
 const querySchema = z.object({ date: z.string().min(1).optional() });
 
-// Resolve o dia (00:00:00.000 a 23:59:59.999, hora local do servidor) a partir de `?date=` no
+// Resolve o dia (00:00:00.000 a 23:59:59.999, horário de São Paulo) a partir de `?date=` no
 // formato YYYY-MM-DD, ou hoje por padrão. Diferente do PeriodFilter dos relatórios (intervalo),
 // dashboards sempre olham para UM dia (ADR 0042).
 function resolveDay(date?: string) {
-  const base = date ? new Date(`${date}T00:00:00`) : new Date();
-  if (Number.isNaN(base.getTime())) return null;
-  const fromDate = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 0, 0, 0, 0);
-  const toDate = new Date(base.getFullYear(), base.getMonth(), base.getDate(), 23, 59, 59, 999);
-  return { fromDate, toDate };
+  const day = date ?? businessDate();
+  const range = businessRange(day, day);
+  return Number.isFinite(range.fromDate.getTime()) && Number.isFinite(range.toDate.getTime()) ? range : null;
 }
 
 export async function GET(request: Request) {

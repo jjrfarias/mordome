@@ -1,3 +1,4 @@
+import { businessDate } from "../business-time.ts";
 // Cálculos puros dos relatórios "Vendas por período" e "Faturamento por dia" (ADR 0033). Recebem
 // uma lista normalizada de vendas (`SaleRecord`), a mesma forma seja a origem Prisma (produção) ou
 // o log de auditoria local (modo local, ver `lib/local-finance.ts`), e produzem linhas prontas para
@@ -89,7 +90,7 @@ export type RevenueByDayRow = {
 export function buildRevenueByDayRows(sales: SaleRecord[]): RevenueByDayRow[] {
   const byDay = new Map<string, RevenueByDayRow>();
   for (const sale of sales) {
-    const date = sale.completedAt.slice(0, 10);
+    const date = businessDate(sale.completedAt);
     const row = byDay.get(date) ?? { date, salesCount: 0, gross: 0, discount: 0, net: 0 };
     row.salesCount += 1;
     row.gross += sale.subtotal;

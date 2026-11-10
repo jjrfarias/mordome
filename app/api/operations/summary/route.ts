@@ -1,3 +1,4 @@
+import { businessDate, businessDayStart } from "@/lib/business-time";
 import { MembershipStatus } from "@/generated/prisma/client";
 import { db } from "@/lib/db";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
@@ -14,7 +15,7 @@ async function actor() {
 
 function startOfToday() {
   const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  return businessDayStart(businessDate(now));
 }
 
 export async function GET(request: Request) {

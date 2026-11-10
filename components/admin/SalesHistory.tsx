@@ -63,7 +63,7 @@ export function SalesHistory({ canCancelSales, canRefundSales }: { canCancelSale
           const canAct = sale.status === "COMPLETED" || sale.status === "PARTIALLY_REFUNDED";
           return <article className="settings-row" key={sale.id}>
             <div className="settings-cell">
-              <strong>{new Date(sale.completedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}</strong>
+              <strong>{new Date(sale.completedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" })}</strong>
               <small>{CHANNEL_LABELS[sale.channel] ?? sale.channel} · {sale.itemsCount} item(ns) · {money(sale.total)}</small>
             </div>
             <div className="settings-cell">{paymentLabel(sale.payment) || "—"}</div>
@@ -108,7 +108,7 @@ function CancelSaleModal({ sale, onClose, onDone }: { sale: SaleRow; onClose: ()
     <button className="modal-close" onClick={onClose}><X /></button>
     <span className="modal-icon cancel"><Ban /></span>
     <h2>Cancelar venda</h2>
-    <p>{money(sale.total)} · {new Date(sale.completedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short" })}. O estoque consumido é automaticamente reposto (estorno). Essa ação fica registrada no histórico e não pode ser desfeita.</p>
+    <p>{money(sale.total)} · {new Date(sale.completedAt).toLocaleString("pt-BR", { dateStyle: "short", timeStyle: "short", timeZone: "America/Sao_Paulo" })}. O estoque consumido é automaticamente reposto (estorno). Essa ação fica registrada no histórico e não pode ser desfeita.</p>
     {error && <div className="auth-error">{error}</div>}
     <ReasonSelect category="SALE_CANCEL" value={reason} onChange={setReason} autoFocus />
     <button className="primary wide" disabled={saving || reason.trim().length < 3} onClick={() => void confirm()}>{saving ? "Cancelando…" : "Confirmar cancelamento"}</button>

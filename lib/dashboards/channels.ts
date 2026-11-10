@@ -1,3 +1,4 @@
+import { businessDate } from "../business-time.ts";
 // Cálculo puro do dashboard "Canais" (ADR 0043, continuação do ADR 0042). Diferente de
 // `buildChannelRevenue` em `lib/dashboards/sales-tracking.ts` (composição do canal em UM dia),
 // aqui a análise é ao longo de um INTERVALO de dias: evolução diária por canal, participação
@@ -35,7 +36,7 @@ export function buildChannelDailyRevenue(sales: SaleRecord[]): { channels: strin
   const byDay = new Map<string, ChannelDailyPoint>();
   for (const sale of sales) {
     channelsPresent.add(sale.channel);
-    const date = sale.completedAt.slice(0, 10);
+    const date = businessDate(sale.completedAt);
     const point = byDay.get(date) ?? { date };
     const net = sale.total - sale.refunded;
     point[sale.channel] = (Number(point[sale.channel]) || 0) + net;

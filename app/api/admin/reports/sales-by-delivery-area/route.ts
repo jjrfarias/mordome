@@ -6,7 +6,7 @@ import { listLocalSalesForReport } from "@/lib/local-finance";
 import { REPORTS_SALES_BY_DELIVERY_AREA_VIEW } from "@/lib/permissions";
 import { buildSalesByDeliveryAreaRows, summarizeSalesByDeliveryArea } from "@/lib/reports/sales-by-delivery-area";
 import type { SaleRecord } from "@/lib/reports/sales";
-import { defaultMonthRange } from "@/lib/cashflow";
+import { businessMonthRange as defaultMonthRange, businessRange } from "@/lib/business-time";
 
 const querySchema = z.object({ from: z.string().min(1).optional(), to: z.string().min(1).optional() });
 
@@ -15,10 +15,7 @@ function resolveRange(from?: string, to?: string) {
     const { from: defaultFrom, to: defaultTo } = defaultMonthRange();
     return { fromDate: defaultFrom, toDate: defaultTo };
   }
-  const fromDate = new Date(from);
-  const toDate = new Date(to);
-  toDate.setUTCHours(23, 59, 59, 999);
-  return { fromDate, toDate };
+  return businessRange(from, to);
 }
 
 export async function GET(request: Request) {
