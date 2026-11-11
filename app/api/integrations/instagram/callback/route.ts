@@ -1,3 +1,4 @@
+import { TV_INSTAGRAM_ENABLED } from "@/lib/tv-features";
 import { db } from "@/lib/db";
 import { exchangeInstagramCode, instagramOAuthConfig, logInstagramGrantDiagnostics } from "@/lib/tv-instagram-oauth";
 import { discoverTvInstagramAccounts } from "@/lib/tv-instagram";
@@ -7,6 +8,7 @@ import { encryptTvToken, requireTvAdmin, tvDisplayTokenHash } from "@/lib/tv-ser
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 export async function GET(request: Request) {
+  if (!TV_INSTAGRAM_ENABLED) return new Response(null, { status: 303, headers: { Location: "/", "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } });
   let destination = "/configuracoes/instagram?result=failed";
   let attemptId: string | undefined;
   let stateHash: string | undefined;

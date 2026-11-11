@@ -281,6 +281,8 @@ async function verifyApi() {
   assert.equal(objects.size,0);
   pass('concurrent uploads cannot exceed the per-store file quota');
 
+  const tvFeatures = await request('/api/admin/tv?establishmentId=unit-a1', {cookie:a});
+  if (tvFeatures.json.instagram.configured) {
   const firstToken='TV_TEST_A_WITH_AT_LEAST_20_CHARACTERS';
   await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode:'ok'}));
   await writeFile(path.join(scratch,'graph-requests.jsonl'),'');
@@ -445,6 +447,18 @@ async function verifyApi() {
   await request('/api/admin/tv/instagram?establishmentId=unit-a1',{cookie:a,method:'DELETE'});
   assert.match((await request(cb(abandoned),{cookie:a})).headers.get('location'),/result=failed/);
   pass('OAuth token renewal, expiry without retries and disconnect invalidating pending authorization');
+  } else {
+    for (const suffix of ['', '/authorize', '/confirmation']) {
+      assert.equal((await request('/api/admin/tv/instagram'+suffix+'?establishmentId=unit-a1', {cookie:a,body:{}})).status,503);
+    }
+    await sql.query('UPDATE "TvConfig" SET source=$1 WHERE "establishmentId"=$2',['instagram','unit-a1']);
+    const uploadOnly = await request('/api/admin/tv?establishmentId=unit-a1',{cookie:a});
+    assert.equal(uploadOnly.json.settings.source,'upload');
+    assert.equal(uploadOnly.json.instagram.connected,false);
+    assert.ok(uploadOnly.json.items.every(item=>item.source==='upload'));
+    pass('Instagram paused: connection endpoints blocked and legacy Instagram filter cannot hide uploads');
+  }
+
 
   await sql.query('UPDATE "Establishment" SET active=false WHERE id=$1',['unit-a1']);
   assert.equal((await request(`/api/tv/${displayId}/playlist`,{cookie:deviceCookie})).status,401);

@@ -1,3 +1,4 @@
+import { TV_INSTAGRAM_ENABLED } from "@/lib/tv-features";
 import { randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export async function POST(request: Request) {
   try {
     const scope = await requireTvAdmin(request, true);
+    if (!TV_INSTAGRAM_ENABLED) throw new TvError("A integração com o Instagram está pausada. Envie fotos e vídeos para a TV.", 503);
     const config = instagramOAuthConfig();
     if (request.headers.get("origin") !== config.origin) throw new TvError("Abra o endereço principal do Mordomê para conectar o Instagram.", 409, { canonicalUrl: `${config.origin}/configuracoes/instagram?establishmentId=${encodeURIComponent(scope.establishmentId)}` });
     if (!rateLimit(`tv-oauth:${scope.actorId}`, 10, 600_000).allowed) throw new TvError("Aguarde alguns minutos para tentar novamente.", 429);
