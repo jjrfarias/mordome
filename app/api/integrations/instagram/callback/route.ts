@@ -35,7 +35,7 @@ export async function GET(request: Request) {
       stage = "exchange_code";
       const grant = await exchangeInstagramCode(code);
       stage = "discover_accounts";
-      const accounts = await discoverTvInstagramAccounts(grant.token);
+      const accounts = await discoverTvInstagramAccounts(grant.token, "unified", true);
       stage = "save_authorization";
       const saved = await db.tvInstagramAuthorization.updateMany({ where: { id: attemptId, stateHash, expiresAt: { gt: new Date() } }, data: { encryptedToken: encryptTvToken(grant.token, scope.establishmentId), tokenExpiresAt: grant.expiresAt, clientBusinessId: grant.clientBusinessId, systemUserId: grant.systemUserId, accounts, expiresAt: new Date(Date.now() + 600_000) } });
       if (!saved.count) throw new Error("SUPERSEDED");
