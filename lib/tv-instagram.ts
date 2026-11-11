@@ -34,7 +34,7 @@ async function graph(path: string, token: string, parameters: Record<string, str
   const data = record(payload);
   if (!response.ok || data.error) {
     const code = Number(record(data.error).code);
-    console.warn("instagram_graph_failure", { operation: path === "me/assigned_instagram_accounts" ? "discover_accounts" : path.endsWith("/stories") ? "stories" : "profile", status: response.status, code: code || undefined, subcode: Number(record(data.error).error_subcode) || undefined });
+    console.warn("instagram_graph_failure", { operation: path === "me/assigned_instagram_accounts" ? "discover_accounts" : path.endsWith("/instagram_accounts") ? "business_accounts" : path.endsWith("/stories") ? "stories" : "profile", status: response.status, code: code || undefined, subcode: Number(record(data.error).error_subcode) || undefined });
     if (code === 190 || response.status === 401) throw new TvError("A autorização do Instagram expirou ou foi revogada. Reconecte a conta.", 401);
     if ([4, 17, 32, 613, 80002].includes(code) || response.status === 429) throw new TvError("A Meta limitou as consultas por alguns instantes. A atualização será retomada automaticamente.", 429);
     if ([10, 100, 200].includes(code)) throw new TvError("A Meta não liberou o acesso necessário. Conecte novamente e autorize a conta profissional da loja.");

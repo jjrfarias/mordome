@@ -1,5 +1,5 @@
 import { db } from "@/lib/db";
-import { exchangeInstagramCode, instagramOAuthConfig } from "@/lib/tv-instagram-oauth";
+import { exchangeInstagramCode, instagramOAuthConfig, logInstagramGrantDiagnostics } from "@/lib/tv-instagram-oauth";
 import { discoverTvInstagramAccounts } from "@/lib/tv-instagram";
 import { instagramSessionHash } from "@/lib/tv-instagram-authorization";
 import { encryptTvToken, requireTvAdmin, tvDisplayTokenHash } from "@/lib/tv-server";
@@ -35,7 +35,10 @@ export async function GET(request: Request) {
       stage = "exchange_code";
       const grant = await exchangeInstagramCode(code);
       stage = "discover_accounts";
-      const accounts = await discoverTvInstagramAccounts(grant.token, "unified", grant.clientBusinessId);
+      const accounts = await discoverTvInstagramAccounts(grant.token, "unified", grant.clientBusinessId).catch(async (error: unknown) => {
+        await logInstagramGrantDiagnostics(grant.token);
+        throw error;
+      });
       stage = "save_authorization";
       const saved = await db.tvInstagramAuthorization.updateMany({ where: { id: attemptId, stateHash, expiresAt: { gt: new Date() } }, data: { encryptedToken: encryptTvToken(grant.token, scope.establishmentId), tokenExpiresAt: grant.expiresAt, clientBusinessId: grant.clientBusinessId, systemUserId: grant.systemUserId, accounts, expiresAt: new Date(Date.now() + 600_000) } });
       if (!saved.count) throw new Error("SUPERSEDED");

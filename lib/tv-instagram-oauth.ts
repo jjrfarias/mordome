@@ -53,6 +53,20 @@ export async function exchangeInstagramCode(code: string) {
   if (typeof identity.client_business_id !== "string" || !/^\d{5,30}$/.test(identity.client_business_id) || typeof identity.id !== "string" || !/^\d{5,30}$/.test(identity.id)) throw new TvError("A autorização não incluiu o portfólio empresarial. Tente conectar novamente.");
   return { ...result, clientBusinessId: identity.client_business_id, systemUserId: identity.id, configId: config.configId };
 }
+
+// Diagnose only the grant that failed, without storing or logging credentials or asset IDs.
+export async function logInstagramGrantDiagnostics(token: string) {
+  try {
+    const { appId, appSecret } = instagramOAuthConfig();
+    const url = new URL(`https://graph.facebook.com/${instagramGraphVersion()}/debug_token`);
+    url.searchParams.set("input_token", token);
+    const response = await fetch(url, { headers: { Authorization: `Bearer ${appId}|${appSecret}` }, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(5000) });
+    const payload = await response.json();
+    const data = payload?.data;
+    const scopes: unknown[] = Array.isArray(data?.scopes) ? data.scopes : [];
+    console.warn("instagram_grant_diagnostics", { status: response.status, valid: data?.is_valid === true, sameApp: data?.app_id === appId, systemUser: data?.type === "SYSTEM_USER", instagramBasic: scopes.includes("instagram_basic"), businessManagement: scopes.includes("business_management"), hasAssetTargets: Array.isArray(data?.granular_scopes) && data.granular_scopes.some((scope: { target_ids?: unknown[] }) => Array.isArray(scope?.target_ids) && scope.target_ids.length > 0) });
+  } catch { console.warn("instagram_grant_diagnostics_unavailable"); }
+}
 export async function renewInstagramBusinessToken(token: string, businessId: string, systemUserId: string) {
   if (!/^\d{5,30}$/.test(businessId) || !/^\d{5,30}$/.test(systemUserId)) throw new TvError("Conecte o Instagram novamente.", 401);
   const { appSecret } = instagramOAuthConfig();
