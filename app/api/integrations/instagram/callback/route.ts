@@ -10,6 +10,7 @@ export async function GET(request: Request) {
   let destination = "/configuracoes/instagram?result=failed";
   let attemptId: string | undefined;
   let stateHash: string | undefined;
+  let stage = "validate_state";
   try {
     const config = instagramOAuthConfig();
     const query = new URL(request.url).searchParams;
@@ -28,15 +29,21 @@ export async function GET(request: Request) {
       await db.tvInstagramAuthorization.deleteMany({ where: { id: attemptId, stateHash } });
       destination += "&result=cancelled";
     } else {
+      stage = "validate_code";
       const code = query.get("code") ?? "";
       if (!code || code.length > 8192) throw new Error("INVALID_CODE");
+      stage = "exchange_code";
       const grant = await exchangeInstagramCode(code);
+      stage = "discover_accounts";
       const accounts = await discoverTvInstagramAccounts(grant.token);
+      stage = "save_authorization";
       const saved = await db.tvInstagramAuthorization.updateMany({ where: { id: attemptId, stateHash, expiresAt: { gt: new Date() } }, data: { encryptedToken: encryptTvToken(grant.token, scope.establishmentId), tokenExpiresAt: grant.expiresAt, clientBusinessId: grant.clientBusinessId, systemUserId: grant.systemUserId, accounts, expiresAt: new Date(Date.now() + 600_000) } });
       if (!saved.count) throw new Error("SUPERSEDED");
       destination += "&result=choose";
     }
   } catch {
+    // Fixed stage names only; OAuth codes, tokens and provider errors stay private.
+    console.warn("instagram_oauth_callback_failed", { stage });
     if (attemptId && stateHash) await db.tvInstagramAuthorization.deleteMany({ where: { id: attemptId, stateHash } }).catch(() => undefined);
     destination = destination.split("&result=")[0].replace("?result=failed", "") + (destination.includes("establishmentId=") ? "&result=failed" : "?result=failed");
   }
