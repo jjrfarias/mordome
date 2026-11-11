@@ -497,6 +497,9 @@ model TvPairing {
 }
 
 model TvDisplay {
+  remoteControl   Json          @default("{}")
+  playbackReport  Json          @default("{}")
+  reportedAt      DateTime?
   id              String        @id @default(cuid())
   establishmentId String
   name            String
