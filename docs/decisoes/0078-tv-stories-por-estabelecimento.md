@@ -23,6 +23,10 @@ A prévia `/tv?establishmentId=...` exige sessão administrativa. A programaçã
 
 ## TVs dedicadas
 
+O fluxo principal agora é abrir `/tv` e ativar pelo QR code no celular, com
+login e escolha explícita da loja. Veja [TV pelo navegador](../TV-WEB.md).
+O fluxo de link direto abaixo permanece disponível como alternativa.
+
 O administrador cria um acesso por aparelho e recebe `/tv/<id>#token=...`. O token aleatório
 aparece uma vez e só seu SHA-256 é persistido. O fragmento não é enviado no endereço HTTP;
 o player o troca por cookie HttpOnly, Secure em produção, SameSite=Strict e restrito

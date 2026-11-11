@@ -1,6 +1,10 @@
 # Transmissão da programação para Google TV / Android TV
 
-O painel usa Google Cast Web Sender para abrir o seletor nativo de dispositivos.
+O fluxo principal foi simplificado para [TV pelo navegador](TV-WEB.md).
+O botão Cast foi retirado do painel; o código e as APIs abaixo permanecem para
+compatibilidade, sem serem necessários para ativar uma TV pelo QR code.
+
+A implementação Cast usa Google Cast Web Sender para abrir o seletor nativo de dispositivos.
 O servidor Railway não procura dispositivos na rede local. O Chrome do operador
 e a TV devem estar na mesma rede, com descoberta Google Cast disponível.
 
