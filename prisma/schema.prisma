@@ -455,6 +455,17 @@ model TvStoryPreference {
   @@index([establishmentId, expiresAt])
 }
 
+model TvPairing {
+  id         String   @id @default(cuid())
+  codeHash   String   @unique
+  deviceHash String   @unique
+  expiresAt  DateTime
+  displayId  String?
+  createdAt  DateTime @default(now())
+
+  @@index([expiresAt])
+}
+
 model TvDisplay {
   id              String        @id @default(cuid())
   establishmentId String
