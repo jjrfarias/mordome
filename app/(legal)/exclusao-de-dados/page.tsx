@@ -1,0 +1,24 @@
+import type { Metadata } from "next";
+import Link from "next/link";
+import styles from "../legal.module.css";
+
+export const metadata: Metadata = {
+  title: "Exclusão de dados | Mordomê",
+  description: "Instruções públicas para solicitar a exclusão de dados do Mordomê e desconectar os dados do Instagram e da Meta, mesmo sem acesso à conta.",
+  alternates: { canonical: "https://mordome.jordaoconsultoria.com/exclusao-de-dados" },
+};
+
+export default function DeletionPage() {
+  return <article><h1>Exclusão de dados</h1><p className={styles.updated}>Última atualização: 11 de novembro de 2026.</p><p>Você pode solicitar a exclusão dos seus dados tratados pelo Mordomê, disponibilizado pela Jordão Consultoria, inclusive os dados recebidos por meio da integração com Instagram e Meta.</p>
+    <div className={styles.notice}><strong>Não é necessário estar conectado ao Mordomê.</strong><p>Envie sua solicitação para <a href="mailto:jorgefarias@jordaoconsultoria.com?subject=Solicita%C3%A7%C3%A3o%20de%20exclus%C3%A3o%20de%20dados%20%E2%80%94%20Mordom%C3%AA">jorgefarias@jordaoconsultoria.com</a>, com o assunto <strong>“Solicitação de exclusão de dados — Mordomê”</strong>.</p></div>
+    <h2>1. Como fazer a solicitação</h2><ol><li>Informe seu nome e o e-mail ou usuário associado ao Mordomê, se houver.</li><li>Identifique o estabelecimento relacionado ao pedido. Para dados da Meta, informe o @ do Instagram ou o identificador da conta, se souber.</li><li>Explique o que deseja excluir: dados da integração Instagram/Meta, arquivos enviados para a TV, dados da sua conta ou outros dados pessoais.</li><li>Envie o e-mail e acompanhe a resposta pelo mesmo canal. Caso não saiba os identificadores, descreva sua relação com o serviço para que possamos localizar os dados.</li></ol>
+    <p>Não envie senha, token de acesso, chave secreta ou documentos desnecessários. Se precisarmos confirmar sua identidade ou autorização, solicitaremos apenas as informações necessárias pelo atendimento.</p>
+    <h2>2. Desconectar o Instagram pelo Mordomê</h2><p>Se você possui acesso para gerenciar as integrações da loja, pode remover a conexão ativa diretamente:</p><ol><li>Entre no Mordomê e selecione a loja correta.</li><li>Abra <strong>Configurações → TV / Stories → Gerenciar conexão</strong>.</li><li>Na página do Instagram da loja, clique em <strong>Desconectar Instagram desta loja</strong> e confirme.</li></ol>
+    <p>Essa ação remove do cadastro ativo daquela loja o token e os identificadores da conexão, o cache dos stories, as preferências dos stories e as autorizações pendentes. Interrompe novas consultas dessa conexão. Se a mesma conta estiver conectada a outras lojas, desconecte cada uma ou solicite a exclusão por e-mail informando o alcance desejado.</p>
+    <p><strong>Desconectar não equivale a excluir todos os dados.</strong> Registros de auditoria sobre a conexão podem permanecer; fotos e vídeos enviados separadamente, dados da conta e registros operacionais não são apagados por esse botão. Para solicitar uma exclusão mais ampla, utilize o e-mail acima.</p>
+    <h2>3. Remover arquivos da TV ou revogar uma tela</h2><p>Em <strong>TV / Stories → Sua programação</strong>, um usuário autorizado pode remover os arquivos enviados usando o botão de remoção do respectivo item. Em <strong>TVs vinculadas → Revogar</strong>, pode impedir novos acessos de uma TV. Revogar uma TV não exclui os arquivos da programação. Conteúdo já recebido por dispositivos desconectados não pode ser apagado remotamente pelo Mordomê.</p>
+    <h2>4. Retirar a autorização na Meta</h2><p>Você também pode remover a integração do Mordomê nas configurações de aplicativos ou integrações empresariais da Meta associadas à sua conta ou portfólio. Essa ação revoga o acesso externo; para solicitar a exclusão dos dados já tratados no Mordomê, utilize as opções desta página. Nenhuma dessas ações exclui sua conta, publicações ou stories originais no Instagram ou Facebook.</p>
+    <h2>5. O que acontece após o pedido</h2><p>O atendimento verificará a identidade e o vínculo com os dados, identificará o alcance do pedido e informará as providências e a conclusão pelo e-mail de contato, observando os prazos legais aplicáveis. Quando necessário, a solicitação será tratada com o estabelecimento responsável.</p><p>Dados que precisem ser conservados por obrigação legal, segurança ou exercício de direitos serão avaliados separadamente. A resposta informará eventuais limitações, os motivos de retenção e o prazo aplicável quando determinado. Registros de auditoria, dados fiscais e financeiros e eventuais cópias de segurança podem ter tratamento diferente dos dados ativos da integração.</p>
+    <p>Consulte também a <Link href="/privacidade">Política de Privacidade do Mordomê</Link>. Para dúvidas ou para acompanhar uma solicitação, escreva para <a href="mailto:jorgefarias@jordaoconsultoria.com">jorgefarias@jordaoconsultoria.com</a>.</p>
+  </article>;
+}
