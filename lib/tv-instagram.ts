@@ -1,3 +1,4 @@
+import { instagramGraphVersion } from "@/lib/tv-instagram-oauth";
 import { TvError, type TvPlaylistItem } from "@/lib/tv-model";
 
 type GraphRecord = Record<string, unknown>;
@@ -20,8 +21,7 @@ export function instagramMediaUrl(value: unknown): string | undefined {
 async function graph(path: string, token: string, parameters: Record<string, string> = {}): Promise<GraphRecord> {
   // Paths are constructed from validated IDs. Never follow paging URLs or redirects with a token.
   if (!/^(?:\d{5,30}(?:\/stories)?|me\/(?:assigned_instagram_accounts|accounts))$/.test(path)) throw new TvError("Conta do Instagram inválida.");
-  const configuredVersion = process.env.META_GRAPH_VERSION ?? "";
-  const version = /^v\d+\.\d+$/.test(configuredVersion) ? configuredVersion : "v25.0";
+  const version = instagramGraphVersion();
   const url = new URL(`https://graph.facebook.com/${version}/${path}`);
   for (const [key, value] of Object.entries(parameters)) url.searchParams.set(key, value);
   let response: Response;
@@ -70,34 +70,39 @@ export async function fetchTvStories(accountId: string, token: string): Promise<
   return Array.from(new Map(stories.map(item => [item.id, item])).values()).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-export async function connectTvInstagramAccount(input: { accessToken: string; accountId?: string; accessMode: TvInstagramAccessMode }) {
-  const token = input.accessToken;
-  let accountId = input.accountId || "";
-  if (!accountId) {
+export async function discoverTvInstagramAccounts(token: string, accessMode: TvInstagramAccessMode = "unified") {
     const accounts = new Map<string, { id: string; username: string }>();
     const cursors = new Set<string>();
     let after = "";
     for (let page = 0; page < 10; page++) {
-      const parameters: Record<string, string> = { fields: input.accessMode === "unified" ? "id,username" : "instagram_business_account{id,username}", limit: "100" };
+      const parameters: Record<string, string> = { fields: accessMode === "unified" ? "id,username" : "instagram_business_account{id,username}", limit: "100" };
       if (after) parameters.after = after;
-      const result = await graph(input.accessMode === "unified" ? "me/assigned_instagram_accounts" : "me/accounts", token, parameters);
+      const result = await graph(accessMode === "unified" ? "me/assigned_instagram_accounts" : "me/accounts", token, parameters);
       if (!Array.isArray(result.data)) throw new TvError("A Meta não retornou a lista de contas esperada. Confira o método de conexão.", 502);
       for (const raw of result.data) {
         const item = record(raw);
-        const account = input.accessMode === "unified" ? item : record(item.instagram_business_account);
+        const account = accessMode === "unified" ? item : record(item.instagram_business_account);
         if (typeof account.id === "string" && /^\d{5,30}$/.test(account.id)) accounts.set(account.id, { id: account.id, username: typeof account.username === "string" ? account.username.slice(0, 100) : account.id });
       }
       const paging = record(result.paging);
       const cursor = record(paging.cursors).after;
-      if (!result.data.length || !cursor || (input.accessMode === "facebook" && !paging.next)) break;
+      if (!result.data.length || !cursor || (accessMode === "facebook" && !paging.next)) break;
       if (typeof cursor !== "string" || cursor.length > 2048 || cursors.has(cursor) || page === 9) throw new TvError("Não foi possível listar todas as contas. Informe o ID profissional do Instagram que deseja exibir.");
       cursors.add(cursor);
       after = cursor;
     }
     const unique = [...accounts.values()];
-    if (!unique.length) throw new TvError(input.accessMode === "unified"
+    if (!unique.length) throw new TvError(accessMode === "unified"
       ? "Nenhuma conta do Instagram foi compartilhada com este acesso. Confira o portfólio empresarial, a autorização da conta e a permissão business_management, ou informe o ID autorizado."
       : "Nenhum Instagram profissional vinculado foi encontrado. Confira a Página do Facebook e a permissão pages_show_list, ou informe o ID do Instagram.");
+    return unique;
+}
+
+export async function connectTvInstagramAccount(input: { accessToken: string; accountId?: string; accessMode: TvInstagramAccessMode }) {
+  const token = input.accessToken;
+  let accountId = input.accountId || "";
+  if (!accountId) {
+    const unique = await discoverTvInstagramAccounts(token, input.accessMode);
     if (unique.length > 1) throw new TvError("Escolha a conta do Instagram que será exibida na TV.", 409, { accounts: unique });
     accountId = unique[0].id;
   }

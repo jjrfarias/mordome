@@ -20,6 +20,7 @@ const nextConfig: NextConfig = {
   ...(isDev ? { allowedDevOrigins: ["192.168.1.5"] } : {}),
   async headers() {
     return [
+      // General defaults below are overridden for OAuth responses by the final rule.
       {
         source: "/:path*",
         headers: [
@@ -29,6 +30,13 @@ const nextConfig: NextConfig = {
           { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
           { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains; preload" },
           { key: "Content-Security-Policy", value: contentSecurityPolicy },
+        ],
+      },
+      {
+        source: "/api/integrations/instagram/:path*",
+        headers: [
+          { key: "Referrer-Policy", value: "no-referrer" },
+          { key: "Cache-Control", value: "no-store" },
         ],
       },
     ];

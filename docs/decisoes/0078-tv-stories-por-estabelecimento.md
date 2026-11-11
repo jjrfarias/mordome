@@ -60,6 +60,11 @@ gradualmente após uma hora, no próximo envio.
 
 ## Instagram
 
+O fluxo do cliente passou a usar autorização pela Meta sem token manual. A
+configuração central, requisitos externos e limites estão em
+[Conectar Instagram sem token manual](../INSTAGRAM-OAUTH.md). O texto abaixo
+descreve também a API técnica legada, mantida para compatibilidade.
+
 A conexão é opcional e exige autorização real da conta profissional. O painel permite
 descoberta pelo login unificado (`me/assigned_instagram_accounts`) ou pelo fluxo com
 Página do Facebook (`me/accounts`), e seleção explícita quando há várias contas.

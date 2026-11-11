@@ -417,6 +417,12 @@ model TvConfig {
   instagramUsername            String?
   instagramAccessMode          String?
   instagramEncryptedToken      String?
+  instagramTokenExpiresAt      DateTime?
+  instagramClientBusinessId    String?
+  instagramSystemUserId        String?
+  instagramConfigId            String?
+  instagramReconnectRequired   Boolean       @default(false)
+  instagramTokenRefreshAttemptAt DateTime?
   instagramConnectedAt         DateTime?
   instagramLastAttemptAt       DateTime?
   instagramSyncedAt            DateTime?
@@ -453,6 +459,24 @@ model TvStoryPreference {
 
   @@unique([establishmentId, mediaId])
   @@index([establishmentId, expiresAt])
+}
+
+model TvInstagramAuthorization {
+  id                  String   @id @default(cuid())
+  stateHash           String   @unique
+  sessionHash         String
+  actorId             String
+  organizationId      String
+  establishmentId     String   @unique
+  expiresAt           DateTime
+  callbackUsed        Boolean  @default(false)
+  encryptedToken      String?
+  tokenExpiresAt      DateTime?
+  clientBusinessId    String?
+  systemUserId        String?
+  configId            String
+  accounts            Json     @default("[]")
+  @@index([expiresAt])
 }
 
 model TvPairing {
