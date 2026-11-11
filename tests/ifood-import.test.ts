@@ -98,12 +98,15 @@ test("loja ausente ou ambígua interrompe captura antes de abrir o Mordomê", ()
 
 const newPaymentNotice = "Cobrar do cliente - via iFood\nR$ 38,18\nO iFood já recebeu este valor e vamos repassar para sua\nloja.";
 test("reconhece o aviso completo de repasse do Gestor e recupera extensões antigas", () => {
-  const dom = fixture();
+  const dom = fixture({ quantity: "1", price: "31,20" });
   try {
     const root = dom.window.document.querySelector(".OrderDetails__content");
-    root.innerHTML = root.innerHTML.replace("Pago via iFood, não precisa cobrar na entrega", newPaymentNotice);
+    root.innerHTML = root.innerHTML.replace("11,99", "5,99").replace("69,99", "37,19").replace("Pago via iFood, não precisa cobrar na entrega", "Taxa de serviço\nR$ 0,99\n" + newPaymentNotice);
     const captured = captureIfoodOrder();
     assert.equal(captured.payment, "PAID_ONLINE");
+    assert.equal(captured.subtotalCents, 3719);
+    assert.equal(captured.deliveryFeeCents, 599);
+    assert.equal(captured.items[0].lineTotalCents, 3120);
     const legacy = ifoodCaptureSchema.parse({ ...captured, payment: "UNKNOWN" });
     assert.equal(legacy.payment, "PAID_ONLINE");
     assert.equal(ifoodImportProblem(legacy), null);
