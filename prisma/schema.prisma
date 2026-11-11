@@ -329,6 +329,10 @@ model Organization {
 }
 
 model Establishment {
+  tvConfig TvConfig?
+  tvMedia TvMedia[]
+  tvStoryPreferences TvStoryPreference[]
+  tvDisplays TvDisplay[]
   kitchenPrintAgents KitchenPrintAgent[]
   receiptBatches ReceiptBatch[]
   posReceiptRules PosReceiptRule[]
@@ -397,6 +401,71 @@ model Establishment {
 
   @@unique([organizationId, slug])
   @@index([organizationId, active])
+}
+
+model TvConfig {
+  establishmentId              String        @id
+  brandName                    String?
+  slogan                       String        @default("")
+  instagramHandle              String        @default("")
+  accentColor                  String?
+  imageDuration                Int           @default(8)
+  fit                          String        @default("contain")
+  source                       String        @default("all")
+  muted                        Boolean       @default(true)
+  instagramAccountId           String?
+  instagramUsername            String?
+  instagramAccessMode          String?
+  instagramEncryptedToken      String?
+  instagramConnectedAt         DateTime?
+  instagramLastAttemptAt       DateTime?
+  instagramSyncedAt            DateTime?
+  instagramRefreshLeaseUntil   DateTime?
+  instagramLastError           String?
+  instagramStories             Json          @default("[]")
+  createdAt                    DateTime      @default(now())
+  updatedAt                    DateTime      @updatedAt
+  establishment                Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+}
+
+model TvMedia {
+  id              String        @id @default(cuid())
+  establishmentId String
+  objectKey       String        @unique
+  name            String
+  mimeType        String
+  size            Int
+  enabled         Boolean       @default(true)
+  ready           Boolean       @default(false)
+  createdAt       DateTime      @default(now())
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  @@index([establishmentId, ready, createdAt])
+}
+
+model TvStoryPreference {
+  id              String        @id @default(cuid())
+  establishmentId String
+  mediaId         String
+  enabled         Boolean       @default(true)
+  expiresAt       DateTime
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  @@unique([establishmentId, mediaId])
+  @@index([establishmentId, expiresAt])
+}
+
+model TvDisplay {
+  id              String        @id @default(cuid())
+  establishmentId String
+  name            String
+  tokenHash       String        @unique
+  active          Boolean       @default(true)
+  createdAt       DateTime      @default(now())
+  lastSeenAt      DateTime?
+  establishment   Establishment @relation(fields: [establishmentId], references: [id], onDelete: Cascade)
+
+  @@index([establishmentId, active])
 }
 
 model PrintTemplate {

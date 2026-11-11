@@ -14,6 +14,15 @@ e não representam o estado completo dos módulos operacionais atuais.
 
 Primeira fatia vertical funcional do SaaS para bares e restaurantes. Esta versão demonstra, de ponta a ponta: login, abertura de comanda pela mesa, inclusão de produtos, envio à cozinha, avanço do preparo, fechamento da conta e venda no resumo diário.
 
+## TV / Stories — 10/11/2026
+
+O módulo **Configurações → TV / Stories** integra programação de imagens, vídeos e
+stories à unidade do Mordomê, com acesso por `integrations.manage`, arquivos persistentes
+e links revogáveis por TV. A prévia e cada aparelho ficam vinculados à loja escolhida.
+A conexão real com Instagram requer autorização da conta profissional na Meta.
+Veja a [ADR 0078](docs/decisoes/0078-tv-stories-por-estabelecimento.md) para configuração,
+isolamento, armazenamento, funcionamento dos links e limites.
+
 ## Executar
 
 Requer Node.js 20 ou superior.

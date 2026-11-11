@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { BookOpen, Boxes, Building2, FlaskConical, LayoutGrid, ListTree, Plug, Users, Ban, Clock, Ticket, User, Landmark, ShieldCheck, ClipboardList, FileText, Palette } from "lucide-react";
+import { BookOpen, Boxes, Building2, FlaskConical, LayoutGrid, ListTree, Plug, Users, Ban, Clock, Ticket, User, Landmark, ShieldCheck, ClipboardList, FileText, Palette, Monitor } from "lucide-react";
+import { TvManagement } from "@/components/admin/TvManagement";
 import { BrandingManagement } from "@/components/admin/BrandingManagement";
 import { CatalogManagement } from "@/components/admin/CatalogManagement";
 import { EstablishmentsManagement } from "@/components/admin/EstablishmentsManagement";
@@ -18,7 +19,7 @@ import { FiscalConfigManagement } from "@/components/admin/FiscalConfigManagemen
 import { ProductFiscalManagement } from "@/components/admin/ProductFiscalManagement";
 import { FiscalDocumentsManagement } from "@/components/admin/FiscalDocumentsManagement";
 
-type SettingsSection = "branding" | "catalog" | "inventory" | "recipes" | "establishments" | "users" | "integrations" | "stations" | "salon" | "cancellationReasons" | "workShifts" | "coupons" | "customers" | "cashFronts" | "fiscalConfig" | "productFiscal" | "fiscalDocuments";
+type SettingsSection = "branding" | "catalog" | "inventory" | "recipes" | "establishments" | "users" | "integrations" | "tv" | "stations" | "salon" | "cancellationReasons" | "workShifts" | "coupons" | "customers" | "cashFronts" | "fiscalConfig" | "productFiscal" | "fiscalDocuments";
 
 type SettingsWorkspaceProps = {
   activeEstablishmentId: string;
@@ -62,6 +63,7 @@ export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentNa
       {canManageFiscal && <button className={section === "fiscalDocuments" ? "active" : ""} onClick={() => setSection("fiscalDocuments")}><FileText />Notas fiscais</button>}
       {(canViewUsers || canManageRoles) && <button className={section === "users" ? "active" : ""} onClick={() => setSection("users")}><Users />Equipe e perfis</button>}
       {canManageIntegrations && <button className={section === "integrations" ? "active" : ""} onClick={() => setSection("integrations")}><Plug />Integrações</button>}
+      {canManageIntegrations && <button className={section === "tv" ? "active" : ""} onClick={() => setSection("tv")}><Monitor />TV / Stories</button>}
     </nav>
     {section === "catalog" && canManageCatalog && <CatalogManagement establishmentId={activeEstablishmentId} establishmentName={activeEstablishmentName} />}
     {section === "inventory" && canManageStock && <InventoryManagement establishmentId={activeEstablishmentId} establishmentName={activeEstablishmentName} />}
@@ -77,6 +79,7 @@ export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentNa
     {section === "fiscalDocuments" && canManageFiscal && <FiscalDocumentsManagement />}
     {section === "users" && (canViewUsers || canManageRoles) && <UsersManagement activeEstablishmentId={activeEstablishmentId} canViewUsers={canViewUsers} canCreateUsers={canCreateUsers} canDisableUsers={canDisableUsers} canResetUserPassword={canResetUserPassword} canManageRoles={canManageRoles} onAccessChanged={onChanged} />}
     {section === "integrations" && canManageIntegrations && <IntegrationsManagement activeEstablishmentId={activeEstablishmentId} onChanged={onChanged} />}
+    {section === "tv" && canManageIntegrations && <TvManagement key={activeEstablishmentId} establishmentId={activeEstablishmentId} establishmentName={activeEstablishmentName} />}
     {section === "stations" && canManageCatalog && <StationsManagement activeEstablishmentId={activeEstablishmentId} />}
     {section === "coupons" && canManageCatalog && <CouponsManagement />}
     {section === "customers" && canManageCustomers && <CustomersManagement />}
