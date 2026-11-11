@@ -20,6 +20,12 @@ export const ifoodCaptureSchema = z.object({
 }).superRefine((order, ctx) => {
   const valid = order.provider === "FOOD99" ? /^\d{10,24}$/.test(order.externalId) : z.string().uuid().safeParse(order.externalId).success;
   if (!valid) ctx.addIssue({ code: "custom", path: ["externalId"], message: "Identificador do Gestor inválido" });
+}).transform(order => {
+  // Older installed extensions report UNKNOWN for the newer Gestor payment copy.
+  // Only the complete financial notice is evidence; “via iFood” alone is not.
+  const text = order.sourceText.replace(/\s+/g, " ").trim();
+  const paid = /Pago via iFood, não precisa cobrar na entrega/i.test(text) || /Cobrar do cliente\s*[-–—]\s*via iFood\s*(?:R\$\s*[\d.]+,\d{2}\s*)?O iFood já recebeu este valor e vamos repassar para sua loja\.?/i.test(text);
+  return order.provider !== "FOOD99" && order.payment === "UNKNOWN" && paid ? { ...order, payment: "PAID_ONLINE" as const } : order;
 });
 export type IfoodCapture = z.infer<typeof ifoodCaptureSchema>;
 export const ifoodImportSchema = z.object({ establishmentId: z.string().min(1), confirmed: z.literal(true), order: ifoodCaptureSchema });

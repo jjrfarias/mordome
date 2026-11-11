@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Mordomê — Importar iFood e 99Food",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Lê o pedido aberto no Gestor e abre a conferência no Mordomê.",
   "permissions": ["activeTab", "scripting", "storage"],
   "action": { "default_popup": "popup.html", "default_title": "Importar pedido para o Mordomê" }

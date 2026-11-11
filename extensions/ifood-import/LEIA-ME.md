@@ -56,3 +56,7 @@ Pedidos 99Food aparecem identificados como 99Food. O ID completo é preservado p
 O leitor foi baseado nos detalhes observados no Gestor. Formatos incompletos ou desconhecidos são bloqueados. Pedidos concluídos, cancelados, não aceitos ou já em entrega não são enviados à produção. A validação do primeiro pedido real em preparo ainda depende da disponibilidade de um pedido na loja.
 
 Para atualizar no Edge: remova/desative a versão antiga e use **Carregar sem compactação** na pasta desta versão, ou substitua os arquivos da pasta já instalada e clique em **Recarregar** na extensão. Não instale duas versões ativas ao mesmo tempo. Não é necessário conceder acesso permanente a todos os sites: a leitura acontece apenas ao clicar.
+
+## Versão 0.2.1 — aviso de pagamento recebido pelo iFood
+
+Reconhece o bloco completo “Cobrar do cliente - via iFood” acompanhado do valor e do aviso “O iFood já recebeu este valor e vamos repassar para sua loja”. O texto “via iFood” isolado não confirma pagamento. A conferência e a API do Mordomê também recuperam esse caso quando a extensão instalada ainda informa pagamento desconhecido; após publicar o servidor, basta capturar novamente o pedido. A proteção por identificador único permanece inalterada.
