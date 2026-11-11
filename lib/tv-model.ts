@@ -7,6 +7,7 @@ export type TvPlaylistItem = {
   source: "instagram" | "upload";
   type: "IMAGE" | "VIDEO";
   url: string;
+  guestSubmission?: boolean;
   thumbnailUrl?: string;
   name: string;
   createdAt: string;
@@ -27,6 +28,8 @@ export type TvState = {
   settings: TvSettings;
   instagram: { connected: boolean; username: string | null; error: string | null; lastSync: string | null; configured: boolean };
   storage: { configured: boolean };
+  guestUploads?: { enabled: boolean; path: string };
+  submissions?: TvPlaylistItem[];
   items: TvPlaylistItem[];
   displays?: { id: string; name: string; createdAt: string; lastSeenAt: string | null }[];
 };

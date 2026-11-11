@@ -405,6 +405,8 @@ model Establishment {
 
 model TvConfig {
   establishmentId              String        @id
+  guestCode                    String        @unique @default(cuid())
+  guestUploadsEnabled          Boolean       @default(true)
   brandName                    String?
   slogan                       String        @default("")
   instagramHandle              String        @default("")
@@ -437,6 +439,10 @@ model TvConfig {
 model TvMedia {
   id              String        @id @default(cuid())
   establishmentId String
+  guestSubmission Boolean       @default(false)
+  approved        Boolean       @default(true)
+  consentAt       DateTime?
+  consentVersion  String?
   objectKey       String        @unique
   name            String
   mimeType        String

@@ -14,6 +14,7 @@ const settingsSchema = z.object({
   fit: z.enum(["contain", "cover"]),
   source: z.enum(["all", "instagram", "upload"]),
   muted: z.boolean(),
+  guestUploadsEnabled: z.boolean(),
 }).strict().partial().refine(value => Object.keys(value).length > 0);
 
 export async function GET(request: Request) {

@@ -281,6 +281,56 @@ async function verifyApi() {
   assert.equal(objects.size,0);
   pass('concurrent uploads cannot exceed the per-store file quota');
 
+  const guestState = (await request('/api/admin/tv?establishmentId=unit-a1',{cookie:a})).json;
+  const guestCode = guestState.guestUploads.path.split('/').pop();
+  const guestEndpoint = '/api/tv/guest/'+guestCode;
+  const guestHeaders = {'Content-Type':'image/png','X-File-Name':'customer.png','X-File-Size':String(png.length),'X-TV-Consent':'tv-guest-v1'};
+  const sendGuest = (headers={}) => request(guestEndpoint,{method:'POST',raw:png,headers:{...guestHeaders,...headers}});
+  assert.equal((await request('/tv/enviar/'+guestCode)).status,200);
+  assert.equal((await sendGuest({'X-TV-Consent':''})).status,400);
+  assert.equal((await sendGuest({Origin:'https://other.invalid'})).status,403);
+  assert.equal((await sendGuest()).status,201);
+  const queue = (await request('/api/admin/tv?establishmentId=unit-a1',{cookie:a})).json;
+  assert.equal(queue.submissions.length,1);
+  const guestPending = queue.submissions[0];
+  assert.ok(!queue.items.some(row=>row.id===guestPending.id));
+  assert.equal((await request(guestPending.url)).status,401);
+  assert.equal((await request(guestPending.url,{cookie:b})).status,404);
+  assert.deepEqual((await request(guestPending.url,{cookie:a})).bytes,png);
+  const pendingDisplayUrl=`/api/tv/${displayId}/media/${guestPending.id}`;
+  assert.equal((await request(pendingDisplayUrl,{cookie:deviceCookie})).status,404);
+  const displayPending = (await request(`/api/tv/${displayId}/playlist`,{cookie:deviceCookie})).json;
+  assert.ok(!displayPending.items.some(row=>row.id===guestPending.id));
+  assert.equal(displayPending.submissions,undefined);
+  assert.equal((await request('/api/admin/tv/items?establishmentId=unit-a1',{cookie:a,method:'PATCH',body:{id:guestPending.id,enabled:true}})).status,404);
+  const approve = (cookie,unit='unit-a1') => request('/api/admin/tv/submissions?establishmentId='+unit,{cookie,method:'PATCH',body:{id:guestPending.id}});
+  assert.equal((await approve(undefined)).status,401);
+  assert.equal((await approve(viewer)).status,403);
+  assert.equal((await approve(b,'unit-b1')).status,404);
+  assert.equal((await approve(a)).status,200);
+  assert.equal((await approve(a)).status,404);
+  assert.deepEqual((await request(pendingDisplayUrl,{cookie:deviceCookie})).bytes,png);
+  assert.ok((await request(`/api/tv/${displayId}/playlist`,{cookie:deviceCookie})).json.items.some(row=>row.id===guestPending.id));
+  const consentRow=(await sql.query('SELECT "consentAt","consentVersion" FROM "TvMedia" WHERE id=$1',[guestPending.id])).rows[0];
+  assert.ok(consentRow.consentAt);assert.equal(consentRow.consentVersion,'tv-guest-v1');
+  assert.equal((await request('/api/admin/tv?establishmentId=unit-a1',{cookie:a,method:'PATCH',body:{guestUploadsEnabled:false}})).status,200);
+  assert.equal((await sendGuest()).status,410);
+  assert.equal((await request(`/api/tv/${displayId}/playlist`,{cookie:deviceCookie})).json.guestUploads.enabled,false);
+  await request('/api/admin/tv?establishmentId=unit-a1',{cookie:a,method:'PATCH',body:{guestUploadsEnabled:true}});
+  assert.equal((await sendGuest()).status,201);
+  const rejected=(await request('/api/admin/tv?establishmentId=unit-a1',{cookie:a})).json.submissions[0];
+  assert.equal((await request('/api/admin/tv/items?establishmentId=unit-a1',{cookie:a,method:'DELETE',body:{id:rejected.id}})).status,200);
+  assert.equal((await request(rejected.url,{cookie:a})).status,404);
+  await request('/api/admin/tv/items?establishmentId=unit-a1',{cookie:a,method:'DELETE',body:{id:guestPending.id}});
+  pass('guest uploads: consent, origin, private moderation, tenant isolation, direct-media denial, approval, rejection and pause');
+  for (let index=0;index<19;index++) await sql.query('INSERT INTO "TvMedia" (id,"establishmentId","objectKey",name,"mimeType",size,ready,"guestSubmission",approved,enabled) VALUES ($1,$2,$1,$1,$3,$4,true,true,false,false)',[`pending-quota-${index}`,'unit-a1','image/png',png.length]);
+  const pendingQuota=await Promise.all([sendGuest(),sendGuest()]);
+  assert.deepEqual(pendingQuota.map(r=>r.status).sort(),[201,429]);
+  assert.equal((await sql.query('SELECT count(*)::int AS count FROM "TvMedia" WHERE "establishmentId"=$1 AND "approved"=false',['unit-a1'])).rows[0].count,20);
+  await sql.query('DELETE FROM "TvMedia" WHERE "establishmentId"=$1 AND approved=false',['unit-a1']);
+  pass('concurrent guest uploads cannot exceed the 20-file moderation queue');
+
+
   const tvFeatures = await request('/api/admin/tv?establishmentId=unit-a1', {cookie:a});
   if (tvFeatures.json.instagram.configured) {
   const firstToken='TV_TEST_A_WITH_AT_LEAST_20_CHARACTERS';
@@ -465,6 +515,7 @@ async function verifyApi() {
   await sql.query('UPDATE "Establishment" SET active=true WHERE id=$1',['unit-a1']);
   await sql.query('UPDATE "Organization" SET active=false WHERE id=$1',['org-a']);
   assert.equal((await request(`/api/tv/${displayId}/playlist`,{cookie:deviceCookie})).status,401);
+  assert.equal((await sendGuest()).status,404);
   await sql.query('UPDATE "Organization" SET active=true WHERE id=$1',['org-a']);
   assert.equal((await request(`/api/tv/${displayId}/playlist`,{cookie:deviceCookie})).status,200);
   pass('inactive stores and organizations immediately invalidate display access');
