@@ -18,7 +18,7 @@ export function instagramGraphVersion() { return /^v\d+\.\d+$/.test(process.env.
 export function instagramAuthorizationUrl(state: string) {
   const config = instagramOAuthConfig();
   const url = new URL("https://www.facebook.com/dialog/oauth");
-  url.search = new URLSearchParams({ client_id: config.appId, config_id: config.configId, redirect_uri: config.redirectUri, response_type: "code", prompt: "login", state }).toString();
+  url.search = new URLSearchParams({ client_id: config.appId, config_id: config.configId, redirect_uri: config.redirectUri, response_type: "code", override_default_response_type: "true", prompt: "login", state }).toString();
   return url.toString();
 }
 
@@ -27,6 +27,8 @@ async function metaJson(url: URL, init: RequestInit = {}): Promise<Record<string
     const response = await fetch(url, { ...init, redirect: "error", cache: "no-store", signal: AbortSignal.timeout(15000) });
     const data = await response.json();
     if (!response.ok || !data || typeof data !== "object" || Array.isArray(data) || data.error) {
+      // Only numeric provider diagnostics: never log URLs, payloads or credentials.
+      console.warn("instagram_oauth_provider_failure", { operation: url.pathname.endsWith("/oauth/access_token") ? "code_exchange" : "business_identity", status: response.status, code: Number(data?.error?.code) || undefined, subcode: Number(data?.error?.error_subcode) || undefined });
       if (Number(data?.error?.code) === 190) throw new TvError("A autorização do Instagram expirou ou foi revogada. Conecte novamente.", 401);
       throw new TvError("Não foi possível concluir a autorização na Meta. Tente conectar novamente.", 502);
     }

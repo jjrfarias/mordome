@@ -350,6 +350,7 @@ async function verifyApi() {
     assert.equal(url.searchParams.get('config_id'),'987654321');
     assert.equal(url.searchParams.get('redirect_uri'),origin+'/api/integrations/instagram/callback');
     assert.equal(url.searchParams.get('response_type'),'code');
+    assert.equal(url.searchParams.get('override_default_response_type'),'true');
     assert.ok(!url.toString().includes(env.META_APP_SECRET));
     return url.searchParams.get('state');
   }
