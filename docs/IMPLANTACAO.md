@@ -10,6 +10,15 @@
 - Schema: Prisma; migrações versionadas em `prisma/migrations`.
 - Health check: `GET /api/health`.
 
+## Armazenamento da TV / Stories (10/11/2026)
+
+O projeto também contém o bucket S3 privado `mordome-tv` em `ams`. O serviço `web` recebe
+`TV_S3_ENDPOINT`, `TV_S3_BUCKET`, `TV_S3_REGION`, `TV_S3_ACCESS_KEY_ID` e
+`TV_S3_SECRET_ACCESS_KEY` por referências ao bucket, e `TV_S3_FORCE_PATH_STYLE=false`
+para o endpoint virtual-host atual. Arquivos são servidos pelas APIs autenticadas, sem
+expor o bucket. Segredos permanecem no Railway; `.env.example` contém apenas nomes e
+referências. A migration aditiva de TV segue o pre-deploy existente. Detalhes na ADR 0078.
+
 ## Processo de deploy
 
 O Railpack executa `npm run build`. Antes de iniciar uma nova versão, a Railway executa `npm run db:deploy`; se a migração falhar, o deploy não prossegue. A aplicação inicia com `npm start` e só é considerada saudável quando `/api/health` responde com HTTP 2xx.

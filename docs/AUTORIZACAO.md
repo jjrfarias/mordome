@@ -1,5 +1,14 @@
 # Autorização e perfis personalizados
 
+## TV / Stories
+
+Configuração, prévia administrativa, conexão Instagram, envio/remoção de conteúdo e
+criação/revogação de TVs usam `integrations.manage`, sempre com estabelecimento explícito
+entre os acessos do usuário. Não se concede nova permissão por migração. A credencial
+dedicada de `TvDisplay` só consulta a programação daquela unidade; não é uma sessão de
+usuário nem autoriza outras APIs. Revogação e estado ativo da unidade/organização são
+verificados no servidor. Ver [ADR 0078](decisoes/0078-tv-stories-por-estabelecimento.md).
+
 ## Modelo decidido
 
 O Mordomê usa RBAC com escopo e exceções individuais. Perfis fixos podem existir como modelos iniciais, mas a organização pode criar perfis próprios.

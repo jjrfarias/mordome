@@ -15,6 +15,7 @@ Esta pasta é a fonte de verdade funcional e técnica do produto. Toda mudança 
 | [IMPLANTACAO.md](IMPLANTACAO.md) | Ambientes, serviços, deploy, banco e operação |
 | [Impressão automática da cozinha](decisoes/0069-impressao-automatica-cozinha.md) | Agente Windows, fila persistente e recuperação |
 | [Comandas por nome](decisoes/0070-comandas-por-nome.md) | Contas e pagamentos independentes na mesma mesa |
+| [TV / Stories](decisoes/0078-tv-stories-por-estabelecimento.md) | Programação por loja, Instagram e links revogáveis para televisores |
 | [HANDOFF-GPT-5.3.md](HANDOFF-GPT-5.3.md) | Estado completo, restrições e próxima tarefa para continuidade por outro modelo |
 | [IDENTIDADE-VISUAL.md](IDENTIDADE-VISUAL.md) | Marca, tokens e regras de interface |
 | [ROTEIROS-VIDEOS.md](ROTEIROS-VIDEOS.md) | Roteiros institucionais do SaaS e da apresentação personalizada da Família Betão |

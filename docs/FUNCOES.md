@@ -1,5 +1,16 @@
 # Catálogo funcional
 
+## TV / Stories — ADR 0078
+
+- Configurações → TV / Stories, autorizada por `integrations.manage` e pelo acesso à unidade.
+- Playlist por loja com stories autorizados da conta profissional, fotos e vídeos próprios.
+- Loop, duração de imagens, ajuste à tela, som, pausa, tela cheia e atualização a cada minuto.
+- Nome, frase, perfil e cor configuráveis; logo herdado da unidade/organização.
+- Link dedicado por TV, com credencial somente de leitura e revogação pelo administrador.
+- Arquivos em bucket privado persistente, até 30 MB cada, 100 arquivos/1 GB por loja.
+- Instagram exige configuração/consentimento real na Meta; o módulo não conecta uma conta
+  automaticamente. Ver [ADR 0078](decisoes/0078-tv-stories-por-estabelecimento.md).
+
 ## Organização e estabelecimentos — primeira fatia implementada
 
 - Criar e editar dados da organização.
