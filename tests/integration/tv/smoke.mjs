@@ -331,6 +331,41 @@ async function verifyApi() {
   pass('concurrent guest uploads cannot exceed the 20-file moderation queue');
 
 
+  const remoteEndpoint=`/api/admin/tv/remote?establishmentId=unit-a1&displayId=${displayId}`;
+  const deviceRemote=`/api/tv/${displayId}/remote`;
+  const remoteFiles=[];
+  for (const name of ['remote-a.png','remote-b.png']) {
+    const upload=await request('/api/admin/tv/uploads?establishmentId=unit-a1',{cookie:a,method:'POST',raw:png,headers:{'Content-Type':'image/png','X-File-Name':name,'X-File-Size':String(png.length)}});
+    assert.equal(upload.status,201);remoteFiles.push(upload.json.item.id);
+  }
+  assert.equal((await request(remoteEndpoint)).status,401);
+  assert.equal((await request(remoteEndpoint,{cookie:b})).status,404);
+  assert.equal((await request(remoteEndpoint,{cookie:viewer})).status,403);
+  assert.equal((await request(remoteEndpoint,{cookie:a,body:{action:'next'},headers:{Origin:'https://other.invalid'}})).status,403);
+  assert.equal((await request(remoteEndpoint,{cookie:a,body:{action:'volume',value:2}})).status,400);
+  const report={itemId:remoteFiles[0],playing:true,muted:true,volume:1,position:0,appliedVersion:0,navigationVersion:0,audioBlocked:false};
+  assert.equal((await request(deviceRemote,{cookie:a,body:report})).status,401);
+  assert.equal((await request(deviceRemote,{cookie:deviceCookie,body:{...report,action:'next'}})).status,400);
+  assert.equal((await request(deviceRemote,{cookie:deviceCookie,body:report})).status,200);
+  const moves=await Promise.all([request(remoteEndpoint,{cookie:a,body:{action:'next'}}),request(remoteEndpoint,{cookie:a,body:{action:'next'}})]);
+  assert.ok(moves.every(r=>r.status===200));
+  const moved=(await request(remoteEndpoint,{cookie:a})).json;
+  assert.equal(moved.control.version,2);assert.equal(moved.control.itemId,remoteFiles[0]);
+  const pause=(await request(remoteEndpoint,{cookie:a,body:{action:'play',value:false}})).json.control;
+  assert.equal(pause.playing,false);assert.equal(pause.navigationVersion,2);
+  const volume=(await request(remoteEndpoint,{cookie:a,body:{action:'volume',value:.35}})).json.control;
+  assert.equal(volume.volume,.35);assert.equal(volume.muted,false);
+  const heartbeat=(await request(deviceRemote,{cookie:deviceCookie,body:report})).json;
+  assert.equal(heartbeat.control.version,volume.version);
+  const confirmedReport={...report,playing:false,muted:false,volume:.35,appliedVersion:volume.version,navigationVersion:volume.navigationVersion};
+  assert.equal((await request(deviceRemote,{cookie:deviceCookie,body:confirmedReport})).status,200);
+  const confirmed=(await request(remoteEndpoint,{cookie:a})).json;
+  assert.equal(confirmed.report.playing,false);assert.equal(confirmed.report.volume,.35);assert.ok(confirmed.reportedAt);
+  assert.equal((await request(deviceRemote,{cookie:deviceCookie,body:{...confirmedReport,appliedVersion:9999}})).status,400);
+  assert.equal((await request(`/api/admin/tv/remote?establishmentId=unit-b1&displayId=${displayB.json.id}`,{cookie:b})).json.control.version,0);
+  for (const id of remoteFiles) await request('/api/admin/tv/items?establishmentId=unit-a1',{cookie:a,method:'DELETE',body:{id}});
+  pass('remote TV: permissions, same-origin, scoped device reports, concurrent next, pause, volume, acknowledgement and independent screens');
+
   const tvFeatures = await request('/api/admin/tv?establishmentId=unit-a1', {cookie:a});
   if (tvFeatures.json.instagram.configured) {
   const firstToken='TV_TEST_A_WITH_AT_LEAST_20_CHARACTERS';
@@ -525,7 +560,9 @@ async function verifyApi() {
   assert.equal((await request(`/api/tv/${displayId}/playlist`,{cookie:deviceCookie})).status,401);
   assert.equal((await request(`/api/tv/${displayId}/session`,{body:{token}})).status,401);
   assert.equal((await request(displayMedia,{cookie:deviceCookie})).status,401);
-  pass('revocation immediately blocks playlist, media and pairing with previous token');
+  assert.equal((await request(deviceRemote,{cookie:deviceCookie,body:report})).status,401);
+  assert.equal((await request(remoteEndpoint,{cookie:a,body:{action:'play',value:true}})).status,404);
+  pass('revocation immediately blocks playlist, media, remote control and pairing with previous token');
 }
 
 try {

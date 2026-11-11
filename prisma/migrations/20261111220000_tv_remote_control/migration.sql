@@ -1,0 +1,1 @@
+ALTER TABLE "TvDisplay" ADD COLUMN "remoteControl" JSONB NOT NULL DEFAULT '{}', ADD COLUMN "playbackReport" JSONB NOT NULL DEFAULT '{}', ADD COLUMN "reportedAt" TIMESTAMP(3);

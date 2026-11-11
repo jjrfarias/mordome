@@ -5,6 +5,7 @@ import { Maximize2, Monitor, Pause, Play, Repeat2, SkipBack, SkipForward, Volume
 import type { TvPlaylistItem, TvState } from "@/lib/tv-model";
 import styles from "./tv.module.css";
 import QRCode from "qrcode";
+import type { TvPlaybackReport, TvRemoteControl } from "@/lib/tv-remote-model";
 
 type WakeLock = { release: () => Promise<void> };
 type WakeNavigator = Navigator & { wakeLock?: { request: (kind: "screen") => Promise<WakeLock> } };
@@ -13,7 +14,7 @@ function InstagramIcon({ size = 24 }: { size?: number }) {
   return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r=".8" fill="currentColor" stroke="none"/></svg>;
 }
 
-function StoryMedia({ item, playing, muted, duration, next, fail, progress, onReady }: { item: TvPlaylistItem; playing: boolean; muted: boolean; duration: number; next: () => void; fail: (message: string) => void; progress: (value: number) => void; onReady: () => void }) {
+function StoryMedia({ item, playing, muted, volume, duration, next, fail, progress, onReady, onMediaStatus }: { item: TvPlaylistItem; playing: boolean; muted: boolean; volume: number; duration: number; next: () => void; fail: (message: string) => void; progress: (value: number) => void; onReady: () => void; onMediaStatus: (position: number, blocked: boolean, running?: boolean) => void }) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const elapsed = useRef(0);
@@ -44,14 +45,18 @@ function StoryMedia({ item, playing, muted, duration, next, fail, progress, onRe
     if (!video || item.type !== "VIDEO") return;
     let cancelled = false;
     video.muted = muted;
-    if (!playing) video.pause();
-    else video.play().then(() => { if (!cancelled) setBlocked(false); }).catch((cause: unknown) => {
+    video.volume = volume;
+    if (!playing) { video.pause(); onMediaStatus(video.currentTime, false, false); }
+    else video.play().then(() => { if (!cancelled) { setBlocked(false); onMediaStatus(video.currentTime, false, true); } }).catch((cause: unknown) => {
       if (cancelled) return;
       if (cause instanceof DOMException && cause.name === "NotSupportedError") fail("Este navegador não reproduziu um vídeo. A programação continua com o próximo arquivo.");
-      else setBlocked(true);
+      else {
+        setBlocked(true); onMediaStatus(video.currentTime, true);
+        if (!muted) { video.muted = true; void video.play().then(() => onMediaStatus(video.currentTime, true, true)).catch(() => {}); }
+      }
     });
     return () => { cancelled = true; };
-  }, [item.type, muted, playing, fail]);
+  }, [item.type, muted, volume, playing, fail, onMediaStatus]);
 
   useEffect(() => {
     if (item.type !== "VIDEO" || !playing || blocked) return;
@@ -66,10 +71,10 @@ function StoryMedia({ item, playing, muted, duration, next, fail, progress, onRe
   }, [blocked, fail, item.type, playing]);
 
   if (item.type === "IMAGE") return <img ref={imageRef} className={styles.storyMedia} src={item.url} alt={item.name} onLoad={() => { setReady(true); progress(0); onReady(); }} onError={() => fail("Uma imagem não pôde ser carregada. Tentaremos novamente em instantes.")} />;
-  return <><video ref={videoRef} className={styles.storyMedia} src={item.url} poster={item.thumbnailUrl || undefined} muted={muted} autoPlay={playing} playsInline preload="auto" aria-label={item.name} onCanPlay={() => { setReady(true); onReady(); }} onEnded={next} onError={() => fail("Um vídeo não pôde ser carregado. Tentaremos novamente em instantes.")} onTimeUpdate={event => { const video = event.currentTarget; if (Number.isFinite(video.duration) && video.duration > 0) progress(video.currentTime / video.duration * 100); }} />{blocked && <button type="button" className={styles.startVideo} onClick={() => { void videoRef.current?.play().then(() => setBlocked(false)).catch(() => fail("O navegador não conseguiu iniciar este vídeo.")); }}><Play size={24} fill="currentColor" />Reproduzir vídeo</button>}</>;
+  return <><video ref={videoRef} className={styles.storyMedia} src={item.url} poster={item.thumbnailUrl || undefined} muted={muted} autoPlay={playing} playsInline preload="auto" aria-label={item.name} onCanPlay={() => { setReady(true); onReady(); }} onEnded={next} onError={() => fail("Um vídeo não pôde ser carregado. Tentaremos novamente em instantes.")} onTimeUpdate={event => { const video = event.currentTarget; onMediaStatus(video.currentTime, blocked, !video.paused); if (Number.isFinite(video.duration) && video.duration > 0) progress(video.currentTime / video.duration * 100); }} />{blocked && playing && <button type="button" className={styles.startVideo} onClick={() => { if (videoRef.current) { videoRef.current.muted = muted; videoRef.current.volume = volume; } void videoRef.current?.play().then(() => { setBlocked(false); onMediaStatus(videoRef.current?.currentTime || 0, false, true); }).catch(() => fail("O navegador não conseguiu iniciar este vídeo.")); }}><Play size={24} fill="currentColor" />{muted ? "Toque para iniciar o vídeo" : "Toque para liberar o som"}</button>}</>;
 }
 
-export function TvPlayer({ state, embedded = false, notice = "" }: { state: TvState; embedded?: boolean; notice?: string }) {
+export function TvPlayer({ state, embedded = false, notice = "", remote, hideControls = false, onPlayback }: { state: TvState; embedded?: boolean; notice?: string; remote?: TvRemoteControl; hideControls?: boolean; onPlayback?: (report: TvPlaybackReport) => void }) {
   const [guestQr, setGuestQr] = useState("");
   useEffect(() => {
     let cancelled = false;
@@ -78,6 +83,12 @@ export function TvPlayer({ state, embedded = false, notice = "" }: { state: TvSt
     }
     return () => { cancelled = true; };
   }, [state.guestUploads?.enabled, state.guestUploads?.path]);
+  const remoteApplied = useRef(-1);
+  const mediaStatus = useRef({ position: 0, blocked: false, running: false });
+  const [appliedVersion, setAppliedVersion] = useState(0);
+  const [navigationVersion, setNavigationVersion] = useState(0);
+  const [volume, setVolume] = useState(1);
+  const onMediaStatus = useCallback((position: number, blocked: boolean, running = false) => { mediaStatus.current = { position, blocked, running }; }, []);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [cycle, setCycle] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -92,13 +103,33 @@ export function TvPlayer({ state, embedded = false, notice = "" }: { state: TvSt
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const playbackRef = useRef<{ items: TvPlaylistItem[]; index: number }>({ items: [], index: 0 });
   const fullscreen = !embedded || expanded;
-  const muted = mutedOverride ?? state.settings.muted;
+  const muted = remote?.muted ?? mutedOverride ?? state.settings.muted;
   const brandName = state.branding.name || state.establishment.name;
   const handle = (state.branding.instagramHandle || state.instagram.username || "").replace(/^@/, "");
   const duration = Math.min(60, Math.max(3, state.settings.imageDuration || 8));
   const available = useMemo(() => state.items.filter(item => item.enabled && (state.settings.source === "all" || item.source === state.settings.source) && (!item.expiresAt || new Date(item.expiresAt).getTime() > now) && (!failed[item.id] || failed[item.id] <= now)), [failed, now, state.items, state.settings.source]);
   const index = Math.max(0, available.findIndex(item => item.id === activeId));
   const current = available[index];
+  useEffect(() => {
+    if (!remote || remote.version <= remoteApplied.current) return;
+    const previous = remoteApplied.current;
+    remoteApplied.current = remote.version;
+    queueMicrotask(() => {
+      setPlaying(remote.playing); setVolume(remote.volume); setAppliedVersion(remote.version);
+      if (remote.navigationVersion > previous && remote.itemId) {
+        setActiveId(remote.itemId); setCycle(value => value + 1); setProgress(0);
+        setNavigationVersion(remote.navigationVersion); mediaStatus.current = { position: 0, blocked: false, running: false };
+      }
+    });
+  }, [remote]);
+  useEffect(() => { mediaStatus.current = { position: 0, blocked: false, running: false }; }, [current?.id, cycle]);
+  useEffect(() => {
+    if (!onPlayback) return;
+    const report = () => onPlayback({ itemId: current?.id || null, playing: playing && (current?.type !== "VIDEO" || mediaStatus.current.running), muted: muted || mediaStatus.current.blocked, volume, position: mediaStatus.current.position, audioBlocked: mediaStatus.current.blocked, appliedVersion, navigationVersion });
+    report(); const timer = setInterval(report, 500);
+    return () => clearInterval(timer);
+  }, [current?.id, current?.type, playing, muted, volume, appliedVersion, navigationVersion, onPlayback]);
+
 
   useEffect(() => { playbackRef.current = { items: available, index }; }, [available, index]);
   useEffect(() => { if (current && activeId !== current.id) queueMicrotask(() => setActiveId(current.id)); }, [activeId, current]);
@@ -140,6 +171,7 @@ export function TvPlayer({ state, embedded = false, notice = "" }: { state: TvSt
       const target = event.target as HTMLElement | null;
       if (event.key === "Escape") { void leaveFullscreen(); return; }
       if (target && ["INPUT", "SELECT", "TEXTAREA"].includes(target.tagName)) return;
+      if (hideControls) return;
       if (event.key === "ArrowRight") { event.preventDefault(); advance(1); showControls(); }
       if (event.key === "ArrowLeft") { event.preventDefault(); advance(-1); showControls(); }
       if (event.code === "Space" && target?.tagName !== "BUTTON" && target?.tagName !== "A") { event.preventDefault(); setPlaying(value => !value); showControls(); }
@@ -147,7 +179,7 @@ export function TvPlayer({ state, embedded = false, notice = "" }: { state: TvSt
     const changed = () => { if (!document.fullscreenElement) setExpanded(false); };
     window.addEventListener("keydown", handler); document.addEventListener("fullscreenchange", changed);
     return () => { window.removeEventListener("keydown", handler); document.removeEventListener("fullscreenchange", changed); };
-  }, [advance, embedded, expanded, leaveFullscreen, showControls]);
+  }, [advance, embedded, expanded, hideControls, leaveFullscreen, showControls]);
 
   useEffect(() => {
     if (!fullscreen) return;
@@ -167,18 +199,18 @@ export function TvPlayer({ state, embedded = false, notice = "" }: { state: TvSt
   const rgb = [1, 3, 5].map(offset => Number.parseInt(accent.slice(offset, offset + 2), 16));
   const accentInk = rgb[0] * .299 + rgb[1] * .587 + rgb[2] * .114 > 150 ? "#18251a" : "#fffefa";
   const brandStyle = { "--tv-accent": accent, "--tv-accent-ink": accentInk } as CSSProperties;
-  return <div ref={playerRef} className={`${styles.player} ${fullscreen ? styles.immersive : ""} ${expanded ? styles.expanded : ""} ${state.settings.fit === "cover" ? styles.cover : ""}`} style={brandStyle} onMouseMove={showControls} onTouchStart={showControls}>
+  return <div ref={playerRef} className={`${styles.player} ${fullscreen ? styles.immersive : ""} ${expanded ? styles.expanded : ""} ${state.settings.fit === "cover" ? styles.cover : ""}`} style={brandStyle} onMouseMove={hideControls ? undefined : showControls} onTouchStart={hideControls ? undefined : showControls} onDoubleClick={() => { if (hideControls) void enterFullscreen(); }}>
     <div className={styles.stage}>
       <aside className={styles.brandSide}><div className={styles.storeBrand}>{state.branding.logoUrl ? <img src={state.branding.logoUrl} alt={brandName} /> : <span className={styles.storeMonogram}>{brandName.slice(0, 1).toLocaleUpperCase("pt-BR")}</span>}<strong>{brandName}</strong></div><p className={styles.slogan}>{state.branding.slogan || "Seu momento merece algo especial."}</p><span className={styles.storeLocation}>{state.establishment.name}</span></aside>
       <div className={styles.storyFrame}>
-        {current ? <><div className={styles.progress} aria-hidden="true">{available.slice(0, 50).map((item, position) => <span key={item.id}><i style={{ width: `${position < index ? 100 : position === index ? progress : 0}%` }} /></span>)}</div><StoryMedia key={`${current.id}:${current.url}:${cycle}`} item={current} playing={playing} muted={muted} duration={duration} next={next} fail={fail} progress={setProgress} onReady={onReady}/></> : <div className={styles.standby}><span>PROGRAMAÇÃO DA LOJA</span><strong>{brandName}</strong><p>{state.branding.slogan || "Que bom ter você aqui."}</p><small>Aguardando conteúdo para exibição</small></div>}
+        {current ? <><div className={styles.progress} aria-hidden="true">{available.slice(0, 50).map((item, position) => <span key={item.id}><i style={{ width: `${position < index ? 100 : position === index ? progress : 0}%` }} /></span>)}</div><StoryMedia key={`${current.id}:${current.url}:${cycle}`} item={current} playing={playing} muted={muted} volume={volume} onMediaStatus={onMediaStatus} duration={duration} next={next} fail={fail} progress={setProgress} onReady={onReady}/></> : <div className={styles.standby}><span>PROGRAMAÇÃO DA LOJA</span><strong>{brandName}</strong><p>{state.branding.slogan || "Que bom ter você aqui."}</p><small>Aguardando conteúdo para exibição</small></div>}
       </div>
       <aside className={styles.socialSide}>{state.guestUploads?.enabled && guestQr ? <><span className={styles.guestEyebrow}>A PRÓXIMA CENA PODE SER SUA</span><h2 className={styles.guestTitle}>Seu momento<br/><em>na nossa TV.</em></h2><div className={styles.guestQr}><img src={guestQr} alt="QR Code para enviar fotos e vídeos à loja"/></div><strong className={styles.guestAction}>Aponte a câmera e participe</strong><p>Envie suas fotos e vídeos.<br/>A equipe aprova, a TV exibe.</p>{handle && <small className={styles.guestHandle}>@{handle}</small>}</> : handle ? <><InstagramIcon size={32}/><span>ACOMPANHE NOSSAS NOVIDADES</span><strong>@{handle}</strong><p>Siga, marque e compartilhe<br/>seu momento com a gente.</p></> : <><Monitor size={34}/><span>BEM-VINDO</span><strong>{brandName}</strong><p>{state.branding.slogan || "Fique à vontade. A casa é sua."}</p></>}<span className={styles.loopStamp}><i/>{current ? "EM LOOP" : "EM ESPERA"}</span></aside>
       {!fullscreen && <span className={styles.previewStamp}><Monitor size={12}/>PRÉVIA DA TV</span>}
     </div>
-    <div className={`${styles.controls} ${fullscreen ? styles.floatingControls : ""} ${visible ? styles.controlsVisible : ""}`} onFocus={showControls}>
+    {!hideControls && <div className={`${styles.controls} ${fullscreen ? styles.floatingControls : ""} ${visible ? styles.controlsVisible : ""}`} onFocus={showControls}>
       <button type="button" onClick={() => advance(-1)} aria-label="Conteúdo anterior" disabled={!current}><SkipBack size={18}/></button><button type="button" className={styles.playButton} onClick={() => setPlaying(value => !value)} aria-label={playing ? "Pausar reprodução" : "Continuar reprodução"} disabled={!current}>{playing ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor"/>}</button><button type="button" onClick={next} aria-label="Próximo conteúdo" disabled={!current}><SkipForward size={18}/></button><span className={styles.counter}>{current ? index + 1 : 0} / {available.length}</span><span className={styles.loopLabel}><Repeat2 size={15}/>Loop contínuo</span><button type="button" className={styles.soundButton} onClick={() => setMutedOverride(!muted)} aria-label={muted ? "Ativar som" : "Silenciar"}>{muted ? <VolumeX size={18}/> : <Volume2 size={18}/>}</button>{expanded ? <button type="button" aria-label="Sair da tela cheia" onClick={() => void leaveFullscreen()}><X size={18}/></button> : <button type="button" aria-label="Tela cheia" onClick={() => void enterFullscreen()}><Maximize2 size={18}/></button>}
-    </div>
+    </div>}
     {(notice || mediaMessage) && <div role="status" className={`${styles.playerNotice} ${fullscreen && !visible ? styles.noticeHidden : ""}`}>{notice || mediaMessage}</div>}
     {fullscreen && !current && <span className={styles.standbyHelp}>Adicione fotos ou vídeos no painel da loja.</span>}
     <span className={styles.poweredBy}>Mordomê</span>

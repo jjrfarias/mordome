@@ -7,8 +7,12 @@ import type { TvState } from "@/lib/tv-model";
 import { TvPlayer } from "./TvPlayer";
 import { jsonRequest, TvRequestError, tvErrorMessage, tvRequest } from "./tv-client";
 import styles from "./tv.module.css";
+import type { TvPlaybackReport, TvRemoteControl } from "@/lib/tv-remote-model";
 
 export function TvDisplayClient({ displayId, establishmentId }: { displayId?: string; establishmentId?: string }) {
+  const [remote, setRemote] = useState<TvRemoteControl | undefined>();
+  const reportRef = useRef<TvPlaybackReport>({ itemId: null, playing: true, muted: true, volume: 1, position: 0, appliedVersion: 0, navigationVersion: 0, audioBlocked: false });
+  const onPlayback = useCallback((report: TvPlaybackReport) => { reportRef.current = report; }, []);
   const [state, setState] = useState<TvState | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -53,6 +57,23 @@ export function TvDisplayClient({ displayId, establishmentId }: { displayId?: st
     return () => { alive.current = false; clearInterval(timer); window.removeEventListener("online", resume); document.removeEventListener("visibilitychange", resume); };
   }, [displayId, load]);
 
-  if (state) return <TvPlayer state={state} notice={error ? "Sem atualização no momento. A TV mantém a programação disponível e tenta novamente automaticamente." : ""}/>;
+  const connected = !!state;
+  useEffect(() => {
+    if (!displayId || !connected) return;
+    let stopped = false; let timer: ReturnType<typeof setTimeout>;
+    async function sync() {
+      try {
+        const result = await tvRequest<{ control: TvRemoteControl }>(`${base}/remote`, jsonRequest("POST", reportRef.current), 10000);
+        if (!stopped) setRemote(result.control);
+      } catch (cause) {
+        if (!stopped && cause instanceof TvRequestError && [401,403,404,410].includes(cause.status)) { setState(null); setDenied(true); setError(tvErrorMessage(cause)); return; }
+      }
+      if (!stopped) timer = setTimeout(sync, 2000);
+    }
+    void sync();
+    return () => { stopped = true; clearTimeout(timer); };
+  }, [base, connected, displayId]);
+
+  if (state) return <TvPlayer state={state} remote={remote} hideControls={!!displayId} onPlayback={displayId ? onPlayback : undefined} notice={error ? "Sem atualização no momento. A TV mantém a programação disponível e tenta novamente automaticamente." : ""}/>;
   return <main className={styles.gate}><div className={styles.gateCard}>{loading ? <Loader2 className={styles.spin} size={34}/> : denied ? <AlertCircle size={34}/> : <Monitor size={34}/>}<span className={styles.kicker}>MORDOMÊ TV</span><h1>{loading ? "Preparando a sua tela" : denied ? "Esta TV precisa de acesso" : "Não foi possível carregar a programação"}</h1><p>{loading ? "Buscando a programação desta unidade…" : error}</p>{!loading && <><p>{displayId ? "Ative esta TV novamente pelo QR code para escolher a programação da loja." : "Entre no Mordomê com acesso às integrações da unidade para abrir a prévia."}</p><div className={styles.actions}><button type="button" className={styles.primaryButton} onClick={() => { setLoading(true); void load(); }}><RefreshCw size={16}/>Tentar novamente</button>{displayId && <Link href="/tv?setup=1" className={styles.secondaryButton}>Configurar esta TV novamente</Link>}{!displayId && <Link href="/" className={styles.secondaryButton}>Voltar ao Mordomê</Link>}</div></>}<small>Mordomê</small></div></main>;
 }
