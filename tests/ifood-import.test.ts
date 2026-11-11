@@ -95,3 +95,31 @@ test("loja ausente ou ambígua interrompe captura antes de abrir o Mordomê", ()
     } finally { dom.window.close(); }
   }
 });
+
+const newPaymentNotice = "Cobrar do cliente - via iFood\nR$ 38,18\nO iFood já recebeu este valor e vamos repassar para sua\nloja.";
+test("reconhece o aviso completo de repasse do Gestor e recupera extensões antigas", () => {
+  const dom = fixture();
+  try {
+    const root = dom.window.document.querySelector(".OrderDetails__content");
+    root.innerHTML = root.innerHTML.replace("Pago via iFood, não precisa cobrar na entrega", newPaymentNotice);
+    const captured = captureIfoodOrder();
+    assert.equal(captured.payment, "PAID_ONLINE");
+    const legacy = ifoodCaptureSchema.parse({ ...captured, payment: "UNKNOWN" });
+    assert.equal(legacy.payment, "PAID_ONLINE");
+    assert.equal(ifoodImportProblem(legacy), null);
+    assert.equal(ifoodRequestId(legacy.externalId), ifoodRequestId(captured.externalId));
+    assert.equal(ifoodCaptureSchema.parse({ ...captured, payment: "PAY_ON_DELIVERY" }).payment, "PAY_ON_DELIVERY");
+  } finally { dom.window.close(); }
+});
+test("não infere pagamento apenas por via iFood, cobrança ou aviso incompleto", () => {
+  for (const notice of ["via iFood", "Cobrar do cliente - via iFood\nR$ 38,18", "O iFood já recebeu este valor", "Cobrar do cliente - via iFood\nR$ 38,18\nO iFood não recebeu este valor", "Pagamento na entrega"]) {
+    const dom = fixture();
+    try {
+      const root = dom.window.document.querySelector(".OrderDetails__content");
+      root.innerHTML = root.innerHTML.replace("Pago via iFood, não precisa cobrar na entrega", notice);
+      const captured = captureIfoodOrder();
+      assert.equal(captured.payment, notice === "Pagamento na entrega" ? "PAY_ON_DELIVERY" : "UNKNOWN");
+      assert.equal(ifoodCaptureSchema.parse({ ...captured, payment: "UNKNOWN" }).payment, "UNKNOWN");
+    } finally { dom.window.close(); }
+  }
+});

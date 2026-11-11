@@ -39,7 +39,9 @@ export function captureIfoodOrder() {
   const delivery = root.querySelector(".DetailsDeliverySectionItem")?.innerText.trim() ?? "";
   const status = root.querySelector(".OrderDetails__status-info h3")?.innerText.trim() ?? "";
   if (!status) throw Error("Não consegui identificar o status do pedido.");
-  const payment = /Pago via iFood, não precisa cobrar na entrega/i.test(text) ? "PAID_ONLINE" : /(?:cobrar na entrega|pagamento na entrega|pagar na entrega)/i.test(text) ? "PAY_ON_DELIVERY" : "UNKNOWN";
+  const paymentText = text.replace(/\s+/g, " ").trim();
+  const paidByIfood = /Pago via iFood, não precisa cobrar na entrega/i.test(paymentText) || /Cobrar do cliente\s*[-–—]\s*via iFood\s*R\$\s*[\d.]+,\d{2}\s*O iFood já recebeu este valor e vamos repassar para sua loja\.?/i.test(paymentText);
+  const payment = paidByIfood ? "PAID_ONLINE" : /(?:cobrar na entrega|pagamento na entrega|pagar na entrega)/i.test(text) ? "PAY_ON_DELIVERY" : "UNKNOWN";
   const deliveryFeeMatch = text.match(/Taxa de entrega\s*\n\s*(R\$\s*[\d.]+,\d{2})/i);
   const subtotalMatch = text.match(/Subtotal\s*\n\s*(R\$\s*[\d.]+,\d{2})/i);
   if (!subtotalMatch) throw Error("Subtotal não encontrado. Confira o formato do pedido.");
