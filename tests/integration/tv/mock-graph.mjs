@@ -25,6 +25,7 @@ globalThis.fetch=async function(input,init) {
     return response({access_token:'OAUTH_RENEWED_TEST_SECRET_123456789'});
   }
   if(pathname==='me/assigned_instagram_accounts') {
+    if(scenario.mode==='empty-accounts') return response({data:[]});
     if(authorization.includes('MULTI')) {
       return response({data:[{id:url.searchParams.has('after')?'22222':'11111',username:url.searchParams.has('after')?'second_account':'first_account'}],...(url.searchParams.has('after')?{}:{paging:{cursors:{after:'cursor-without-next'}}})});
     }

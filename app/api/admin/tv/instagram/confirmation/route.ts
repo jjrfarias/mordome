@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
 import { connectTvInstagramAccount } from "@/lib/tv-instagram";
 import { instagramAccounts, pendingInstagramAuthorization } from "@/lib/tv-instagram-authorization";
@@ -9,7 +10,7 @@ export async function GET(request: Request) {
   try {
     const scope = await requireTvAdmin(request);
     const pending = await pendingInstagramAuthorization(scope);
-    return tvJson({ accounts: pending ? instagramAccounts(pending.accounts) : [] });
+    return tvJson({ accounts: pending ? instagramAccounts(pending.accounts) : [], allowAccountId: !!pending && Array.isArray(pending.accounts) && pending.accounts.length === 0 });
   } catch (error) { return tvFailure(error); }
 }
 export async function POST(request: Request) {
@@ -18,7 +19,12 @@ export async function POST(request: Request) {
     const parsed = z.object({ accountId: z.string().regex(/^\d{5,30}$/) }).strict().safeParse(await readTvJson(request));
     if (!parsed.success) throw new TvError("Selecione a conta da loja.");
     const pending = await pendingInstagramAuthorization(scope);
-    if (!pending?.encryptedToken || !instagramAccounts(pending.accounts).some(account => account.id === parsed.data.accountId)) throw new TvError("A autorização expirou. Conecte o Instagram novamente.", 410);
+    if (!pending?.encryptedToken) throw new TvError("A autorização expirou. Conecte o Instagram novamente.", 410);
+    const emptyDiscovery = Array.isArray(pending.accounts) && pending.accounts.length === 0;
+    if (!emptyDiscovery && !instagramAccounts(pending.accounts).some(account => account.id === parsed.data.accountId)) throw new TvError("A autorização expirou. Conecte o Instagram novamente.", 410);
+    if (!rateLimit(`tv-oauth-confirm:${scope.actorId}:${scope.establishmentId}`, 10, 60_000).allowed) throw new TvError("Aguarde um minuto antes de tentar confirmar novamente.", 429);
+    // An ID is only a selector, never proof of access. Validate profile AND Stories
+    // with this session-bound OAuth grant before consuming or saving anything.
     const connection = await connectTvInstagramAccount({ accessToken: decryptTvToken(pending.encryptedToken, scope.establishmentId), accountId: parsed.data.accountId, accessMode: "unified" });
     const now = new Date();
     await db.$transaction(async tx => {

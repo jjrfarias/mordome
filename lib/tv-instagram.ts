@@ -71,7 +71,7 @@ export async function fetchTvStories(accountId: string, token: string): Promise<
   return Array.from(new Map(stories.map(item => [item.id, item])).values()).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-export async function discoverTvInstagramAccounts(token: string, accessMode: TvInstagramAccessMode = "unified") {
+export async function discoverTvInstagramAccounts(token: string, accessMode: TvInstagramAccessMode = "unified", allowEmpty = false) {
     const accounts = new Map<string, { id: string; username: string }>();
     const cursors = new Set<string>();
     let after = "";
@@ -94,7 +94,7 @@ export async function discoverTvInstagramAccounts(token: string, accessMode: TvI
       after = cursor;
     }
     const unique = [...accounts.values()];
-    if (!unique.length) throw new TvError(accessMode === "unified"
+    if (!unique.length && !allowEmpty) throw new TvError(accessMode === "unified"
       ? "Nenhuma conta do Instagram foi compartilhada com este acesso. Confira o portfólio empresarial, a autorização da conta e a permissão business_management, ou informe o ID autorizado."
       : "Nenhum Instagram profissional vinculado foi encontrado. Confira a Página do Facebook e a permissão pages_show_list, ou informe o ID do Instagram.");
     return unique;

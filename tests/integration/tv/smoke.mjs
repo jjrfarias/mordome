@@ -403,6 +403,23 @@ async function verifyApi() {
   assert.ok(!denied.bytes.toString().includes('DO_NOT_LEAK'));
   pass('OAuth cancellation, superseded/expired attempts, revoked unit and provider failures preserve existing connection');
 
+  await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode:'empty-accounts'}));
+  const emptyAccountsState=await startOAuth();
+  assert.match((await request(cb(emptyAccountsState),{cookie:a})).headers.get('location'),/result=choose/);
+  const emptyAccounts=await request(confirmation,{cookie:a});
+  assert.deepEqual(emptyAccounts.json.accounts,[]);
+  assert.equal(emptyAccounts.json.allowAccountId,true);
+  assert.equal((await request(confirmation,{cookie:aOtherSession})).json.allowAccountId,false);
+  assert.equal((await request(confirmation,{cookie:aOtherSession,body:{accountId:'11111'}})).status,410);
+  assert.notEqual((await request(confirmation,{cookie:a,body:{accountId:'99999'}})).status,200);
+  await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode:'fail'}));
+  assert.notEqual((await request(confirmation,{cookie:a,body:{accountId:'11111'}})).status,200);
+  assert.equal((await sql.query('SELECT "instagramUsername" FROM "TvConfig" WHERE "establishmentId"=$1',['unit-a1'])).rows[0].instagramUsername,'test_store');
+  await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode:'ok'}));
+  assert.equal((await request(confirmation,{cookie:a,body:{accountId:'11111'}})).status,200);
+  assert.equal((await request(confirmation,{cookie:a,body:{accountId:'11111'}})).status,410);
+  pass('OAuth empty discovery accepts explicit IDs only after profile and Stories access checks, with session binding and replay protection');
+
   await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode:'ok'}));
   await writeFile(path.join(scratch,'graph-requests.jsonl'),'');
   await sql.query('UPDATE "TvConfig" SET "instagramTokenExpiresAt"=$1,"instagramLastAttemptAt"=NULL WHERE "establishmentId"=$2',[new Date(Date.now()+86400_000),'unit-a1']);
