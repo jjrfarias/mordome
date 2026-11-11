@@ -20,7 +20,7 @@ try {
 } catch (error) { if (error.code !== 'ENOENT') throw error; }
 const scratch = await mkdtemp(path.join(tmpdir(), 'mordome-tv-test-'));
 const runId = Date.now().toString(36);
-const databasePort = 47621;
+const databasePort = Number(process.env.TV_TEST_DATABASE_PORT || 47621);
 const appPort = 47620;
 const storagePort = 47622;
 const origin = `http://127.0.0.1:${appPort}`;
@@ -403,22 +403,27 @@ async function verifyApi() {
   assert.ok(!denied.bytes.toString().includes('DO_NOT_LEAK'));
   pass('OAuth cancellation, superseded/expired attempts, revoked unit and provider failures preserve existing connection');
 
-  await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode:'empty-accounts'}));
-  const emptyAccountsState=await startOAuth();
-  assert.match((await request(cb(emptyAccountsState),{cookie:a})).headers.get('location'),/result=choose/);
-  const emptyAccounts=await request(confirmation,{cookie:a});
-  assert.deepEqual(emptyAccounts.json.accounts,[]);
-  assert.equal(emptyAccounts.json.allowAccountId,true);
-  assert.equal((await request(confirmation,{cookie:aOtherSession})).json.allowAccountId,false);
+  for (const mode of ['empty-accounts','business-denied']) {
+    await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode}));
+    const attempt=await startOAuth();
+    assert.match((await request(cb(attempt),{cookie:a})).headers.get('location'),/result=failed/);
+    assert.deepEqual((await request(confirmation,{cookie:a})).json.accounts,[]);
+    assert.equal((await request(confirmation,{cookie:a,body:{accountId:'11111'}})).status,410);
+  }
+  await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode:'business-accounts'}));
+  const businessState=await startOAuth();
+  assert.match((await request(cb(businessState),{cookie:a})).headers.get('location'),/result=choose/);
+  assert.deepEqual((await request(confirmation,{cookie:a})).json.accounts,[{id:'11111',username:'test_store'}]);
+  assert.deepEqual((await request(confirmation,{cookie:aOtherSession})).json.accounts,[]);
   assert.equal((await request(confirmation,{cookie:aOtherSession,body:{accountId:'11111'}})).status,410);
-  assert.notEqual((await request(confirmation,{cookie:a,body:{accountId:'99999'}})).status,200);
+  assert.equal((await request(confirmation,{cookie:a,body:{accountId:'99999'}})).status,410);
   await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode:'fail'}));
   assert.notEqual((await request(confirmation,{cookie:a,body:{accountId:'11111'}})).status,200);
   assert.equal((await sql.query('SELECT "instagramUsername" FROM "TvConfig" WHERE "establishmentId"=$1',['unit-a1'])).rows[0].instagramUsername,'test_store');
   await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode:'ok'}));
   assert.equal((await request(confirmation,{cookie:a,body:{accountId:'11111'}})).status,200);
   assert.equal((await request(confirmation,{cookie:a,body:{accountId:'11111'}})).status,410);
-  pass('OAuth empty discovery accepts explicit IDs only after profile and Stories access checks, with session binding and replay protection');
+  pass('OAuth portfolio discovery rejects missing permissions, empty lists and arbitrary IDs; checks Stories, session binding and replay');
 
   await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode:'ok'}));
   await writeFile(path.join(scratch,'graph-requests.jsonl'),'');

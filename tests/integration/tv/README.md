@@ -16,7 +16,8 @@ node tests/integration/tv/smoke.mjs
 ```
 
 Execute como usuário comum, sem privilégios de root. As portas locais 47620,
-47621 e 47622 precisam estar livres. Encerre `next dev` neste checkout antes do
+47621 e 47622 precisam estar livres. Se o Windows reservar a porta 47621,
+defina `TV_TEST_DATABASE_PORT` com uma porta local livre antes de executar. Encerre `next dev` neste checkout antes do
 teste, ou use um checkout separado: o script recusa um lock de desenvolvimento
 existente e não remove locks nem encerra processos de terceiros. Também recusa
 `NODE_ENV=production`.

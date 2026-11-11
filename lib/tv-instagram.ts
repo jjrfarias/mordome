@@ -20,7 +20,7 @@ export function instagramMediaUrl(value: unknown): string | undefined {
 
 async function graph(path: string, token: string, parameters: Record<string, string> = {}): Promise<GraphRecord> {
   // Paths are constructed from validated IDs. Never follow paging URLs or redirects with a token.
-  if (!/^(?:\d{5,30}(?:\/stories)?|me\/(?:assigned_instagram_accounts|accounts))$/.test(path)) throw new TvError("Conta do Instagram inválida.");
+  if (!/^(?:\d{5,30}(?:\/(?:stories|instagram_accounts))?|me\/(?:assigned_instagram_accounts|accounts))$/.test(path)) throw new TvError("Conta do Instagram inválida.");
   const version = instagramGraphVersion();
   const url = new URL(`https://graph.facebook.com/${version}/${path}`);
   for (const [key, value] of Object.entries(parameters)) url.searchParams.set(key, value);
@@ -37,7 +37,7 @@ async function graph(path: string, token: string, parameters: Record<string, str
     console.warn("instagram_graph_failure", { operation: path === "me/assigned_instagram_accounts" ? "discover_accounts" : path.endsWith("/stories") ? "stories" : "profile", status: response.status, code: code || undefined, subcode: Number(record(data.error).error_subcode) || undefined });
     if (code === 190 || response.status === 401) throw new TvError("A autorização do Instagram expirou ou foi revogada. Reconecte a conta.", 401);
     if ([4, 17, 32, 613, 80002].includes(code) || response.status === 429) throw new TvError("A Meta limitou as consultas por alguns instantes. A atualização será retomada automaticamente.", 429);
-    if ([10, 100, 200].includes(code)) throw new TvError("A Meta não liberou a leitura dos stories. Confira o ID profissional, o método de login, a conta compartilhada e as permissões do aplicativo.");
+    if ([10, 100, 200].includes(code)) throw new TvError("A Meta não liberou o acesso necessário. Conecte novamente e autorize a conta profissional da loja.");
     throw new TvError("Não foi possível consultar a conta na Meta. Confira a autorização e tente novamente.", 502);
   }
   return data;
@@ -71,14 +71,26 @@ export async function fetchTvStories(accountId: string, token: string): Promise<
   return Array.from(new Map(stories.map(item => [item.id, item])).values()).sort((a, b) => a.createdAt.localeCompare(b.createdAt));
 }
 
-export async function discoverTvInstagramAccounts(token: string, accessMode: TvInstagramAccessMode = "unified", allowEmpty = false) {
+export async function discoverTvInstagramAccounts(token: string, accessMode: TvInstagramAccessMode = "unified", clientBusinessId?: string) {
+  const primary = await listInstagramAccounts(token, accessMode);
+  if (primary.length) return primary;
+  // Only the portfolio returned by /me for this OAuth grant may be queried.
+  // Never use a business ID supplied by the browser or another store's grant.
+  if (accessMode === "unified" && clientBusinessId && /^\d{5,30}$/.test(clientBusinessId)) {
+    const candidates = await listInstagramAccounts(token, accessMode, `${clientBusinessId}/instagram_accounts`);
+    if (candidates.length) return candidates;
+  }
+  throw new TvError("Nenhuma conta profissional foi disponibilizada pela Meta. Tente conectar novamente e selecione o Instagram da loja na autorização.");
+}
+
+async function listInstagramAccounts(token: string, accessMode: TvInstagramAccessMode, businessPath?: string) {
     const accounts = new Map<string, { id: string; username: string }>();
     const cursors = new Set<string>();
     let after = "";
     for (let page = 0; page < 10; page++) {
       const parameters: Record<string, string> = { fields: accessMode === "unified" ? "id,username" : "instagram_business_account{id,username}", limit: "100" };
       if (after) parameters.after = after;
-      const result = await graph(accessMode === "unified" ? "me/assigned_instagram_accounts" : "me/accounts", token, parameters);
+      const result = await graph(businessPath ?? (accessMode === "unified" ? "me/assigned_instagram_accounts" : "me/accounts"), token, parameters);
       console.info("instagram_account_discovery", { page, count: Array.isArray(result.data) ? result.data.length : null, hasNext: Boolean(record(result.paging).next), hasCursor: Boolean(record(record(result.paging).cursors).after) });
       if (!Array.isArray(result.data)) throw new TvError("A Meta não retornou a lista de contas esperada. Confira o método de conexão.", 502);
       for (const raw of result.data) {
@@ -89,15 +101,11 @@ export async function discoverTvInstagramAccounts(token: string, accessMode: TvI
       const paging = record(result.paging);
       const cursor = record(paging.cursors).after;
       if (!result.data.length || !cursor || (accessMode === "facebook" && !paging.next)) break;
-      if (typeof cursor !== "string" || cursor.length > 2048 || cursors.has(cursor) || page === 9) throw new TvError("Não foi possível listar todas as contas. Informe o ID profissional do Instagram que deseja exibir.");
+      if (typeof cursor !== "string" || cursor.length > 2048 || cursors.has(cursor) || page === 9) throw new TvError("Não foi possível listar todas as contas. Tente conectar novamente.");
       cursors.add(cursor);
       after = cursor;
     }
-    const unique = [...accounts.values()];
-    if (!unique.length && !allowEmpty) throw new TvError(accessMode === "unified"
-      ? "Nenhuma conta do Instagram foi compartilhada com este acesso. Confira o portfólio empresarial, a autorização da conta e a permissão business_management, ou informe o ID autorizado."
-      : "Nenhum Instagram profissional vinculado foi encontrado. Confira a Página do Facebook e a permissão pages_show_list, ou informe o ID do Instagram.");
-    return unique;
+    return [...accounts.values()];
 }
 
 export async function connectTvInstagramAccount(input: { accessToken: string; accountId?: string; accessMode: TvInstagramAccessMode }) {

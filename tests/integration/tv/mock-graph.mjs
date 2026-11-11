@@ -25,11 +25,15 @@ globalThis.fetch=async function(input,init) {
     return response({access_token:'OAUTH_RENEWED_TEST_SECRET_123456789'});
   }
   if(pathname==='me/assigned_instagram_accounts') {
-    if(scenario.mode==='empty-accounts') return response({data:[]});
+    if(['empty-accounts','business-accounts','business-denied'].includes(scenario.mode)) return response({data:[]});
     if(authorization.includes('MULTI')) {
       return response({data:[{id:url.searchParams.has('after')?'22222':'11111',username:url.searchParams.has('after')?'second_account':'first_account'}],...(url.searchParams.has('after')?{}:{paging:{cursors:{after:'cursor-without-next'}}})});
     }
     return response({data:[{id:'11111',username:'test_store'}]});
+  }
+  if(pathname==='44444/instagram_accounts') {
+    if(scenario.mode==='business-denied') return response({error:{code:200}},403);
+    return response({data:scenario.mode==='business-accounts'?[{id:'11111',username:'test_store'}]:[]});
   }
   if(pathname==='me/accounts') return response({data:[{id:'33333',instagram_business_account:{id:'11111',username:'test_store'}}]});
   if(pathname==='11111') return response({id:'11111',username:'test_store'});
