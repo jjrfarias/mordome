@@ -4,7 +4,7 @@ import { getTvObject } from "@/lib/tv-storage";
 import { parseTvByteRange } from "@/lib/tv-upload";
 
 export async function tvMediaResponse(request: Request, establishmentId: string, id: string, display = false) {
-  const item = await db.tvMedia.findFirst({ where: { id, establishmentId, ready: true, ...(display ? { enabled: true } : {}) } });
+  const item = await db.tvMedia.findFirst({ where: { id, establishmentId, ready: true, ...(display ? { enabled: true, approved: true } : {}) } });
   if (!item) throw new TvError("Arquivo não encontrado.", 404);
   const range = parseTvByteRange(request.headers.get("range"), item.size);
   if (range === "invalid") return new Response(null, { status: 416, headers: { "Content-Range": `bytes */${item.size}`, "Cache-Control": "no-store" } });

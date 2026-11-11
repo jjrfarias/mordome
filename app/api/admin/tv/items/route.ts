@@ -28,7 +28,7 @@ export async function PATCH(request: Request) {
       });
     } else {
       await db.$transaction(async tx => {
-        const updated = await tx.tvMedia.updateMany({ where: { id, establishmentId: scope.establishmentId, ready: true }, data: { enabled } });
+        const updated = await tx.tvMedia.updateMany({ where: { id, establishmentId: scope.establishmentId, ready: true, approved: true }, data: { enabled } });
         if (!updated.count) throw new TvError("Arquivo não encontrado.", 404);
         await tx.auditEvent.create({ data: tvAuditData(scope, request, "UPDATE", "TvMedia", id, { enabled }) });
       });

@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties }
 import { Maximize2, Monitor, Pause, Play, Repeat2, SkipBack, SkipForward, Volume2, VolumeX, X } from "lucide-react";
 import type { TvPlaylistItem, TvState } from "@/lib/tv-model";
 import styles from "./tv.module.css";
+import QRCode from "qrcode";
 
 type WakeLock = { release: () => Promise<void> };
 type WakeNavigator = Navigator & { wakeLock?: { request: (kind: "screen") => Promise<WakeLock> } };
@@ -69,6 +70,14 @@ function StoryMedia({ item, playing, muted, duration, next, fail, progress, onRe
 }
 
 export function TvPlayer({ state, embedded = false, notice = "" }: { state: TvState; embedded?: boolean; notice?: string }) {
+  const [guestQr, setGuestQr] = useState("");
+  useEffect(() => {
+    let cancelled = false;
+    if (state.guestUploads?.enabled) {
+      void QRCode.toDataURL(new URL(state.guestUploads.path, window.location.origin).toString(), { width: 480, margin: 3, errorCorrectionLevel: "M", color: { dark: "#122b20", light: "#ffffff" } }).then(value => { if (!cancelled) setGuestQr(value); }).catch(() => { if (!cancelled) setGuestQr(""); });
+    }
+    return () => { cancelled = true; };
+  }, [state.guestUploads?.enabled, state.guestUploads?.path]);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [cycle, setCycle] = useState(0);
   const [playing, setPlaying] = useState(true);
@@ -164,7 +173,7 @@ export function TvPlayer({ state, embedded = false, notice = "" }: { state: TvSt
       <div className={styles.storyFrame}>
         {current ? <><div className={styles.progress} aria-hidden="true">{available.slice(0, 50).map((item, position) => <span key={item.id}><i style={{ width: `${position < index ? 100 : position === index ? progress : 0}%` }} /></span>)}</div><StoryMedia key={`${current.id}:${current.url}:${cycle}`} item={current} playing={playing} muted={muted} duration={duration} next={next} fail={fail} progress={setProgress} onReady={onReady}/></> : <div className={styles.standby}><span>PROGRAMAÇÃO DA LOJA</span><strong>{brandName}</strong><p>{state.branding.slogan || "Que bom ter você aqui."}</p><small>Aguardando conteúdo para exibição</small></div>}
       </div>
-      <aside className={styles.socialSide}>{handle ? <><InstagramIcon size={32}/><span>ACOMPANHE NOSSAS NOVIDADES</span><strong>@{handle}</strong><p>Siga, marque e compartilhe<br/>seu momento com a gente.</p></> : <><Monitor size={34}/><span>BEM-VINDO</span><strong>{brandName}</strong><p>{state.branding.slogan || "Fique à vontade. A casa é sua."}</p></>}<span className={styles.loopStamp}><i/>{current ? "EM LOOP" : "EM ESPERA"}</span></aside>
+      <aside className={styles.socialSide}>{state.guestUploads?.enabled && guestQr ? <><span className={styles.guestEyebrow}>A PRÓXIMA CENA PODE SER SUA</span><h2 className={styles.guestTitle}>Seu momento<br/><em>na nossa TV.</em></h2><div className={styles.guestQr}><img src={guestQr} alt="QR Code para enviar fotos e vídeos à loja"/></div><strong className={styles.guestAction}>Aponte a câmera e participe</strong><p>Envie suas fotos e vídeos.<br/>A equipe aprova, a TV exibe.</p>{handle && <small className={styles.guestHandle}>@{handle}</small>}</> : handle ? <><InstagramIcon size={32}/><span>ACOMPANHE NOSSAS NOVIDADES</span><strong>@{handle}</strong><p>Siga, marque e compartilhe<br/>seu momento com a gente.</p></> : <><Monitor size={34}/><span>BEM-VINDO</span><strong>{brandName}</strong><p>{state.branding.slogan || "Fique à vontade. A casa é sua."}</p></>}<span className={styles.loopStamp}><i/>{current ? "EM LOOP" : "EM ESPERA"}</span></aside>
       {!fullscreen && <span className={styles.previewStamp}><Monitor size={12}/>PRÉVIA DA TV</span>}
     </div>
     <div className={`${styles.controls} ${fullscreen ? styles.floatingControls : ""} ${visible ? styles.controlsVisible : ""}`} onFocus={showControls}>

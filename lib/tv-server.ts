@@ -207,8 +207,8 @@ export function tvAuditData(scope: TvScope, request: Request, action: "CREATE" |
 export async function readTvPlaylist(establishmentId: string, options: { displayId?: string } = {}): Promise<TvState> {
   const [establishment, initialConfig, media, preferences, displays] = await Promise.all([
     db.establishment.findFirst({ where: { id: establishmentId, active: true, organization: { active: true } }, select: { id: true, name: true, logoUrl: true, organization: { select: { brandLogoUrl: true, brandAccent: true } } } }),
-    db.tvConfig.findUnique({ where: { establishmentId } }),
-    db.tvMedia.findMany({ where: { establishmentId, ready: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, mimeType: true, name: true, enabled: true, createdAt: true } }),
+    db.tvConfig.upsert({ where: { establishmentId }, create: { establishmentId }, update: {} }),
+    db.tvMedia.findMany({ where: { establishmentId, ready: true, ...(options.displayId ? { approved: true } : {}) }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, mimeType: true, name: true, enabled: true, createdAt: true, approved: true, guestSubmission: true } }),
     db.tvStoryPreference.findMany({ where: { establishmentId, expiresAt: { gt: new Date() } }, select: { mediaId: true, enabled: true } }),
     options.displayId ? Promise.resolve([]) : db.tvDisplay.findMany({ where: { establishmentId, active: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, name: true, createdAt: true, lastSeenAt: true } }),
   ]);
@@ -220,16 +220,18 @@ export async function readTvPlaylist(establishmentId: string, options: { display
   const uploads: TvPlaylistItem[] = media.map(item => ({
     id: item.id, source: "upload", type: item.mimeType.startsWith("video/") ? "VIDEO" : "IMAGE",
     url: options.displayId ? `/api/tv/${encodeURIComponent(options.displayId)}/media/${encodeURIComponent(item.id)}` : `/api/admin/tv/media/${encodeURIComponent(item.id)}?establishmentId=${encodeURIComponent(establishmentId)}`,
-    name: item.name, enabled: item.enabled, createdAt: item.createdAt.toISOString(),
+    name: item.name, enabled: item.enabled, guestSubmission: item.guestSubmission, createdAt: item.createdAt.toISOString(),
   }));
   const source = !TV_INSTAGRAM_ENABLED ? "upload" : config?.source === "instagram" || config?.source === "upload" ? config.source : "all";
-  const items = [...stories, ...uploads];
+  const items = [...stories, ...uploads.filter((_, index) => media[index].approved)];
   return {
     establishment: { id: establishment.id, name: establishment.name },
     branding: { name: config?.brandName || establishment.name, slogan: config?.slogan ?? "", instagramHandle: config?.instagramHandle || (connected ? config?.instagramUsername ?? "" : ""), logoUrl: establishment.logoUrl || establishment.organization.brandLogoUrl, accentColor: config?.accentColor || establishment.organization.brandAccent },
     settings: { imageDuration: config?.imageDuration ?? TV_DEFAULT_SETTINGS.imageDuration, fit: config?.fit === "cover" ? "cover" : "contain", source, muted: config?.muted ?? TV_DEFAULT_SETTINGS.muted },
     instagram: { connected, username: connected ? config?.instagramUsername ?? null : null, error: connected ? config?.instagramLastError ?? null : null, lastSync: connected ? config?.instagramSyncedAt?.toISOString() ?? null : null, configured: TV_INSTAGRAM_ENABLED && isTvInstagramConfigured() },
     storage: { configured: isTvStorageConfigured() },
+    guestUploads: { enabled: !!config?.guestUploadsEnabled && isTvStorageConfigured(), path: `/tv/enviar/${config?.guestCode}` },
+    ...(!options.displayId ? { submissions: uploads.filter((_, index) => !media[index].approved) } : {}),
     items: options.displayId ? items.filter(item => item.enabled && (source === "all" || item.source === source)) : items,
     ...(!options.displayId ? { displays: displays.map(display => ({ id: display.id, name: display.name, createdAt: display.createdAt.toISOString(), lastSeenAt: display.lastSeenAt?.toISOString() ?? null })) } : {}),
   };
