@@ -4,7 +4,7 @@ const isDev = process.env.NODE_ENV !== "production";
 
 const contentSecurityPolicy = [
   "default-src 'self'",
-  isDev ? "script-src 'self' 'unsafe-eval' 'unsafe-inline'" : "script-src 'self' 'unsafe-inline'",
+  isDev ? "script-src 'self' 'unsafe-eval' 'unsafe-inline' https://www.gstatic.com" : "script-src 'self' 'unsafe-inline' https://www.gstatic.com",
   "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
   "font-src 'self' https://fonts.gstatic.com",
   "img-src 'self' data: blob: https://*.tile.openstreetmap.org https://cdnjs.cloudflare.com https://cdninstagram.com https://*.cdninstagram.com https://fbcdn.net https://*.fbcdn.net https://instagram.com https://*.instagram.com",
