@@ -13,6 +13,17 @@ globalThis.fetch=async function(input,init) {
   const pathname=url.pathname.replace(/^\/v\d+\.\d+\//,'');
   appendFileSync(scratch+'/graph-requests.jsonl',JSON.stringify({pathname,tokenInQuery:url.searchParams.has('access_token'),hasBearer:authorization.startsWith('Bearer '),redirect:init?.redirect})+'\n');
   const response=(data,status=200)=>new Response(JSON.stringify(data),{status,headers:{'Content-Type':'application/json'}});
+  if(pathname==='oauth/access_token') {
+    if(url.searchParams.get('code')==='DENIED_CODE') return response({error:{code:190,message:'DO_NOT_LEAK_AUTH_CODE_OR_APP_SECRET'}},400);
+    return response({access_token:'OAUTH_MULTI_TEST_SECRET_123456789',expires_in:5184000});
+  }
+  if(pathname==='me') return response({id:'55555',client_business_id:'44444'});
+  if(pathname==='44444/system_user_access_tokens') {
+    if(scenario.mode==='renew-fail') return response({error:{code:190,message:'DO_NOT_LEAK_RENEW_TOKEN'}},401);
+    const form = new URLSearchParams(init?.body);
+    if(init?.method!=='POST' || !form.get('appsecret_proof') || form.get('system_user_id')!=='55555' || form.get('set_token_expires_in_60_days')!=='true') return response({error:{code:100}},400);
+    return response({access_token:'OAUTH_RENEWED_TEST_SECRET_123456789'});
+  }
   if(pathname==='me/assigned_instagram_accounts') {
     if(authorization.includes('MULTI')) {
       return response({data:[{id:url.searchParams.has('after')?'22222':'11111',username:url.searchParams.has('after')?'second_account':'first_account'}],...(url.searchParams.has('after')?{}:{paging:{cursors:{after:'cursor-without-next'}}})});

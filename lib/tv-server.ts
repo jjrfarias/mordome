@@ -6,6 +6,7 @@ import { db } from "@/lib/db";
 import { fetchTvStories, instagramMediaUrl } from "@/lib/tv-instagram";
 import { TvError, TV_DEFAULT_SETTINGS, activeStories, type TvPlaylistItem, type TvState } from "@/lib/tv-model";
 import { isTvStorageConfigured } from "@/lib/tv-storage";
+import { instagramOAuthConfigured, renewInstagramBusinessToken } from "@/lib/tv-instagram-oauth";
 
 export { TvError } from "@/lib/tv-model";
 
@@ -107,7 +108,7 @@ export async function readTvJson<T = unknown>(request: Request): Promise<T> {
 }
 
 export function isTvInstagramConfigured(): boolean {
-  return (process.env.CUSTOMER_AUTH_SECRET?.length ?? 0) >= 32;
+  return instagramOAuthConfigured();
 }
 
 function tvEncryptionKey(): Buffer {
@@ -155,7 +156,7 @@ export function readCachedTvStories(value: unknown): TvPlaylistItem[] {
 }
 
 async function refreshTvInstagram(config: TvConfig): Promise<TvConfig> {
-  if (!config.instagramEncryptedToken || !config.instagramAccountId) return config;
+  if (!config.instagramEncryptedToken || !config.instagramAccountId || config.instagramReconnectRequired) return config;
   const now = new Date();
   if ((config.instagramLastAttemptAt && config.instagramLastAttemptAt.getTime() > now.getTime() - SYNC_INTERVAL_MS) || (config.instagramRefreshLeaseUntil && config.instagramRefreshLeaseUntil > now)) return config;
   const leaseUntil = new Date(now.getTime() + SYNC_LEASE_MS);
@@ -175,12 +176,24 @@ async function refreshTvInstagram(config: TvConfig): Promise<TvConfig> {
   if (!claimed.count) return await db.tvConfig.findUnique({ where: { establishmentId: config.establishmentId } }) ?? config;
   const ownership = { establishmentId: config.establishmentId, instagramEncryptedToken: config.instagramEncryptedToken, instagramLastAttemptAt: now };
   try {
-    const stories = await fetchTvStories(config.instagramAccountId, decryptTvToken(config.instagramEncryptedToken, config.establishmentId));
+    let token = decryptTvToken(config.instagramEncryptedToken, config.establishmentId);
+    if (config.instagramTokenExpiresAt && config.instagramTokenExpiresAt <= now) throw new TvError("A autorização do Instagram expirou. Conecte novamente.", 401);
+    const renewDue = config.instagramTokenExpiresAt && config.instagramTokenExpiresAt.getTime() < now.getTime() + 7 * 86400_000 && config.instagramClientBusinessId && config.instagramSystemUserId && (!config.instagramTokenRefreshAttemptAt || config.instagramTokenRefreshAttemptAt.getTime() < now.getTime() - 3600_000);
+    if (renewDue) {
+      await db.tvConfig.updateMany({ where: ownership, data: { instagramTokenRefreshAttemptAt: now } });
+      const renewed = await renewInstagramBusinessToken(token, config.instagramClientBusinessId!, config.instagramSystemUserId!);
+      const encryptedToken = encryptTvToken(renewed.token, config.establishmentId);
+      const saved = await db.tvConfig.updateMany({ where: ownership, data: { instagramEncryptedToken: encryptedToken, instagramTokenExpiresAt: renewed.expiresAt } });
+      if (!saved.count) return await db.tvConfig.findUnique({ where: { establishmentId: config.establishmentId } }) ?? config;
+      ownership.instagramEncryptedToken = encryptedToken;
+      token = renewed.token;
+    }
+    const stories = await fetchTvStories(config.instagramAccountId, token);
     await db.tvConfig.updateMany({ where: ownership, data: { instagramSyncedAt: new Date(), instagramLastError: null, instagramStories: tvStoriesJson(stories), instagramRefreshLeaseUntil: null } });
   } catch (error) {
     const message = error instanceof TvError ? error.message : "Não foi possível atualizar os stories agora. A próxima tentativa será automática.";
     // Keep cached, unexpired stories. A concurrent reconnect/disconnect must not be overwritten.
-    await db.tvConfig.updateMany({ where: ownership, data: { instagramLastError: message, instagramRefreshLeaseUntil: null } });
+    await db.tvConfig.updateMany({ where: ownership, data: { instagramLastError: message, instagramRefreshLeaseUntil: null, ...(error instanceof TvError && error.status === 401 ? { instagramReconnectRequired: true } : {}) } });
   }
   return await db.tvConfig.findUnique({ where: { establishmentId: config.establishmentId } }) ?? config;
 }

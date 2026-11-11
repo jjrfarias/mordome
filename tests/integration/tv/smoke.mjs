@@ -44,6 +44,7 @@ const env = {
   TV_S3_SECRET_ACCESS_KEY: 'local-test-storage-secret', TV_S3_FORCE_PATH_STYLE: 'true',
   NEXT_TELEMETRY_DISABLED: '1',
   TV_CAST_APP_ID: 'AB12EF34',
+  META_APP_ID: '123456789', META_APP_SECRET: 'isolated-meta-app-secret-123456789', META_INSTAGRAM_CONFIG_ID: '987654321',
   NODE_OPTIONS: `${process.env.NODE_OPTIONS||''} --import=${pathToFileURL(helper).href}`.trim(),
 };
 const checks = [];
@@ -315,7 +316,11 @@ async function verifyApi() {
   assert.ok(failedRefresh.json.instagram.error);
   assert.ok(!JSON.stringify(failedRefresh.json).includes('DO_NOT_LEAK'));
   assert.equal(failedRefresh.json.items.filter(item=>item.source==='instagram').length,2);
+  await writeFile(path.join(scratch,'graph-requests.jsonl'),'');
+  await request('/api/admin/tv?establishmentId=unit-a1',{cookie:a});
+  assert.equal((await readFile(path.join(scratch,'graph-requests.jsonl'),'utf8')).trim(),'');
   await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode:'slow'}));
+  assert.equal((await request('/api/admin/tv/instagram?establishmentId=unit-a1',{cookie:a,body:{accessMode:'unified',accessToken:firstToken}})).status,200);
   await writeFile(path.join(scratch,'graph-requests.jsonl'),'');
   await sql.query('UPDATE "TvConfig" SET "instagramLastAttemptAt"=NULL,"instagramRefreshLeaseUntil"=NULL WHERE "establishmentId"=$1',['unit-a1']);
   const refreshed=await Promise.all(Array.from({length:5},()=>request('/api/admin/tv?establishmentId=unit-a1',{cookie:a})));
@@ -330,6 +335,93 @@ async function verifyApi() {
   assert.equal(afterDisconnect.json.instagram.connected,false);
   assert.equal(afterDisconnect.json.items.filter(item=>item.source==='instagram').length,0);
   pass('Instagram disconnect clears its connection and cached Stories');
+
+  const authorize='/api/admin/tv/instagram/authorize?establishmentId=unit-a1';
+  const confirmation='/api/admin/tv/instagram/confirmation?establishmentId=unit-a1';
+  assert.equal((await request(authorize,{method:'POST'})).status,401);
+  assert.equal((await request(authorize,{cookie:viewer,method:'POST'})).status,403);
+  assert.equal((await request(authorize,{cookie:b,method:'POST'})).status,404);
+  assert.equal((await request(authorize,{cookie:a,method:'POST',headers:{Origin:'https://attacker.invalid'}})).status,403);
+  async function startOAuth() {
+    const started=await request(authorize,{cookie:a,method:'POST'});
+    assert.equal(started.status,200,JSON.stringify(started.json));
+    const url=new URL(started.json.authorizationUrl);
+    assert.equal(url.origin,'https://www.facebook.com');
+    assert.equal(url.searchParams.get('config_id'),'987654321');
+    assert.equal(url.searchParams.get('redirect_uri'),origin+'/api/integrations/instagram/callback');
+    assert.equal(url.searchParams.get('response_type'),'code');
+    assert.ok(!url.toString().includes(env.META_APP_SECRET));
+    return url.searchParams.get('state');
+  }
+  const firstState=await startOAuth();
+  const stateHash=createHash('sha256').update(firstState).digest('hex');
+  const grant=(await sql.query('SELECT * FROM "TvInstagramAuthorization" WHERE "stateHash"=$1',[stateHash])).rows[0];
+  assert.ok(grant); assert.ok(!JSON.stringify(grant).includes(firstState));
+  const cb=state=>'/api/integrations/instagram/callback?state='+state+'&code=OAUTH_TEST_CODE';
+  const aOtherSession=await login('user-a');
+  const wrongSession=await request(cb(firstState),{cookie:aOtherSession});
+  assert.match(wrongSession.headers.get('location'),/result=failed/);
+  assert.equal((await request(confirmation,{cookie:a})).json.accounts.length,0);
+  const callback=await request(cb(firstState),{cookie:a});
+  assert.equal(callback.status,303);
+  assert.match(callback.headers.get('location'),/result=choose/);
+  assert.equal(callback.headers.get('referrer-policy'),'no-referrer');
+  assert.ok(!callback.headers.get('location').includes(firstState));
+  const accounts=await request(confirmation,{cookie:a});
+  assert.equal(accounts.json.accounts.length,2);
+  assert.ok(!JSON.stringify(accounts.json).includes('SECRET'));
+  assert.equal((await request(confirmation,{cookie:aOtherSession})).json.accounts.length,0);
+  assert.match((await request(cb(firstState),{cookie:a})).headers.get('location'),/result=failed/);
+  assert.equal((await request('/api/admin/tv?establishmentId=unit-a1',{cookie:a})).json.instagram.connected,false);
+  assert.equal((await request(confirmation,{cookie:a,body:{accountId:'99999'}})).status,410);
+  const saveAccounts=await Promise.all([request(confirmation,{cookie:a,body:{accountId:'11111'}}),request(confirmation,{cookie:a,body:{accountId:'11111'}})]);
+  assert.equal(saveAccounts.filter(row=>row.status===200).length,1);
+  const oauthSaved=(await sql.query('SELECT * FROM "TvConfig" WHERE "establishmentId"=$1',['unit-a1'])).rows[0];
+  assert.equal(oauthSaved.instagramClientBusinessId,'44444');
+  assert.equal(oauthSaved.instagramSystemUserId,'55555');
+  assert.ok(oauthSaved.instagramTokenExpiresAt);
+  assert.ok(!JSON.stringify(oauthSaved).includes('OAUTH_MULTI_TEST_SECRET'));
+  assert.equal((await request(confirmation,{cookie:a})).json.accounts.length,0);
+  pass('OAuth: secure code flow, session binding, CSRF, explicit account choice, replay and concurrent confirmation, encrypted persistence');
+
+  const superseded=await startOAuth();
+  const cancelled=await startOAuth();
+  assert.match((await request(cb(superseded),{cookie:a})).headers.get('location'),/result=failed/);
+  assert.match((await request('/api/integrations/instagram/callback?state='+cancelled+'&error=access_denied',{cookie:a})).headers.get('location'),/result=cancelled/);
+  assert.equal((await request('/api/admin/tv?establishmentId=unit-a1',{cookie:a})).json.instagram.username,'test_store');
+  const expired=await startOAuth();
+  await sql.query('UPDATE "TvInstagramAuthorization" SET "expiresAt"=$1 WHERE "establishmentId"=$2',[new Date(Date.now()-1000),'unit-a1']);
+  assert.match((await request(cb(expired),{cookie:a})).headers.get('location'),/result=failed/);
+  const revoked=await startOAuth();
+  await sql.query('UPDATE "Establishment" SET active=false WHERE id=$1',['unit-a1']);
+  assert.match((await request(cb(revoked),{cookie:a})).headers.get('location'),/result=failed/);
+  await sql.query('UPDATE "Establishment" SET active=true WHERE id=$1',['unit-a1']);
+  const badCode=await startOAuth();
+  const denied=await request(cb(badCode).replace('OAUTH_TEST_CODE','DENIED_CODE'),{cookie:a});
+  assert.match(denied.headers.get('location'),/result=failed/);
+  assert.ok(!denied.bytes.toString().includes('DO_NOT_LEAK'));
+  pass('OAuth cancellation, superseded/expired attempts, revoked unit and provider failures preserve existing connection');
+
+  await writeFile(path.join(scratch,'graph-scenario.json'),JSON.stringify({mode:'ok'}));
+  await writeFile(path.join(scratch,'graph-requests.jsonl'),'');
+  await sql.query('UPDATE "TvConfig" SET "instagramTokenExpiresAt"=$1,"instagramLastAttemptAt"=NULL WHERE "establishmentId"=$2',[new Date(Date.now()+86400_000),'unit-a1']);
+  const renewedState=await request('/api/admin/tv?establishmentId=unit-a1',{cookie:a});
+  assert.equal(renewedState.json.instagram.error,null);
+  const renewedConfig=(await sql.query('SELECT * FROM "TvConfig" WHERE "establishmentId"=$1',['unit-a1'])).rows[0];
+  assert.ok(renewedConfig.instagramTokenExpiresAt.getTime()>Date.now()+50*86400_000);
+  assert.notEqual(renewedConfig.instagramEncryptedToken,oauthSaved.instagramEncryptedToken);
+  const renewCalls=(await readFile(path.join(scratch,'graph-requests.jsonl'),'utf8')).trim().split('\n').map(JSON.parse);
+  assert.equal(renewCalls.filter(row=>row.pathname==='44444/system_user_access_tokens').length,1);
+  assert.ok(renewCalls.every(row=>!row.tokenInQuery));
+  await sql.query('UPDATE "TvConfig" SET "instagramTokenExpiresAt"=$1,"instagramLastAttemptAt"=NULL WHERE "establishmentId"=$2',[new Date(Date.now()-1000),'unit-a1']);
+  await writeFile(path.join(scratch,'graph-requests.jsonl'),'');
+  const expiredState=await request('/api/admin/tv?establishmentId=unit-a1',{cookie:a});
+  assert.match(expiredState.json.instagram.error,/expirou/);
+  assert.equal((await readFile(path.join(scratch,'graph-requests.jsonl'),'utf8')).trim(),'');
+  const abandoned=await startOAuth();
+  await request('/api/admin/tv/instagram?establishmentId=unit-a1',{cookie:a,method:'DELETE'});
+  assert.match((await request(cb(abandoned),{cookie:a})).headers.get('location'),/result=failed/);
+  pass('OAuth token renewal, expiry without retries and disconnect invalidating pending authorization');
 
   await sql.query('UPDATE "Establishment" SET active=false WHERE id=$1',['unit-a1']);
   assert.equal((await request(`/api/tv/${displayId}/playlist`,{cookie:deviceCookie})).status,401);

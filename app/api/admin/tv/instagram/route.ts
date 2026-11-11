@@ -27,6 +27,12 @@ export async function POST(request: Request) {
       instagramUsername: connection.username,
       instagramAccessMode: parsed.data.accessMode,
       instagramEncryptedToken: encryptedToken,
+      instagramTokenExpiresAt: null,
+      instagramClientBusinessId: null,
+      instagramSystemUserId: null,
+      instagramConfigId: null,
+      instagramReconnectRequired: false,
+      instagramTokenRefreshAttemptAt: null,
       instagramConnectedAt: now,
       instagramLastAttemptAt: now,
       instagramSyncedAt: now,
@@ -35,6 +41,7 @@ export async function POST(request: Request) {
       instagramStories: tvStoriesJson(connection.stories),
     };
     await db.$transaction(async tx => {
+      await tx.tvInstagramAuthorization.deleteMany({ where: { establishmentId: scope.establishmentId } });
       const previous = await tx.tvConfig.findUnique({ where: { establishmentId: scope.establishmentId }, select: { instagramAccountId: true } });
       await tx.tvConfig.upsert({ where: { establishmentId: scope.establishmentId }, create: { establishmentId: scope.establishmentId, ...connectionData }, update: connectionData });
       if (previous?.instagramAccountId !== connection.accountId) await tx.tvStoryPreference.deleteMany({ where: { establishmentId: scope.establishmentId } });
@@ -48,6 +55,8 @@ export async function DELETE(request: Request) {
   try {
     const scope = await requireTvAdmin(request, true);
     await db.$transaction(async tx => {
+      await tx.tvInstagramAuthorization.deleteMany({ where: { establishmentId: scope.establishmentId } });
+      await tx.tvConfig.updateMany({ where: { establishmentId: scope.establishmentId }, data: { instagramTokenExpiresAt: null, instagramClientBusinessId: null, instagramSystemUserId: null, instagramConfigId: null, instagramReconnectRequired: false, instagramTokenRefreshAttemptAt: null } });
       await tx.tvConfig.updateMany({ where: { establishmentId: scope.establishmentId }, data: { instagramAccountId: null, instagramUsername: null, instagramAccessMode: null, instagramEncryptedToken: null, instagramConnectedAt: null, instagramLastAttemptAt: null, instagramSyncedAt: null, instagramRefreshLeaseUntil: null, instagramLastError: null, instagramStories: [] } });
       await tx.tvStoryPreference.deleteMany({ where: { establishmentId: scope.establishmentId } });
       await tx.auditEvent.create({ data: tvAuditData(scope, request, "DELETE", "TvInstagramConnection", scope.establishmentId, { connected: false }) });
