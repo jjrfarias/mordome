@@ -1,3 +1,4 @@
+import { TV_INSTAGRAM_ENABLED } from "@/lib/tv-features";
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 import type { Prisma, TvConfig } from "@/generated/prisma/client";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
@@ -212,8 +213,8 @@ export async function readTvPlaylist(establishmentId: string, options: { display
     options.displayId ? Promise.resolve([]) : db.tvDisplay.findMany({ where: { establishmentId, active: true }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], select: { id: true, name: true, createdAt: true, lastSeenAt: true } }),
   ]);
   if (!establishment) throw new TvError("Estabelecimento não encontrado.", 404);
-  const config = initialConfig ? await refreshTvInstagram(initialConfig) : null;
-  const connected = !!(config?.instagramEncryptedToken && config.instagramAccountId);
+  const config = initialConfig && TV_INSTAGRAM_ENABLED ? await refreshTvInstagram(initialConfig) : initialConfig;
+  const connected = TV_INSTAGRAM_ENABLED && !!(config?.instagramEncryptedToken && config.instagramAccountId);
   const enabledById = new Map(preferences.map(preference => [preference.mediaId, preference.enabled]));
   const stories = connected ? readCachedTvStories(config?.instagramStories).map(item => ({ ...item, enabled: enabledById.get(item.id) ?? true })) : [];
   const uploads: TvPlaylistItem[] = media.map(item => ({
@@ -221,13 +222,13 @@ export async function readTvPlaylist(establishmentId: string, options: { display
     url: options.displayId ? `/api/tv/${encodeURIComponent(options.displayId)}/media/${encodeURIComponent(item.id)}` : `/api/admin/tv/media/${encodeURIComponent(item.id)}?establishmentId=${encodeURIComponent(establishmentId)}`,
     name: item.name, enabled: item.enabled, createdAt: item.createdAt.toISOString(),
   }));
-  const source = config?.source === "instagram" || config?.source === "upload" ? config.source : "all";
+  const source = !TV_INSTAGRAM_ENABLED ? "upload" : config?.source === "instagram" || config?.source === "upload" ? config.source : "all";
   const items = [...stories, ...uploads];
   return {
     establishment: { id: establishment.id, name: establishment.name },
     branding: { name: config?.brandName || establishment.name, slogan: config?.slogan ?? "", instagramHandle: config?.instagramHandle || (connected ? config?.instagramUsername ?? "" : ""), logoUrl: establishment.logoUrl || establishment.organization.brandLogoUrl, accentColor: config?.accentColor || establishment.organization.brandAccent },
     settings: { imageDuration: config?.imageDuration ?? TV_DEFAULT_SETTINGS.imageDuration, fit: config?.fit === "cover" ? "cover" : "contain", source, muted: config?.muted ?? TV_DEFAULT_SETTINGS.muted },
-    instagram: { connected, username: connected ? config?.instagramUsername ?? null : null, error: connected ? config?.instagramLastError ?? null : null, lastSync: connected ? config?.instagramSyncedAt?.toISOString() ?? null : null, configured: isTvInstagramConfigured() },
+    instagram: { connected, username: connected ? config?.instagramUsername ?? null : null, error: connected ? config?.instagramLastError ?? null : null, lastSync: connected ? config?.instagramSyncedAt?.toISOString() ?? null : null, configured: TV_INSTAGRAM_ENABLED && isTvInstagramConfigured() },
     storage: { configured: isTvStorageConfigured() },
     items: options.displayId ? items.filter(item => item.enabled && (source === "all" || item.source === source)) : items,
     ...(!options.displayId ? { displays: displays.map(display => ({ id: display.id, name: display.name, createdAt: display.createdAt.toISOString(), lastSeenAt: display.lastSeenAt?.toISOString() ?? null })) } : {}),

@@ -1,3 +1,4 @@
+import { TV_INSTAGRAM_ENABLED } from "@/lib/tv-features";
 import { z } from "zod";
 import { rateLimit } from "@/lib/rate-limit";
 import { db } from "@/lib/db";
@@ -16,6 +17,7 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
   try {
     const scope = await requireTvAdmin(request, true);
+    if (!TV_INSTAGRAM_ENABLED) throw new TvError("A integração com o Instagram está pausada. Envie fotos e vídeos para a TV.", 503);
     const parsed = z.object({ accountId: z.string().regex(/^\d{5,30}$/) }).strict().safeParse(await readTvJson(request));
     if (!parsed.success) throw new TvError("Selecione a conta da loja.");
     const pending = await pendingInstagramAuthorization(scope);

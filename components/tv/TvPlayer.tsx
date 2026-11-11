@@ -171,7 +171,7 @@ export function TvPlayer({ state, embedded = false, notice = "" }: { state: TvSt
       <button type="button" onClick={() => advance(-1)} aria-label="Conteúdo anterior" disabled={!current}><SkipBack size={18}/></button><button type="button" className={styles.playButton} onClick={() => setPlaying(value => !value)} aria-label={playing ? "Pausar reprodução" : "Continuar reprodução"} disabled={!current}>{playing ? <Pause size={18} fill="currentColor"/> : <Play size={18} fill="currentColor"/>}</button><button type="button" onClick={next} aria-label="Próximo conteúdo" disabled={!current}><SkipForward size={18}/></button><span className={styles.counter}>{current ? index + 1 : 0} / {available.length}</span><span className={styles.loopLabel}><Repeat2 size={15}/>Loop contínuo</span><button type="button" className={styles.soundButton} onClick={() => setMutedOverride(!muted)} aria-label={muted ? "Ativar som" : "Silenciar"}>{muted ? <VolumeX size={18}/> : <Volume2 size={18}/>}</button>{expanded ? <button type="button" aria-label="Sair da tela cheia" onClick={() => void leaveFullscreen()}><X size={18}/></button> : <button type="button" aria-label="Tela cheia" onClick={() => void enterFullscreen()}><Maximize2 size={18}/></button>}
     </div>
     {(notice || mediaMessage) && <div role="status" className={`${styles.playerNotice} ${fullscreen && !visible ? styles.noticeHidden : ""}`}>{notice || mediaMessage}</div>}
-    {fullscreen && !current && <span className={styles.standbyHelp}>Adicione stories, fotos ou vídeos no painel da loja.</span>}
+    {fullscreen && !current && <span className={styles.standbyHelp}>Adicione fotos ou vídeos no painel da loja.</span>}
     <span className={styles.poweredBy}>Mordomê</span>
   </div>;
 }

@@ -63,7 +63,7 @@ export function SettingsWorkspace({ activeEstablishmentId, activeEstablishmentNa
       {canManageFiscal && <button className={section === "fiscalDocuments" ? "active" : ""} onClick={() => setSection("fiscalDocuments")}><FileText />Notas fiscais</button>}
       {(canViewUsers || canManageRoles) && <button className={section === "users" ? "active" : ""} onClick={() => setSection("users")}><Users />Equipe e perfis</button>}
       {canManageIntegrations && <button className={section === "integrations" ? "active" : ""} onClick={() => setSection("integrations")}><Plug />Integrações</button>}
-      {canManageIntegrations && <button className={section === "tv" ? "active" : ""} onClick={() => setSection("tv")}><Monitor />TV / Stories</button>}
+      {canManageIntegrations && <button className={section === "tv" ? "active" : ""} onClick={() => setSection("tv")}><Monitor />TV / Fotos e vídeos</button>}
     </nav>
     {section === "catalog" && canManageCatalog && <CatalogManagement establishmentId={activeEstablishmentId} establishmentName={activeEstablishmentName} />}
     {section === "inventory" && canManageStock && <InventoryManagement establishmentId={activeEstablishmentId} establishmentName={activeEstablishmentName} />}

@@ -1,3 +1,5 @@
+import { redirect } from "next/navigation";
+import { TV_INSTAGRAM_ENABLED } from "@/lib/tv-features";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { getCurrentSession } from "@/lib/auth";
@@ -9,6 +11,7 @@ import styles from "@/components/tv/tv.module.css";
 export const dynamic = "force-dynamic";
 export const metadata: Metadata = { title: "Conectar Instagram · Mordomê", robots: { index: false, follow: false }, referrer: "no-referrer" };
 export default async function Page({ searchParams }: { searchParams: Promise<{ establishmentId?: string; result?: string }> }) {
+  if (!TV_INSTAGRAM_ENABLED) redirect("/");
   const session = await getCurrentSession();
   const query = await searchParams;
   const unit = session?.establishments.find(item => item.id === (query.establishmentId ?? session.establishment.id));

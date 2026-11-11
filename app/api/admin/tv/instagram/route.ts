@@ -1,3 +1,4 @@
+import { TV_INSTAGRAM_ENABLED } from "@/lib/tv-features";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { rateLimit } from "@/lib/rate-limit";
@@ -16,6 +17,7 @@ const connectionSchema = z.object({
 export async function POST(request: Request) {
   try {
     const scope = await requireTvAdmin(request, true);
+    if (!TV_INSTAGRAM_ENABLED) throw new TvError("A integração com o Instagram está pausada. Envie fotos e vídeos para a TV.", 503);
     const parsed = connectionSchema.safeParse(await readTvJson(request));
     if (!parsed.success) throw new TvError("Informe um token válido, o método de conexão e, se necessário, o ID numérico do Instagram profissional.");
     if (!rateLimit(`tv:instagram:${scope.establishmentId}`, 10, 60_000).allowed) throw new TvError("Aguarde um minuto antes de tentar conectar novamente.", 429);
