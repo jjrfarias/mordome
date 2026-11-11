@@ -24,7 +24,7 @@ export const ifoodCaptureSchema = z.object({
   // Older installed extensions report UNKNOWN for the newer Gestor payment copy.
   // Only the complete financial notice is evidence; “via iFood” alone is not.
   const text = order.sourceText.replace(/\s+/g, " ").trim();
-  const paid = /Pago via iFood, não precisa cobrar na entrega/i.test(text) || /Cobrar do cliente\s*[-–—]\s*via iFood\s*R\$\s*[\d.]+,\d{2}\s*O iFood já recebeu este valor e vamos repassar para sua loja\.?/i.test(text);
+  const paid = /Pago via iFood, não precisa cobrar na entrega/i.test(text) || /Cobrar do cliente\s*[-–—]\s*via iFood\s*(?:R\$\s*[\d.]+,\d{2}\s*)?O iFood já recebeu este valor e vamos repassar para sua loja\.?/i.test(text);
   return order.provider !== "FOOD99" && order.payment === "UNKNOWN" && paid ? { ...order, payment: "PAID_ONLINE" as const } : order;
 });
 export type IfoodCapture = z.infer<typeof ifoodCaptureSchema>;

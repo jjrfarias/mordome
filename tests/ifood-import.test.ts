@@ -126,3 +126,14 @@ test("não infere pagamento apenas por via iFood, cobrança ou aviso incompleto"
     } finally { dom.window.close(); }
   }
 });
+
+test("ordem DOM real: descrição de pagamento vem antes do valor à direita", () => {
+  const dom = fixture();
+  try {
+    const root = dom.window.document.querySelector(".OrderDetails__content");
+    root.innerHTML = root.innerHTML.replace("Pago via iFood, não precisa cobrar na entrega", "Cobrar do cliente - via iFood\nO iFood já recebeu este valor e vamos repassar para sua loja.\nR$\u00a038,18");
+    const captured = captureIfoodOrder();
+    assert.equal(captured.payment, "PAID_ONLINE");
+    assert.equal(ifoodCaptureSchema.parse({ ...captured, payment: "UNKNOWN" }).payment, "PAID_ONLINE");
+  } finally { dom.window.close(); }
+});
