@@ -43,6 +43,7 @@ const env = {
   TV_S3_REGION: 'us-east-1', TV_S3_ACCESS_KEY_ID: 'local-test-access-key',
   TV_S3_SECRET_ACCESS_KEY: 'local-test-storage-secret', TV_S3_FORCE_PATH_STYLE: 'true',
   NEXT_TELEMETRY_DISABLED: '1',
+  TV_CAST_APP_ID: 'AB12EF34',
   NODE_OPTIONS: `${process.env.NODE_OPTIONS||''} --import=${pathToFileURL(helper).href}`.trim(),
 };
 const checks = [];
@@ -139,6 +140,15 @@ async function verifyApi() {
   assert.equal((await request('/api/admin/tv?establishmentId=unit-b1', {cookie:a})).status,404);
   assert.equal((await request('/api/admin/tv?establishmentId=unit-a2', {cookie:restricted})).status,404);
   pass('real login, missing session, permission and organization/unit isolation');
+
+  assert.equal((await request('/api/admin/tv/cast?establishmentId=unit-a1')).status,401);
+  assert.equal((await request('/api/admin/tv/cast?establishmentId=unit-a1',{cookie:viewer})).status,403);
+  assert.equal((await request('/api/admin/tv/cast?establishmentId=unit-b1',{cookie:a})).status,404);
+  assert.equal((await request('/api/admin/tv/cast?establishmentId=unit-a2',{cookie:restricted})).status,404);
+  const castConfig = await request('/api/admin/tv/cast?establishmentId=unit-a1',{cookie:a});
+  assert.equal(castConfig.status,200);
+  assert.deepEqual(castConfig.json,{applicationId:'AB12EF34'});
+  pass('Cast configuration respects administrative permission and unit access');
 
   const changed = await request('/api/admin/tv?establishmentId=unit-a1', {cookie:a,method:'PATCH',body:{brandName:'Store A TV',slogan:'Real test',imageDuration:5,fit:'contain',source:'all',muted:true}});
   assert.equal(changed.status,200,JSON.stringify(changed.json));
