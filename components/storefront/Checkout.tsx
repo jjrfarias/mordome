@@ -8,8 +8,9 @@ import { formatAddressLines, formatCents, type DeliveryAddress } from "@/lib/sto
 import { Dialog, cx } from "./primitives";
 import styles from "./storefront.module.css";
 
-export type CheckoutForm = { name: string; phone: string; fulfillment: "delivery" | "pickup" | "dine_in"; notes: string; paymentMethod: string | null; accountInviteOptIn: boolean };
-export type CheckoutResult = { kind: "live"; orderId: string; feeToConfirm: boolean } | { kind: "demo" };
+export type OpenPublicOrder = { id: string; customerName: string; createdAt: string };
+export type CheckoutForm = { name: string; phone: string; fulfillment: "delivery" | "pickup" | "dine_in"; notes: string; paymentMethod: string | null; accountInviteOptIn: boolean; addToOrderId?: string };
+export type CheckoutResult = { kind: "live"; orderId: string; feeToConfirm: boolean; addedToOrder?: boolean; canAddLater?: boolean } | { kind: "demo" };
 
 type Totals = { subtotalCents: number; discountCents: number; deliveryFeeCents: number | null; totalCents: number; totalIsFinal: boolean };
 
@@ -23,7 +24,7 @@ function formatPhone(value: string) {
   return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
 }
 
-export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, quote, address, pickupSupported, onlineDeliveryEnabled = true, paymentMethods, establishmentName, onClose, onEditAddress, onSubmit, onFinished, onCreateAccount }: {
+export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, quote, address, pickupSupported, onlineDeliveryEnabled = true, openOrders = [], paymentMethods, establishmentName, onClose, onEditAddress, onSubmit, onFinished, onCreateAccount }: {
   customer?: { name: string; phone: string } | null;
   open: boolean;
   isDemo: boolean;
@@ -34,6 +35,7 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
   address: DeliveryAddress | null;
   pickupSupported: boolean;
   onlineDeliveryEnabled?: boolean;
+  openOrders?: OpenPublicOrder[];
   paymentMethods: string[] | null;
   establishmentName: string;
   onClose: () => void;
@@ -43,6 +45,8 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
   onCreateAccount: () => void;
 }) {
   const [form, setForm] = useState<CheckoutForm>({ name: "", phone: "", fulfillment: "delivery", notes: "", paymentMethod: null, accountInviteOptIn: false });
+  const [selectedOrderId, setSelectedOrderId] = useState("");
+  useEffect(() => { if (selectedOrderId && !openOrders.some(order => order.id === selectedOrderId)) queueMicrotask(() => setSelectedOrderId("")); }, [openOrders, selectedOrderId]);
   useEffect(() => { if (customer) queueMicrotask(() => setForm(current => ({ ...current, name: customer.name, phone: formatPhone(customer.phone.replace(/^55/, "")) }))); }, [customer]);
   const [submitted, setSubmitted] = useState(false);
   const [sending, setSending] = useState(false);
@@ -64,7 +68,7 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
     phone: phoneDigits(form.phone).length < 10,
     address: delivery && !addressIsComplete(address),
     area: delivery && (quote.status === "uncovered" || quote.status === "pending"),
-    payment: paymentMethods !== null && !form.paymentMethod,
+    payment: !selectedOrderId && paymentMethods !== null && !form.paymentMethod,
   };
   const valid = lines.length > 0 && !Object.values(problems).some(Boolean);
   const show = (key: keyof typeof problems) => submitted && problems[key];
@@ -77,7 +81,7 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
     if (!valid || sending) return;
     setSending(true);
     try {
-      setResult(await onSubmit({ ...form, fulfillment, name: form.name.trim(), notes: form.notes.trim() }));
+      setResult(await onSubmit({ ...form, fulfillment: selectedOrderId ? "dine_in" : fulfillment, addToOrderId: selectedOrderId || undefined, name: form.name.trim(), notes: form.notes.trim() }));
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível enviar o pedido.");
     } finally {
@@ -90,7 +94,8 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
       <CircleCheck aria-hidden />
       {result.kind === "demo"
         ? <p>Este foi um pedido de demonstração. <b>Nenhum pedido foi enviado ao estabelecimento e nada foi cobrado.</b></p>
-        : <p>{establishmentName} recebeu seu pedido <b>nº {result.orderId.slice(-6).toUpperCase()}</b>. A equipe vai confirmar o pedido{result.feeToConfirm ? " e a taxa de entrega" : ""} pelo telefone informado.</p>}
+        : <p>{result.addedToOrder ? "Os novos itens foram enviados para a cozinha na comanda" : `${establishmentName} recebeu seu pedido`} <b>nº {result.orderId.slice(-6).toUpperCase()}</b>. {result.addedToOrder ? "O pagamento permanece na comanda aberta." : `A equipe vai confirmar o pedido${result.feeToConfirm ? " e a taxa de entrega" : ""} pelo telefone informado.`}</p>}
+      {result.kind === "live" && result.canAddLater && <p>Enquanto a comanda estiver aberta e sem pagamento, você pode escolher esta comanda ao enviar novos itens neste aparelho.</p>}
       {!isDemo && !customer && <section className={styles.successAccountPrompt}>
         <b>Acompanhe seus próximos pedidos por uma conta</b>
         <p>Crie sua conta agora para entrar mais rápido e participar dos futuros programas desta loja.</p>
@@ -101,7 +106,7 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
 
   return <Dialog open={open} onClose={close} title="Finalizar pedido" description={isDemo ? "Ambiente de demonstração — nenhum pedido real é enviado." : establishmentName} size="lg" variant="sheet"
     footer={<>
-      <div className={styles.checkoutTotal}><small>{shownTotals.totalIsFinal ? "Total" : "Total sem entrega"}</small><b>{formatCents(shownTotals.totalCents)}</b></div>
+      <div className={styles.checkoutTotal}><small>{selectedOrderId ? "Novos itens" : shownTotals.totalIsFinal ? "Total" : "Total sem entrega"}</small><b>{formatCents(shownTotals.totalCents)}</b></div>
       <button type="button" className={cx(styles.primaryButton, styles.grow)} onClick={() => void submit()} disabled={sending || lines.length === 0} aria-busy={sending}>
         {sending ? <><LoaderCircle aria-hidden className={styles.spin} />Enviando…</> : isDemo ? "Concluir demonstração" : "Enviar pedido"}
       </button>
@@ -111,7 +116,7 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
         <h3 id="checkout-identificacao"><span aria-hidden>1</span>Identificação</h3>
         <div className={styles.formGrid}>
           <label className={styles.field}><span>Nome</span>
-            <input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} autoComplete="name" maxLength={100} aria-invalid={show("name")} required />
+            <input value={form.name} onChange={event => setForm({ ...form, name: event.target.value })} readOnly={Boolean(selectedOrderId)} autoComplete="name" maxLength={100} aria-invalid={show("name")} required />
             {show("name") && <small className={styles.fieldError}>Informe seu nome.</small>}
           </label>
           <label className={styles.field}><span>Telefone (WhatsApp)</span>
@@ -120,20 +125,22 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
           </label>
         </div>
         <p className={styles.formNote}>Usamos nome e telefone somente para preparar, entregar e confirmar este pedido.</p>
-        {!customer && !isDemo && <label className={styles.field}>
+        {!selectedOrderId && !customer && !isDemo && <label className={styles.field}>
           <span><input type="checkbox" checked={form.accountInviteOptIn} onChange={event => setForm({ ...form, accountInviteOptIn: event.target.checked })} /> Quero receber no WhatsApp um convite para criar conta e participar de futuros programas desta loja.</span>
         </label>}
       </section>
 
       <section className={styles.checkoutStep} aria-labelledby="checkout-entrega">
         <h3 id="checkout-entrega"><span aria-hidden>2</span>{pickupSupported ? "Como deseja receber?" : "Entrega"}</h3>
+        {openOrders.length > 0 && <label className={styles.field}><span>Comanda aberta neste aparelho</span><select value={selectedOrderId} onChange={event => { const id = event.target.value; setSelectedOrderId(id); const order = openOrders.find(item => item.id === id); if (order) setForm(current => ({ ...current, name: order.customerName, fulfillment: "dine_in" })); }}><option value="">Criar novo pedido</option>{openOrders.map(order => <option key={order.id} value={order.id}>{order.customerName} · Comanda {order.id.slice(-6).toUpperCase()}</option>)}</select></label>}
+        {selectedOrderId && <p className={styles.formNote}>Informe o mesmo telefone do pedido original. Os novos itens serão somados à comanda; o pagamento continua na loja.</p>}
         {!onlineDeliveryEnabled && <p className={styles.formNote}>Entregas pausadas. Estamos aceitando retirada e consumo no local.</p>}
-        {pickupSupported && <div className={styles.segmented} role="radiogroup" aria-label="Como receber">
+        {!selectedOrderId && pickupSupported && <div className={styles.segmented} role="radiogroup" aria-label="Como receber">
           {onlineDeliveryEnabled && <label className={cx(delivery && styles.segmentedActive)}><input type="radio" name="recebimento" checked={delivery} onChange={() => setForm({ ...form, fulfillment: "delivery" })} /><Truck aria-hidden />Entrega</label>}
           <label className={cx(fulfillment === "pickup" && styles.segmentedActive)}><input type="radio" name="recebimento" checked={fulfillment === "pickup"} onChange={() => setForm({ ...form, fulfillment: "pickup" })} /><Store aria-hidden />Retirar no local</label>
           <label className={cx(fulfillment === "dine_in" && styles.segmentedActive)}><input type="radio" name="recebimento" checked={fulfillment === "dine_in"} onChange={() => setForm({ ...form, fulfillment: "dine_in" })} /><Store aria-hidden />Consumir na loja</label>
         </div>}
-        {delivery ? <div className={cx(styles.addressCard, styles.addressCardAction, (show("address") || show("area")) && styles.addressCardError)}>
+        {selectedOrderId ? null : delivery ? <div className={cx(styles.addressCard, styles.addressCardAction, (show("address") || show("area")) && styles.addressCardError)}>
           <MapPin aria-hidden />
           <span>{addressLines ? <><b>{addressLines.first}</b><small>{addressLines.second}</small></> : <b>Nenhum endereço informado</b>}
             <small>Taxa de entrega: {feeLabel ?? formatCents(quote.status === "known" ? quote.feeCents : 0)}</small></span>
@@ -148,7 +155,7 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
 
       <section className={styles.checkoutStep} aria-labelledby="checkout-pagamento">
         <h3 id="checkout-pagamento"><span aria-hidden>3</span>Pagamento</h3>
-        {paymentMethods ? <>
+        {selectedOrderId ? <p className={styles.formNote}>Os novos itens serão cobrados junto com a comanda aberta, no estabelecimento.</p> : paymentMethods ? <>
           <div className={styles.paymentOptions} role="radiogroup" aria-label="Forma de pagamento">
             {paymentMethods.map(method => <label key={method} className={cx(styles.choice, styles.choiceBox, form.paymentMethod === method && styles.choiceBoxActive)}>
               <input type="radio" name="pagamento" checked={form.paymentMethod === method} onChange={() => setForm({ ...form, paymentMethod: method })} />{method}
@@ -168,7 +175,7 @@ export function Checkout({ customer, open, isDemo, lines, totals, pickupTotals, 
           <div><dt>Subtotal</dt><dd>{formatCents(shownTotals.subtotalCents)}</dd></div>
           {shownTotals.discountCents > 0 && <div className={styles.discountRow}><dt>Desconto</dt><dd>− {formatCents(shownTotals.discountCents)}</dd></div>}
           {delivery && <div><dt>Taxa de entrega</dt><dd className={cx(feeLabel !== null && styles.pendingValue)}>{feeLabel ?? formatCents(shownTotals.deliveryFeeCents ?? 0)}</dd></div>}
-          <div className={styles.totalRow}><dt>{shownTotals.totalIsFinal ? "Total" : "Total sem entrega"}</dt><dd>{formatCents(shownTotals.totalCents)}</dd></div>
+          <div className={styles.totalRow}><dt>{selectedOrderId ? "Novos itens" : shownTotals.totalIsFinal ? "Total" : "Total sem entrega"}</dt><dd>{formatCents(shownTotals.totalCents)}</dd></div>
         </dl>
         {!isDemo && <p className={styles.formNote}>Preços e taxa são conferidos pelo estabelecimento ao registrar o pedido.</p>}
       </section>

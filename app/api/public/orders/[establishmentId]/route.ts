@@ -1,4 +1,6 @@
 import { fulfillmentLabel } from "@/lib/order-fulfillment";
+import { publicOrderSession } from "@/lib/public-order-session";
+import { canAddToPublicOrder } from "@/lib/public-order-rules";
 import { currentCustomer } from "@/lib/customer-session";
 import { getCounterTable } from "@/lib/counter-table";
 import { confirmedDeliveryCoordinates } from "@/lib/delivery-location";
@@ -35,6 +37,7 @@ function formatEstablishmentAddress(establishment: { street: string | null; numb
 
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const orderSchema = z.object({
+  addToOrderId: z.string().min(1).optional(),
   withAccount: z.boolean().optional(),
   accountInviteOptIn: z.boolean().optional(),
   clientRequestId: z.string().uuid(),
@@ -56,8 +59,17 @@ const orderSchema = z.object({
   if (data.fulfillment === "DELIVERY" && (!data.address || data.address.length < 5)) ctx.addIssue({ code: "custom", path: ["address"], message: "Informe o endereço de entrega." });
 });
 
-export async function GET(_request: Request, { params }: { params: Promise<{ establishmentId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ establishmentId: string }> }) {
   const { establishmentId } = await params;
+
+  if (new URL(request.url).searchParams.get("openOrders") === "1") {
+    const sessionHash = await publicOrderSession();
+    if (!sessionHash || isLocalAuthEnabled()) return Response.json({ orders: [] });
+    const orders = await db.deliveryOrder.findMany({ where: { establishmentId, origin: "ONLINE", fulfillment: "DINE_IN", publicSessionHash: sessionHash, saleId: null, status: { not: "CANCELLED" } }, orderBy: { createdAt: "desc" }, take: 10, select: { id: true, customerName: true, createdAt: true, kitchenOrderId: true } });
+    const kitchenOrders = await db.order.findMany({ where: { id: { in: orders.flatMap(order => order.kitchenOrderId ? [order.kitchenOrderId] : []) }, tab: { status: "OPEN" } }, select: { id: true } });
+    const openKitchenIds = new Set(kitchenOrders.map(order => order.id));
+    return Response.json({ orders: orders.filter(order => order.kitchenOrderId && openKitchenIds.has(order.kitchenOrderId)).map(({ id, customerName, createdAt }) => ({ id, customerName, createdAt })) }, { headers: { "Cache-Control": "no-store" } });
+  }
 
   if (isLocalAuthEnabled()) {
     const establishment = listLocalEstablishments().find(item => item.id === establishmentId && item.active);
@@ -124,12 +136,14 @@ export async function GET(_request: Request, { params }: { params: Promise<{ est
 
 export async function POST(request: Request, { params }: { params: Promise<{ establishmentId: string }> }) {
   const { establishmentId } = await params;
-  const ip = requestAuditMetadata(request).ipAddress ?? "unknown";
-  const limited = rateLimit(`public-order:${ip}`, 5, 10 * 60 * 1000);
-  if (!limited.allowed) return Response.json({ error: "Muitos pedidos em pouco tempo. Tente novamente em alguns minutos." }, { status: 429 });
-
   const parsed = orderSchema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) { console.error("Invalid public order payload", parsed.error.flatten()); return Response.json({ error: "Confira os dados do cliente, endereço e itens do pedido." }, { status: 400 }); }
+  const ip = requestAuditMetadata(request).ipAddress ?? "unknown";
+  const limited = parsed.data.addToOrderId ? rateLimit(`public-order-addition:${ip}`, 20, 10 * 60 * 1000) : rateLimit(`public-order:${ip}`, 5, 10 * 60 * 1000);
+  if (!limited.allowed) return Response.json({ error: "Muitos pedidos em pouco tempo. Tente novamente em alguns minutos." }, { status: 429 });
+  if (parsed.data.addToOrderId && parsed.data.fulfillment !== "DINE_IN") return Response.json({ error: "Somente comandas de consumo na loja aceitam acréscimos." }, { status: 400 });
+  const sessionHash = await publicOrderSession(true);
+  if (!sessionHash) return Response.json({ error: "Não foi possível iniciar a sessão do pedido." }, { status: 500 });
   const delivery = parsed.data.fulfillment === "DELIVERY";
   const data = { ...parsed.data, ...(delivery ? confirmedDeliveryCoordinates(parsed.data) : { destinationLat: undefined, destinationLng: undefined }),
     address: delivery ? parsed.data.address! : fulfillmentLabel(parsed.data),
@@ -138,6 +152,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
   };
 
   if (isLocalAuthEnabled()) {
+    if (data.addToOrderId) return Response.json({ error: "Acréscimos em comandas online não estão disponíveis no modo local." }, { status: 409 });
     const establishment = listLocalEstablishments().find(item => item.id === establishmentId && item.active);
     if (!establishment) return Response.json({ error: "Estabelecimento não encontrado." }, { status: 404 });
     if (delivery && !establishment.onlineDeliveryEnabled) return Response.json({ error: "As entregas estão pausadas. Escolha retirada ou consumo no local." }, { status: 409 });
@@ -214,13 +229,37 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
   if (data.withAccount && !customerSession) return Response.json({ error: "Sua sessão expirou. Entre novamente ou continue sem cadastro." }, { status: 401 });
   try {
     const order = await db.$transaction(async tx => {
+      if (data.addToOrderId) {
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`delivery:${data.addToOrderId}`}))`;
+        const existingAddition = await tx.publicOrderAddition.findUnique({ where: { establishmentId_clientRequestId: { establishmentId, clientRequestId: data.clientRequestId } }, include: { order: true } });
+        if (existingAddition) {
+          if (existingAddition.orderId !== data.addToOrderId || existingAddition.order.publicSessionHash !== sessionHash) throw new Error("ORDER_UNAVAILABLE");
+          return existingAddition.order;
+        }
+        const existing = await tx.deliveryOrder.findFirst({ where: { id: data.addToOrderId, establishmentId, origin: "ONLINE", fulfillment: "DINE_IN", publicSessionHash: sessionHash } });
+        if (!existing || existing.customerPhone !== data.customerPhone || !existing.kitchenOrderId) throw new Error("ORDER_UNAVAILABLE");
+        const kitchen = await tx.order.findFirst({ where: { id: existing.kitchenOrderId, tab: { establishmentId } }, include: { tab: true } });
+        if (!kitchen || !canAddToPublicOrder(existing, kitchen.tab.status)) throw new Error("ORDER_CLOSED");
+        const roundItems = [];
+        for (const { item, info, resolved } of resolvedItems) {
+          if ("error" in resolved) throw new Error("INVALID_OPTIONS");
+          const unitPrice = Math.round((info.price + resolved.priceDelta + Number.EPSILON) * 100) / 100;
+          const common = { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: resolved.snapshot.length ? resolved.snapshot : Prisma.JsonNull };
+          await tx.deliveryOrderItem.create({ data: { ...common, deliveryOrderId: existing.id } });
+          roundItems.push(await tx.tabItem.create({ data: { ...common, tabId: kitchen.tabId, sentQuantity: item.quantity, notes: data.notes || null, addedById: kitchen.sentById } }));
+        }
+        const round = await tx.order.create({ data: { tabId: kitchen.tabId, sentById: kitchen.sentById, deliveryParentId: existing.id, amendmentKey: data.clientRequestId, items: { create: roundItems.map(item => ({ tabItemId: item.id, productName: item.productName, quantity: item.quantity })) }, statusHistory: { create: { status: "RECEIVED", actorId: kitchen.sentById } } } });
+        await tx.publicOrderAddition.create({ data: { establishmentId, clientRequestId: data.clientRequestId, orderId: existing.id } });
+        await tx.auditEvent.create({ data: { organizationId: establishment.organizationId, establishmentId, actorId: kitchen.sentById, action: "ORDER_SENT", entityType: "Order", entityId: round.id, reason: "Acréscimo online na comanda aberta", after: { deliveryOrderId: existing.id, tabId: kitchen.tabId, items: roundItems.map(item => ({ productName: item.productName, quantity: Number(item.quantity) })) }, ...requestAuditMetadata(request) } });
+        return existing;
+      }
       const normalizedPhone = data.customerPhone.replace(/\D/g, "");
       const customer = await tx.customer.upsert({
         where: { organizationId_phone: { organizationId: establishment.organizationId, phone: normalizedPhone } },
         update: {},
         create: { organizationId: establishment.organizationId, name: data.customerName, phone: normalizedPhone },
       });
-      const created = await tx.deliveryOrder.create({ data: { establishmentId, customerAccountId: customerSession?.accountId ?? null, accountInviteOptIn: !customerSession && data.accountInviteOptIn === true, clientRequestId: data.clientRequestId, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, fulfillment: data.fulfillment, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: resolvedAreaId, deliveryFee, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
+      const created = await tx.deliveryOrder.create({ data: { establishmentId, customerAccountId: customerSession?.accountId ?? null, accountInviteOptIn: !customerSession && data.accountInviteOptIn === true, publicSessionHash: data.fulfillment === "DINE_IN" ? sessionHash : null, clientRequestId: data.clientRequestId, customerName: data.customerName, customerPhone: data.customerPhone, customerId: customer.id, fulfillment: data.fulfillment, address: data.address, destinationLat: data.destinationLat, destinationLng: data.destinationLng, notes: data.notes, origin: "ONLINE", deliveryAreaId: resolvedAreaId, deliveryFee, items: { create: resolvedItems.map(({ item, info, resolved }) => { const priceDelta = "error" in resolved ? 0 : resolved.priceDelta; const snapshot = "error" in resolved ? [] : resolved.snapshot; const unitPrice = Math.round((info.price + priceDelta + Number.EPSILON) * 100) / 100; return { productId: item.productId, productName: info.name, quantity: item.quantity, unitPrice, selectedOptionsSnapshot: snapshot.length ? snapshot : Prisma.JsonNull }; }) } }, include: { items: true } });
 
       // Delivery envia para a cozinha (ADR 0050): pedido online não tem operador logado por trás,
       // então usa a primeira pessoa com acesso ativo à unidade como autora do tíquete de cozinha
@@ -229,19 +268,26 @@ export async function POST(request: Request, { params }: { params: Promise<{ est
       if (access) {
         const actorId = access.membership.userId;
         const counterTable = await getCounterTable(tx, establishmentId);
-        const counterTab = await tx.tab.create({ data: { establishmentId, tableId: counterTable.id, openedById: actorId } });
+        const counterTab = await tx.tab.create({ data: { establishmentId, tableId: counterTable.id, name: data.fulfillment === "DINE_IN" ? data.customerName : "", openedById: actorId } });
         const tabItems = await Promise.all(created.items.map(item => tx.tabItem.create({ data: { tabId: counterTab.id, productId: item.productId, productName: item.productName, quantity: item.quantity, sentQuantity: item.quantity, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot ?? undefined, addedById: actorId } })));
         const counterOrder = await tx.order.create({ data: { tabId: counterTab.id, sentById: actorId, items: { create: tabItems.map((tabItem, index) => ({ tabItemId: tabItem.id, productName: created.items[index].productName, quantity: created.items[index].quantity })) }, statusHistory: { create: { status: "RECEIVED", actorId } } } });
         await tx.deliveryOrder.update({ where: { id: created.id }, data: { kitchenOrderId: counterOrder.id } });
         await tx.auditEvent.create({ data: { organizationId: establishment.organizationId, establishmentId, actorId, action: "ORDER_SENT", entityType: "Order", entityId: counterOrder.id, reason: `Pedido enviado para a cozinha — ${fulfillmentLabel(created)} online (${created.customerName})`, after: { tabId: counterTab.id, deliveryOrderId: created.id, items: created.items.map(item => ({ productName: item.productName, quantity: item.quantity })) } } });
       }
       return created;
-    });
-    void dispatchDeliveryWhatsAppAutomation(order.id, "ORDER_RECEIVED").catch(() => {});
-    void dispatchDeliveryWhatsAppAutomation(order.id, "INVITE_ACCOUNT").catch(() => {});
+    }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });
+    if (!data.addToOrderId) void dispatchDeliveryWhatsAppAutomation(order.id, "ORDER_RECEIVED").catch(() => {});
+    if (!data.addToOrderId) void dispatchDeliveryWhatsAppAutomation(order.id, "INVITE_ACCOUNT").catch(() => {});
     return Response.json({ orderId: order.id }, { status: 201 });
   } catch (cause) {
+    if (cause instanceof Error && cause.message === "ORDER_CLOSED") return Response.json({ code: "ORDER_CLOSED", error: "Esta comanda já foi encerrada. Seus itens continuam no carrinho; inicie um novo pedido." }, { status: 409 });
+    if (cause instanceof Error && cause.message === "ORDER_UNAVAILABLE") return Response.json({ code: "ORDER_UNAVAILABLE", error: "Comanda não disponível neste aparelho." }, { status: 404 });
+    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2034") return Response.json({ error: "A comanda foi atualizada. Confira e envie novamente." }, { status: 409 });
     if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") {
+      if (data.addToOrderId) {
+        const duplicateAddition = await db.publicOrderAddition.findUnique({ where: { establishmentId_clientRequestId: { establishmentId, clientRequestId: data.clientRequestId } }, include: { order: true } });
+        if (duplicateAddition?.order.publicSessionHash === sessionHash && duplicateAddition.orderId === data.addToOrderId) return Response.json({ orderId: duplicateAddition.orderId });
+      }
       const duplicate = await db.deliveryOrder.findUnique({ where: { establishmentId_clientRequestId: { establishmentId, clientRequestId: data.clientRequestId } } });
       if (duplicate) return Response.json({ orderId: duplicate.id });
     }
