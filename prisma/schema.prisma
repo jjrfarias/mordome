@@ -791,6 +791,8 @@ enum OrderFulfillment {
 }
 
 model DeliveryOrder {
+  publicSessionHash String?
+  additions PublicOrderAddition[]
   conferencePrintJobs KitchenPrintJob[]
   supplements Order[] @relation("DeliverySupplements")
   ifoodImport Json?
@@ -828,11 +830,23 @@ model DeliveryOrder {
   whatsappAutomationEvents WhatsAppAutomationEvent[]
 
   @@index([establishmentId, customerAccountId, createdAt])
+  @@index([establishmentId, publicSessionHash, createdAt])
   @@unique([id, establishmentId])
 
   @@index([establishmentId, status])
   @@index([establishmentId, deliveryAreaId])
   @@index([customerId])
+  @@unique([establishmentId, clientRequestId])
+}
+
+model PublicOrderAddition {
+  id String @id @default(cuid())
+  establishmentId String
+  clientRequestId String
+  orderId String
+  createdAt DateTime @default(now())
+  order DeliveryOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+
   @@unique([establishmentId, clientRequestId])
 }
 

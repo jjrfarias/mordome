@@ -11,7 +11,7 @@ import { mapLiveStorefront, type PublicOrderMenuResponse } from "@/lib/storefron
 import { formatAddressForOrder, type DeliveryAddress, type StorefrontData, type StorefrontProduct, type StorefrontTarget } from "@/lib/storefront/model";
 import { CartPanel } from "./Cart";
 import { CategoryNavigation } from "./CategoryNavigation";
-import { Checkout, type CheckoutForm, type CheckoutResult } from "./Checkout";
+import { Checkout, type CheckoutForm, type CheckoutResult, type OpenPublicOrder } from "./Checkout";
 import { DeliveryAddressDialog } from "./DeliveryAddress";
 import { Header, type NavItem } from "./Header";
 import { HeroBanner } from "./HeroBanner";
@@ -54,6 +54,7 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
   const [state, setState] = useState<{ status: "loading" } | { status: "error"; message: string; notFound: boolean } | { status: "ready"; data: StorefrontData }>({ status: "loading" });
   const [accountOpen, setAccountOpen] = useState(false);
   const [accountData, setAccountData] = useState<CustomerAccountData>({ enabled: false, account: null });
+  const [openOrders, setOpenOrders] = useState<OpenPublicOrder[]>([]);
   const [lines, setLines] = useState<CartLine[]>([]);
   const [favorites, setFavorites] = useState<Set<string>>(() => new Set());
   const [address, setAddress] = useState<DeliveryAddress | null>(null);
@@ -74,7 +75,13 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
     const response = await fetch(`/api/public/customers/${encodeURIComponent(sourceKey)}`, { cache: "no-store" });
     if (response.ok) setAccountData(await response.json());
   }, [sourceKey]);
+  const loadOpenOrders = useCallback(async () => {
+    if (source.kind !== "live") return;
+    const response = await fetch(`/api/public/orders/${encodeURIComponent(sourceKey)}?openOrders=1`, { cache: "no-store" });
+    if (response.ok) { const result = await response.json(); setOpenOrders(Array.isArray(result.orders) ? result.orders : []); }
+  }, [source.kind, sourceKey]);
   useEffect(() => { queueMicrotask(() => { void loadAccount().catch(() => {}); }); }, [loadAccount]);
+  useEffect(() => { if (dialog === "checkout") queueMicrotask(() => { void loadOpenOrders().catch(() => {}); }); }, [dialog, loadOpenOrders]);
 
   useEffect(() => { linesRef.current = lines; requestId.current = null; }, [lines]);
 
@@ -222,6 +229,7 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         clientRequestId: requestId.current,
+        addToOrderId: form.addToOrderId,
         customerName: form.name,
         customerPhone: form.phone,
         withAccount: Boolean(accountData.account),
@@ -246,7 +254,8 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
       throw new Error(typeof json.error === "string" ? json.error : "Não foi possível enviar o pedido. Tente novamente.");
     }
     setLines([]);
-    return { kind: "live", orderId: String(json.orderId ?? ""), feeToConfirm: isDelivery && quote.status === "confirm" };
+    void loadOpenOrders().catch(() => {});
+    return { kind: "live", orderId: String(json.orderId ?? ""), feeToConfirm: isDelivery && quote.status === "confirm", addedToOrder: Boolean(form.addToOrderId), canAddLater: form.fulfillment === "dine_in" && !form.addToOrderId };
   };
 
   const cartPanelProps = {
@@ -339,7 +348,7 @@ export function StorefrontPage({ source }: { source: StorefrontSource }) {
     <FilterDialog open={dialog === "filters"} onClose={() => setDialog(null)} filters={filters} quick={quick} onChange={patchFilters} onReset={resetFilters} resultCount={visibleProducts.length} hasFavorites={favorites.size > 0} />
     <LoyaltyDialog open={dialog === "loyalty"} loyalty={data.loyalty} isDemo={isDemo} onClose={() => setDialog(null)} />
     <CustomerAccountDialog open={accountOpen} onClose={() => setAccountOpen(false)} unit={sourceKey} data={accountData} onChanged={loadAccount} />
-    <Checkout customer={accountData.account} open={dialog === "checkout"} isDemo={isDemo} lines={lines} totals={totals} pickupTotals={pickupTotals} quote={quote} address={address} pickupSupported={data.pickupSupported} onlineDeliveryEnabled={data.onlineDeliveryEnabled} paymentMethods={data.paymentMethods} establishmentName={data.establishment.name}
+    <Checkout customer={accountData.account} open={dialog === "checkout"} isDemo={isDemo} lines={lines} totals={totals} pickupTotals={pickupTotals} quote={quote} address={address} pickupSupported={data.pickupSupported} onlineDeliveryEnabled={data.onlineDeliveryEnabled} openOrders={openOrders} paymentMethods={data.paymentMethods} establishmentName={data.establishment.name}
       onClose={() => setDialog(null)} onEditAddress={() => setAddressOpen(true)} onSubmit={submitOrder} onFinished={() => setCouponCode(null)} onCreateAccount={() => { setDialog(null); setAccountOpen(true); }} />
     <DeliveryAddressDialog open={addressOpen} initial={address} areas={data.deliveryAreas} onClose={() => setAddressOpen(false)} onSave={next => { setAddress(next); setAddressOpen(false); push({ message: "Endereço de entrega atualizado." }, 2500); }} />
   </div>;
