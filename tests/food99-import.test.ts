@@ -79,3 +79,15 @@ test("99Food ativo: bloqueia estado futuro, falta de aceite, loja ambígua e sub
     d => { d.body.append(d.querySelector("main").cloneNode(true)); },
   ]) { const dom = activeFixture(); try { change(dom.window.document); assert.throws(capture99FoodOrder); } finally { dom.window.close(); } }
 });
+
+test("99Food: erro de entrega é devolvido ao popup sem gerar captura de pedido", () => {
+  const dom = activeFixture(); try {
+    dom.window.document.querySelector(".title").textContent = "Entregador chegou ao local do cliente";
+    dom.window.document.querySelector("main > button").remove();
+    assert.throws(capture99FoodOrder, /já saiu para entrega/);
+    const result = capture99FoodOrder(true);
+    assert.ok("captureError" in result);
+    assert.match(JSON.parse(JSON.stringify(result)).captureError, /Não será enviado novamente à cozinha/);
+    assert.equal("externalId" in result, false);
+  } finally { dom.window.close(); }
+});

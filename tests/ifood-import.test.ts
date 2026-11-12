@@ -137,3 +137,12 @@ test("ordem DOM real: descrição de pagamento vem antes do valor à direita", (
     assert.equal(ifoodCaptureSchema.parse({ ...captured, payment: "UNKNOWN" }).payment, "PAID_ONLINE");
   } finally { dom.window.close(); }
 });
+
+test("iFood: falha serializada expõe o motivo ao popup", () => {
+  const dom = fixture({ quantity: "0" }); try {
+    const result = captureIfoodOrder(true);
+    assert.ok("captureError" in result);
+    assert.match(JSON.parse(JSON.stringify(result)).captureError, /item está incompleto/);
+    assert.equal("externalId" in result, false);
+  } finally { dom.window.close(); }
+});

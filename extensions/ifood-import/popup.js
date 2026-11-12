@@ -14,7 +14,8 @@ button.addEventListener("click", async () => {
     const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
     const host = tab?.url ? new URL(tab.url).hostname : "";
     if (!["gestordepedidos.ifood.com.br", "merchant.99app.com"].includes(host)) throw Error("Abra o pedido no Gestor do iFood ou 99Food antes de importar.");
-    const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: host === "merchant.99app.com" ? capture99FoodOrder : captureIfoodOrder });
+    const [result] = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: host === "merchant.99app.com" ? capture99FoodOrder : captureIfoodOrder, args: [true] });
+    if (result?.result?.captureError) throw Error(result.result.captureError);
     if (!result?.result) throw Error("Não foi possível ler o pedido. Abra os detalhes e tente novamente.");
     const payload = JSON.stringify(result.result);
     if (payload.length > 50000) throw Error("Pedido muito grande para esta versão. Nenhum dado foi enviado.");
