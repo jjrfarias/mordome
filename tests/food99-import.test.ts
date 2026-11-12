@@ -71,12 +71,12 @@ test("99Food ativo: três itens, nome sem tags, ID exato e subtotal sem ganhos",
 });
 test("99Food ativo: bloqueia estado futuro, falta de aceite, loja ambígua e subtotal ausente", () => {
   for (const change of [
-    d => { d.querySelector(".title").textContent = "Entrega iniciada"; },
-    d => { d.querySelector(".accept-time").remove(); },
-    d => { d.querySelector("main > button").remove(); },
-    d => { d.querySelector(".each-price").remove(); },
-    d => { d.body.append(d.querySelector(".layout-shop-name").cloneNode(true)); },
-    d => { d.body.append(d.querySelector("main").cloneNode(true)); },
+    (d: Document) => { d.querySelector(".title")!.textContent = "Entrega iniciada"; },
+    (d: Document) => { d.querySelector(".accept-time")!.remove(); },
+    (d: Document) => { d.querySelector("main > button")!.remove(); },
+    (d: Document) => { d.querySelector(".each-price")!.remove(); },
+    (d: Document) => { d.body.append(d.querySelector(".layout-shop-name")!.cloneNode(true)); },
+    (d: Document) => { d.body.append(d.querySelector("main")!.cloneNode(true)); },
   ]) { const dom = activeFixture(); try { change(dom.window.document); assert.throws(capture99FoodOrder); } finally { dom.window.close(); } }
 });
 

@@ -5,7 +5,7 @@ import { saleReceiptEscpos } from "./sale-receipt.ts";
 
 export async function queueSaleReceipts(db: PrismaClient, agent: { id: string; establishmentId: string; receiptsActivatedAt: Date | null; establishment: { name: string; document?: string | null } }) {
   if (!agent.receiptsActivatedAt) return;
-  const sales = await db.sale.findMany({ where: { establishmentId: agent.establishmentId, completedAt: { gte: agent.receiptsActivatedAt }, status: "COMPLETED", receiptPrintJobs: { none: { agentId: agent.id } } }, orderBy: [{ completedAt: "asc" }, { id: "asc" }], take: 50, include: { items: true, payments: true, tab: { include: { table: true } }, deliveryOrder: true } });
+  const sales = await db.sale.findMany({ where: { establishmentId: agent.establishmentId, completedAt: { gte: agent.receiptsActivatedAt }, status: "COMPLETED", printReceipt: true, receiptPrintJobs: { none: { agentId: agent.id } } }, orderBy: [{ completedAt: "asc" }, { id: "asc" }], take: 50, include: { items: true, payments: true, tab: { include: { table: true } }, deliveryOrder: true } });
   for (const sale of sales) {
     const label = sale.deliveryOrder ? `${fulfillmentLabel(sale.deliveryOrder)} - ${sale.deliveryOrder.customerName}${sale.deliveryOrder.fulfillment === "DELIVERY" ? ` - ${sale.deliveryOrder.address}` : ""}` : sale.tab && !sale.tab.table.isCounter ? `Mesa ${sale.tab.table.number}${sale.tab.name ? ` - ${sale.tab.name}` : ""}` : "Balcao";
     const payload = saleReceiptEscpos({ establishment: agent.establishment.name, document: agent.establishment.document, saleId: sale.id, completedAt: sale.completedAt, label,

@@ -23,7 +23,7 @@ export async function GET(request: Request) {
   // Scan committed orders, not the browser response: covers salão, PDV and delivery,
   // including orders sent while this PC was offline. Activation excludes old tickets.
   const orders = await db.order.findMany({
-    where: { sentAt: { gte: agent.activatedAt }, status: { not: "CANCELLED" }, tab: { establishmentId: agent.establishmentId }, kitchenPrintJobs: { none: { agentId: agent.id } } },
+    where: { sentAt: { gte: agent.activatedAt }, printKitchen: true, status: { not: "CANCELLED" }, tab: { establishmentId: agent.establishmentId }, kitchenPrintJobs: { none: { agentId: agent.id } } },
     orderBy: [{ sentAt: "asc" }, { id: "asc" }], take: 50,
     include: { tab: { include: { table: true } }, items: { include: { cancellations: true, tabItem: true } } },
   });

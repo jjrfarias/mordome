@@ -726,6 +726,7 @@ model CashMovement {
 }
 
 model Sale {
+  printReceipt Boolean @default(true)
   serviceWaived Boolean @default(false)
   financeTracked Boolean @default(false)
   id              String        @id @default(cuid())
@@ -959,6 +960,7 @@ model Order {
   @@unique([deliveryParentId, amendmentKey])
   kitchenPrintJobs KitchenPrintJob[]
   id              String               @id @default(cuid())
+  printKitchen    Boolean              @default(true)
   tabId           String
   status          OrderStatus          @default(RECEIVED)
   sentById        String

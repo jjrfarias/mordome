@@ -565,3 +565,30 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
 @media(max-width:760px){.mobile-nav{overflow-x:auto;justify-content:flex-start;gap:6px}.mobile-nav button{flex:1 0 55px;min-height:44px}}
 
 .service-waiver{display:flex;align-items:flex-start;gap:10px;padding:12px;margin:12px 0;border:1px solid var(--line);border-radius:10px;font-size:14px}.service-waiver input{width:20px;height:20px;flex-shrink:0}
+
+/* Keep the salon tab readable when the right column is short. */
+.command-layout .ticket{min-height:0;overflow:hidden}
+.command-layout .named-tab-controls{padding:16px 20px;gap:10px;background:#faf9f5}
+.command-layout .named-tab-controls .field>span{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
+.command-layout .named-tab-controls select{min-height:44px;background:white}
+.command-layout .named-tab-actions button{min-height:38px}
+.command-layout .ticket-title{padding:16px 20px;align-items:flex-start;gap:12px}
+.command-layout .ticket-title h2{font-size:20px;line-height:1.2}
+.command-layout .tab-customer-name{font-size:13px;margin-top:2px}
+.command-layout .ticket-items{min-height:0;padding:8px 20px;scrollbar-width:thin}
+.command-layout .ticket-items>.empty{height:auto;min-height:120px;padding:20px 8px}
+.command-layout .ticket-items>.empty svg{width:28px;margin-bottom:5px}
+.command-layout .ticket-footer{padding:16px 20px;background:#fff}
+.command-layout .ticket-footer>div{font-size:12px;margin-bottom:7px}
+.command-layout .ticket-footer .grand{margin:10px 0 14px;padding-top:12px}
+.command-layout .ticket-footer .wide+.wide{margin-top:8px}
+.command-layout .ticket-footer .field{display:flex;align-items:center;gap:9px;margin:0 0 10px;font-size:12px}
+.command-layout .ticket-footer .field input{width:17px;height:17px;margin:0;accent-color:var(--green)}
+.payment-modal .receipt-print-option{display:flex;align-items:center;gap:10px;margin:14px 0;font-size:12px}
+.payment-modal .receipt-print-option input{width:18px;height:18px;margin:0;accent-color:var(--green)}
+@media(max-width:760px){
+  .command-layout.mobile-panel-ticket .ticket{overflow:visible}
+  .command-layout .ticket-items{padding:0 14px}
+  .command-layout .ticket-items>.empty{min-height:130px}
+  .command-layout .ticket-footer{padding:12px 14px}
+}
