@@ -60,3 +60,9 @@ Para atualizar no Edge: remova/desative a versão antiga e use **Carregar sem co
 ## Versão 0.2.1 — aviso de pagamento recebido pelo iFood
 
 Reconhece o bloco completo “Cobrar do cliente - via iFood” acompanhado do valor e do aviso “O iFood já recebeu este valor e vamos repassar para sua loja”. O texto “via iFood” isolado não confirma pagamento. A conferência e a API do Mordomê também recuperam esse caso quando a extensão instalada ainda informa pagamento desconhecido; após publicar o servidor, basta capturar novamente o pedido. A proteção por identificador único permanece inalterada.
+
+## Versão 0.2.2 — pedidos ativos no 99Food
+
+Suporta a tela principal de pedidos em preparo, além do formato do histórico. Captura nome do cliente sem a etiqueta de recorrência, ID completo com botão Copiar, itens, observações e subtotal por campo próprio, ignorando o ícone de ajuda e valores de repasse. A chegada do entregador continua sendo preparo apenas quando há aceite e o botão Pedido preparado; etapas futuras da linha do tempo não são usadas como estado atual.
+
+Após atualizar os arquivos da pasta instalada, abra edge://extensions e clique em Recarregar na extensão Mordomê. Volte ao pedido e use Importar pedido aberto. A confirmação continua no Mordomê; atualizar a extensão não envia nem marca pedidos como preparados.
