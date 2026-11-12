@@ -50,3 +50,32 @@ test("99Food: conferência e cozinha identificam origem sem criar comprovante pa
     assert.equal(kitchenOrderLabel({tableNumber:0,isCounter:true,delivery:{deliveryOrderId:"qa",origin:"FOOD99",customerName:"Teste",externalNumber:"2"}}).kicker,"99Food");
   } finally { dom.window.close(); }
 });
+
+function activeFixture() {
+  const dom = fixture();
+  dom.window.document.body.innerHTML = `<span class="layout-shop-name">Loja Teste</span><main class="order-container__detail"><div class="index-number">#1</div><span class="accept-time">Pedido aceito às 23:11</span><div class="receiver-info__name">Cliente Teste<div class="receiver-info__tags">Pedido 2 vez(es)</div></div><span class="receiver-info__address-text">*** Bairro Teste ***</span><div class="timeline-title-container"><div class="title">Entregador chegou à loja</div></div><div>Entrega iniciada — O cliente recebeu o pedido</div><div class="items-wrapper"><div><div class="remark"><span class="each-remark">O cliente precisa de talheres</span><span class="each-remark">Cancelar apenas o que está em falta</span></div></div>${[["Bebida", "8,80"], ["Pastel doce", "15,40"], ["Pastel salgado", "26,00"]].map(([name, price]) => `<div class="item"><div class="food-item main-item"><div class="count">1 <span>x</span></div><span class="name-text">${name}</span><span>Promoção</span><span class="final-price"><span class="value">R$${price}</span></span></div></div>`).join("")}</div><div class="each-price"><p><span class="name-with-tip__text">Preço total dos itens sem as ofertas</span><i></i></p><div><p class="price">R$50,20</p></div></div><p>Total de ganhos após descontos R$47,60</p><p>Ganhos estimados R$34,35</p><div class="order-id">ID: 5764700000000000001<button>Copiar</button></div><button>Pedido preparado</button></main>`;
+  // DOM textContent does not insert the line break produced by innerText around the Copy button.
+  dom.window.document.querySelector(".order-id").firstChild.textContent += "\n";
+  return dom;
+}
+test("99Food ativo: três itens, nome sem tags, ID exato e subtotal sem ganhos", () => {
+  const dom = activeFixture(); try {
+    const result = capture99FoodOrder();
+    assert.equal(result.displayId, "1"); assert.equal(result.externalId, "5764700000000000001");
+    assert.equal(result.customerName, "Cliente Teste"); assert.equal(result.sourceStatus, "Em preparo");
+    assert.deepEqual(result.items.map(i => i.lineTotalCents), [880,1540,2600]);
+    assert.equal(result.subtotalCents, 5020); assert.equal(result.payment, "UNKNOWN");
+    assert.match(result.orderNotes, /talheres/); assert.match(result.orderNotes, /Cancelar apenas/);
+    assert.equal(ifoodImportProblem(ifoodCaptureSchema.parse(result)), null);
+  } finally { dom.window.close(); }
+});
+test("99Food ativo: bloqueia estado futuro, falta de aceite, loja ambígua e subtotal ausente", () => {
+  for (const change of [
+    d => { d.querySelector(".title").textContent = "Entrega iniciada"; },
+    d => { d.querySelector(".accept-time").remove(); },
+    d => { d.querySelector("main > button").remove(); },
+    d => { d.querySelector(".each-price").remove(); },
+    d => { d.body.append(d.querySelector(".layout-shop-name").cloneNode(true)); },
+    d => { d.body.append(d.querySelector("main").cloneNode(true)); },
+  ]) { const dom = activeFixture(); try { change(dom.window.document); assert.throws(capture99FoodOrder); } finally { dom.window.close(); } }
+});
