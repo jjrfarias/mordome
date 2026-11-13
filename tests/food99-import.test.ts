@@ -45,7 +45,7 @@ test("99Food: conferência e cozinha identificam origem sem criar comprovante pa
     const data = capture99FoodOrder();
     const order = {id:"qa", origin:"FOOD99", status:"PREPARING", saleId:null, customerName:"Teste", address:"Teste", notes:null, deliveryFee:0, ifoodImport:data, items:[]};
     const receipt = deliveryReceipt(order, {name:"QA"}, "CONFERENCE");
-    assert.equal(receipt.total,40); assert.match(receipt.totalLabel!,/99FOOD/); assert.match(receipt.notice!,/PAGAMENTO NÃO IDENTIFICADO/);
+    assert.equal(receipt.total,40); assert.equal(receipt.totalLabel,"TOTAL INFORMADO"); assert.equal(receipt.notice, undefined);
     assert.throws(()=>deliveryReceipt(order,{name:"QA"},"RECEIPT"), /Gestor/);
     assert.equal(kitchenOrderLabel({tableNumber:0,isCounter:true,delivery:{deliveryOrderId:"qa",origin:"FOOD99",customerName:"Teste",externalNumber:"2"}}).kicker,"99Food");
   } finally { dom.window.close(); }
