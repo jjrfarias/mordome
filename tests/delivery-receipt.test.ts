@@ -23,12 +23,13 @@ test('paid receipt uses persisted sale totals and payments instead of current or
   assert.throws(() => deliveryReceipt(paid, { name: 'Loja' }, 'CONFERENCE'), /encerrado/);
   assert.throws(() => deliveryReceipt({ ...paid, sale: { ...sale, status: 'CANCELLED' } }, { name: 'Loja' }, 'RECEIPT'), /Conclua/);
 });
-test('iFood conference preserves imported line totals and says not to charge online payment', () => {
+test('iFood conference prints normal order details without captured Gestor text', () => {
   const imported = { version: 1, externalId: '11111111-1111-4111-8111-111111111111', displayId: '1234', customerName: 'Teste', storeName: 'Loja', sourceStatus: 'Em preparo', address: 'Rua teste', fulfillment: 'DELIVERY', payment: 'PAID_ONLINE', subtotalCents: 1500, deliveryFeeCents: 500, items: [{ name: 'Combo', quantity: 3, lineTotalCents: 1000, details: 'Sem cebola' }], sourceText: 'Pedido de teste' };
-  const source = { ...order, origin: 'IFOOD', ifoodImport: imported };
+  const source = { ...order, origin: 'IFOOD', notes: 'iFood #1234\nAceite, cobrança e entrega no Gestor.\nTexto completo capturado', ifoodImport: { ...imported, orderNotes: 'Sem talheres' } };
   const receipt = deliveryReceipt(source, { name: 'Loja' }, 'CONFERENCE');
-  assert.equal(receipt.total, 15); assert.equal(receipt.items[0].total, 10); assert.equal(receipt.totalLabel, 'SUBTOTAL NO IFOOD'); assert.match(receipt.notice!, /NÃO COBRAR/);
+  assert.equal(receipt.total, 15); assert.equal(receipt.items[0].total, 10); assert.equal(receipt.totalLabel, 'TOTAL INFORMADO'); assert.equal(receipt.notice, undefined);
+  assert.match(receipt.label, /OBS: Sem talheres/); assert.doesNotMatch(receipt.label, /Gestor|Texto completo|iFood/);
   assert.throws(() => deliveryReceipt(source, { name: 'Loja' }, 'RECEIPT'), /iFood/);
   const html = buildReceiptHtml({ establishmentName: 'Loja', channel: 'DELIVERY', conference: true, items: receipt.items, total: receipt.total, payment: '', deliveryFee: 5, notice: receipt.notice });
-  assert.match(html, /CONFERÊNCIA DO PEDIDO/); assert.match(html, /Entrega/); assert.match(html, /NÃO COBRAR/);
+  assert.match(html, /CONFERÊNCIA DO PEDIDO/); assert.match(html, /Entrega/); assert.doesNotMatch(html, /NÃO COBRAR|Gestor|iFood/);
 });
