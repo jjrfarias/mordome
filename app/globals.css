@@ -593,3 +593,8 @@ select{width:100%;min-height:42px;border:1px solid var(--line);border-radius:9px
   .command-layout .ticket-items>.empty{min-height:130px}
   .command-layout .ticket-footer{padding:12px 14px}
 }
+/* On desktop, let the order list use the page scroll instead of shrinking between fixed sections. */
+@media(min-width:761px){
+  .command-layout .ticket{position:static;top:auto;align-self:start;max-height:none;overflow:visible}
+  .command-layout .ticket-items{flex:none;overflow:visible;min-height:120px}
+}
