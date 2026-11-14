@@ -143,6 +143,8 @@ function KitchenView({ establishmentId, establishmentName, orders, stations, sav
   const storageKey = `mordome:kitchen-pin:${establishmentId}`;
   const [pinnedStationId, setPinnedStationId] = useState<string | null>(null);
   const [selectedStationId, setSelectedStationId] = useState<string>("ALL");
+  const [reprintDestination, setReprintDestination] = useState<"AGENT" | "BROWSER">("AGENT");
+  const [reprinting, setReprinting] = useState(false);
 
   useEffect(() => {
     // Estado inicial recuperado da preferência local da estação fixada.
@@ -158,14 +160,15 @@ function KitchenView({ establishmentId, establishmentName, orders, stations, sav
 
   const reprintOrder = async (order: Order) => {
     const tickets = stations.map(station => ({ station, items: order.items.filter(item => item.stationId === station.id && item.quantity > (item.cancelledQuantity ?? 0)) })).filter(ticket => ticket.station.printerDriver === "browser_print" && ticket.items.length > 0);
-    if (!tickets.length) { onToast("Nenhuma impressora pelo navegador atende este pedido"); return; }
+    if (reprintDestination === "BROWSER" && !tickets.length) { onToast("Nenhuma impressora pelo navegador atende este pedido"); return; }
+    setReprinting(true);
     try {
-      const response = await fetch("/api/operations/prints", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entityType: "Order", entityId: order.id, reason: "Reimpressão da comanda de produção" }) });
+      const response = await fetch("/api/operations/prints", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entityType: "Order", entityId: order.id, destination: reprintDestination, reason: "Reimpressão da comanda de produção" }) });
       const result = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(result.error ?? "Não foi possível registrar a reimpressão.");
-      for (const ticket of tickets) printKitchenOrder({ establishmentName, stationName: ticket.station.name, label: orderLabel(order), orderId: order.id, sentAt: order.sentAt, items: ticket.items.map(item => ({ name: [item.productName, ...(item.selectedOptionsSnapshot ?? []).map(option => option.optionName), ...(item.notes ? [`OBS: ${item.notes}`] : [])].join(" — "), quantity: item.quantity - (item.cancelledQuantity ?? 0) })) });
-      onToast("Reimpressão registrada no histórico");
-    } catch (cause) { onToast(cause instanceof Error ? cause.message : "Não foi possível reimprimir."); }
+      if (reprintDestination === "BROWSER") for (const ticket of tickets) printKitchenOrder({ establishmentName, stationName: ticket.station.name, label: orderLabel(order), orderId: order.id, sentAt: order.sentAt, items: ticket.items.map(item => ({ name: [item.productName, ...(item.selectedOptionsSnapshot ?? []).map(option => option.optionName), ...(item.notes ? [`OBS: ${item.notes}`] : [])].join(" — "), quantity: item.quantity - (item.cancelledQuantity ?? 0) })) });
+      onToast(result.message ?? "Reimpressão enviada ao navegador e registrada no histórico");
+    } catch (cause) { onToast(cause instanceof Error ? cause.message : "Não foi possível reimprimir."); } finally { setReprinting(false); }
   };
 
   return <div className="page-content">
@@ -180,7 +183,7 @@ function KitchenView({ establishmentId, establishmentName, orders, stations, sav
         {selectedStationId !== "ALL" && <button type="button" className="secondary kitchen-pin-button" onClick={() => pin(selectedStationId)}>Fixar esta tela nesta fila</button>}
       </>}
     </div>}
-    {canReprint && filteredOrders.length > 0 && <div className="kitchen-reprint-bar"><span>Impressão da fila</span><button type="button" className="secondary" onClick={() => void reprintOrder(filteredOrders[filteredOrders.length - 1])}><Printer/> Reimprimir pedido mais recente</button></div>}
+    {canReprint && filteredOrders.length > 0 && <div className="kitchen-reprint-bar"><span>Impressão da fila</span><label>Destino <select value={reprintDestination} onChange={event => setReprintDestination(event.target.value as "AGENT" | "BROWSER")}><option value="AGENT">Serviço de impressão</option><option value="BROWSER">Navegador</option></select></label><button type="button" className="secondary" disabled={reprinting} onClick={() => void reprintOrder(filteredOrders[filteredOrders.length - 1])}><Printer/> {reprinting ? "Enviando…" : "Reimprimir pedido mais recente"}</button></div>}
     {filteredOrders.length === 0 ? <div className="big-empty"><ChefHat/><h2>Tudo em dia por aqui</h2><p>Novos pedidos enviados pelo salão, pelo PDV e pelo delivery aparecerão nesta tela.</p></div> : <div className="kds-grid">{filteredOrders.map(order => <article className={`kds-card ${statusLabels[order.status].replace(" ", "-").toLowerCase()}`} key={order.id}><div className="kds-head">{(() => { const label = kitchenOrderLabel(order); return <div><span>{label.kicker}</span><b>{label.title}</b>{label.detail && <small className="kds-head-detail">{label.detail}</small>}</div>; })()}<span><Clock3/> {new Date(order.sentAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })}</span></div><div className="kds-items">{order.items.map((item, index) => <div className={item.cancelledQuantity ? "cancelled" : ""} key={item.id ?? `${order.id}-${index}`}><b>{Math.max(0, item.quantity - (item.cancelledQuantity ?? 0))}×</b><span>{item.productName}{item.notes && <small className="item-preparation-note">Obs.: {item.notes}</small>}{item.selectedOptionsSnapshot?.length ? <small className="kds-item-options">{item.selectedOptionsSnapshot.map(option => option.optionName).join(", ")}</small> : null}{item.cancelledQuantity ? <small>{item.cancelledQuantity} cancelado(s)</small> : null}</span></div>)}</div><div className="kds-foot"><span>{statusLabels[order.status]}</span>{nextStatus[order.status] && <button disabled={saving || Boolean(order.delivery && order.status === "READY" && !deliveryFinished(order.delivery.status) && order.delivery.status !== "OUT_FOR_DELIVERY")} onClick={() => void onAdvance(order)}>{deliveryFinished(order.delivery?.status) ? "Encerrar na cozinha" : order.delivery && order.status === "READY" ? (requiresDelivery(order.delivery) ? "Aguardando saída no delivery" : "Aguardando conclusão no caixa") : order.status === "READY" ? "Entregar" : order.status === "PREPARING" ? "Marcar pronto" : "Iniciar preparo"}</button>}</div></article>)}</div>}
   </div>;
 }
