@@ -29,7 +29,7 @@ export async function GET(request: Request) {
     if (!session.canViewAudit) return Response.json({ error: "Acesso negado ao histórico." }, { status: 403 });
     if (filters.establishmentId && !session.establishments.some(item => item.id === filters.establishmentId)) return Response.json({ error: "Unidade não autorizada." }, { status: 403 });
     const events = listLocalAudit({ organizationId: session.organization.id, establishmentId: filters.establishmentId, action: filters.action, query: filters.query, limit: filters.limit });
-    return Response.json({ events: events.map(event => ({ ...event, before: redactAuditValue(event.before), after: redactAuditValue(event.after) })), total: events.length, page: 1, pages: 1, actions: Object.values(AuditAction) });
+    return Response.json({ events: events.map(event => ({ ...event, before: redactAuditValue(event.before), after: redactAuditValue(event.after), closedTab: event.action === "TAB_CLOSE" && event.after && typeof event.after === "object" && "closedTab" in event.after ? event.after.closedTab : null })), total: events.length, page: 1, pages: 1, actions: Object.values(AuditAction) });
   }
 
   const session = await getCurrentSession();
@@ -62,10 +62,10 @@ export async function GET(request: Request) {
     db.auditEvent.count({ where }),
   ]);
   const tabIds = events.filter(event => event.action === "TAB_CLOSE" && event.entityType === "Tab").map(event => event.entityId);
-  const tabs = tabIds.length ? await db.tab.findMany({ where: { id: { in: tabIds }, establishmentId: { in: allowedIds } }, select: { id: true, name: true } }) : [];
-  const tabNames = new Map(tabs.map(tab => [tab.id, tab.name]));
+  const tabs = tabIds.length ? await db.tab.findMany({ where: { id: { in: tabIds }, establishmentId: { in: allowedIds } }, select: { id: true, name: true, sale: { select: { subtotal: true, discount: true, serviceAmount: true, total: true, items: { select: { productName: true, quantity: true, unitPrice: true, total: true, selectedOptionsSnapshot: true } } } } } }) : [];
+  const tabsById = new Map(tabs.map(tab => [tab.id, tab]));
   return Response.json({
-    events: events.map(event => ({ ...event, before: redactAuditValue(event.before), after: redactAuditValue(event.after), tabName: event.action === "TAB_CLOSE" ? tabNames.get(event.entityId) || null : null, actorName: event.actor.name, actorUsername: event.actor.username, establishmentName: event.establishment?.name ?? null })),
+    events: events.map(event => { const tab = event.action === "TAB_CLOSE" ? tabsById.get(event.entityId) : null; return { ...event, before: redactAuditValue(event.before), after: redactAuditValue(event.after), tabName: tab?.name || null, closedTab: tab?.sale ? { items: tab.sale.items.map(item => ({ productName: item.productName, quantity: Number(item.quantity), unitPrice: Number(item.unitPrice), total: Number(item.total), selectedOptionsSnapshot: item.selectedOptionsSnapshot })), subtotal: Number(tab.sale.subtotal), discount: Number(tab.sale.discount), serviceAmount: Number(tab.sale.serviceAmount), total: Number(tab.sale.total) } : null, actorName: event.actor.name, actorUsername: event.actor.username, establishmentName: event.establishment?.name ?? null }; }),
     total,
     page: filters.page,
     pages: Math.max(1, Math.ceil(total / filters.limit)),
