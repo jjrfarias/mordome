@@ -39,6 +39,7 @@ export async function GET(request: Request) {
   if (!membership) return Response.json({ error: "Não autenticado." }, { status: 401 });
   const allowedIds = session.establishments.map(item => item.id);
   if (filters.establishmentId && !allowedIds.includes(filters.establishmentId)) return Response.json({ error: "Unidade não autorizada." }, { status: 403 });
+  const namedTabs = filters.query ? await db.tab.findMany({ where: { establishmentId: { in: filters.establishmentId ? [filters.establishmentId] : allowedIds }, name: { contains: filters.query, mode: "insensitive" } }, select: { id: true } }) : [];
 
   const where: Prisma.AuditEventWhereInput = {
     organizationId: session.organization.id,
@@ -52,6 +53,7 @@ export async function GET(request: Request) {
         { entityType: { contains: filters.query, mode: "insensitive" } },
         { entityId: { contains: filters.query, mode: "insensitive" } },
         { reason: { contains: filters.query, mode: "insensitive" } },
+        ...(namedTabs.length ? [{ entityType: "Tab", entityId: { in: namedTabs.map(tab => tab.id) } }] : []),
       ] } : {},
     ],
   };
@@ -59,8 +61,11 @@ export async function GET(request: Request) {
     db.auditEvent.findMany({ where, include: { actor: { select: { id: true, name: true, username: true } }, establishment: { select: { id: true, name: true } } }, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip: (filters.page - 1) * filters.limit, take: filters.limit }),
     db.auditEvent.count({ where }),
   ]);
+  const tabIds = events.filter(event => event.action === "TAB_CLOSE" && event.entityType === "Tab").map(event => event.entityId);
+  const tabs = tabIds.length ? await db.tab.findMany({ where: { id: { in: tabIds }, establishmentId: { in: allowedIds } }, select: { id: true, name: true } }) : [];
+  const tabNames = new Map(tabs.map(tab => [tab.id, tab.name]));
   return Response.json({
-    events: events.map(event => ({ ...event, before: redactAuditValue(event.before), after: redactAuditValue(event.after), actorName: event.actor.name, actorUsername: event.actor.username, establishmentName: event.establishment?.name ?? null })),
+    events: events.map(event => ({ ...event, before: redactAuditValue(event.before), after: redactAuditValue(event.after), tabName: event.action === "TAB_CLOSE" ? tabNames.get(event.entityId) || null : null, actorName: event.actor.name, actorUsername: event.actor.username, establishmentName: event.establishment?.name ?? null })),
     total,
     page: filters.page,
     pages: Math.max(1, Math.ceil(total / filters.limit)),
