@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ChevronLeft, ChevronRight, FileClock, Search, ShieldCheck, X } from "lucide-react";
+import { money } from "@/lib/domain";
+
+type ClosedTab = { items: { productName: string; quantity: number; unitPrice: number; total: number; selectedOptionsSnapshot?: unknown }[]; subtotal: number; discount: number; serviceAmount: number; total: number };
 
 type AuditEvent = {
   id: string;
@@ -10,6 +13,7 @@ type AuditEvent = {
   entityId: string;
   reason?: string | null;
   tabName?: string | null;
+  closedTab?: ClosedTab | null;
   before?: unknown;
   after?: unknown;
   ipAddress?: string | null;
@@ -35,6 +39,10 @@ const entityLabels: Record<string, string> = { Session: "Sessão", Establishment
 function JsonDetails({ title, value }: { title: string; value: unknown }) {
   if (value === undefined || value === null) return null;
   return <section><span>{title}</span><pre>{JSON.stringify(value, null, 2)}</pre></section>;
+}
+
+function ClosedTabDetails({ tab }: { tab: ClosedTab }) {
+  return <section className="audit-closed-tab"><h3>Itens da comanda</h3>{tab.items.length ? <div className="audit-closed-items">{tab.items.map((item, index) => <div key={`${item.productName}-${index}`}><span className="audit-closed-quantity">{item.quantity}×</span><div><b>{item.productName}</b>{Array.isArray(item.selectedOptionsSnapshot) && item.selectedOptionsSnapshot.map((option: { optionName?: string } | null) => option?.optionName).filter(Boolean).length > 0 && <small>{item.selectedOptionsSnapshot.map((option: { optionName?: string } | null) => option?.optionName).filter(Boolean).join(", ")}</small>}<small>{money(item.unitPrice)} cada</small></div><strong>{money(item.total)}</strong></div>)}</div> : <p>Os itens desta venda não estão disponíveis.</p>}<div className="audit-closed-totals"><div><span>Subtotal</span><b>{money(tab.subtotal)}</b></div>{tab.serviceAmount > 0 && <div><span>Serviço</span><b>{money(tab.serviceAmount)}</b></div>}{tab.discount > 0 && <div><span>Desconto</span><b>− {money(tab.discount)}</b></div>}<div className="audit-closed-grand"><span>Total pago</span><b>{money(tab.total)}</b></div></div></section>;
 }
 
 export function AuditHistory({ establishments }: { establishments: { id: string; name: string }[] }) {
@@ -85,6 +93,6 @@ export function AuditHistory({ establishments }: { establishments: { id: string;
       {loading ? <div className="empty"><span>Carregando histórico…</span></div> : events.length === 0 ? <div className="big-empty"><FileClock/><h2>Nenhum evento encontrado</h2><p>Altere os filtros ou realize uma nova operação.</p></div> : events.map(event => <button key={event.id} onClick={() => setSelected(event)} className="audit-row"><span className={`audit-mark audit-${event.action.toLowerCase()}`}><FileClock/></span><div className="audit-main"><b>{actionLabels[event.action] ?? event.action}</b><span>{event.reason ?? entityLabels[event.entityType] ?? event.entityType}{event.tabName ? ` · ${event.tabName}` : ""}</span></div><div className="audit-actor"><b>{event.actorName}</b><span>@{event.actorUsername}</span></div><div className="audit-place"><b>{event.establishmentName ?? "Toda a organização"}</b><span>{new Date(event.createdAt).toLocaleDateString("pt-BR")} · {new Date(event.createdAt).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span></div></button>)}
       <footer className="audit-pagination"><span>Página {page} de {pages}</span><div><button disabled={page <= 1 || loading} onClick={() => setPage(current => current - 1)}><ChevronLeft/>Anterior</button><button disabled={page >= pages || loading} onClick={() => setPage(current => current + 1)}>Próxima<ChevronRight/></button></div></footer>
     </section>
-    {selected && <div className="audit-drawer-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setSelected(null); }}><aside className="audit-drawer"><button className="audit-drawer-close" onClick={() => setSelected(null)} aria-label="Fechar detalhes"><X/></button><span className="section-kicker">Detalhes do evento</span><h2>{actionLabels[selected.action] ?? selected.action}</h2><div className="audit-detail-meta">{selected.tabName && <div><span>Nome da comanda</span><b>{selected.tabName}</b></div>}<div><span>Responsável</span><b>{selected.actorName} · @{selected.actorUsername}</b></div><div><span>Unidade</span><b>{selected.establishmentName ?? "Toda a organização"}</b></div><div><span>Data e hora</span><b>{new Date(selected.createdAt).toLocaleString("pt-BR")}</b></div><div><span>Registro</span><b>{entityLabels[selected.entityType] ?? selected.entityType} · {selected.entityId}</b></div>{selected.ipAddress && <div><span>Endereço de rede</span><b>{selected.ipAddress}</b></div>}</div>{selected.reason && <div className="audit-reason"><span>Motivo ou contexto</span><p>{selected.reason}</p></div>}<JsonDetails title="Antes" value={selected.before}/><JsonDetails title="Depois" value={selected.after}/></aside></div>}
+    {selected && <div className="audit-drawer-backdrop" onMouseDown={event => { if (event.target === event.currentTarget) setSelected(null); }}><aside className="audit-drawer"><button className="audit-drawer-close" onClick={() => setSelected(null)} aria-label="Fechar detalhes"><X/></button><span className="section-kicker">Detalhes do evento</span><h2>{actionLabels[selected.action] ?? selected.action}</h2><div className="audit-detail-meta">{selected.tabName && <div><span>Nome da comanda</span><b>{selected.tabName}</b></div>}<div><span>Responsável</span><b>{selected.actorName} · @{selected.actorUsername}</b></div><div><span>Unidade</span><b>{selected.establishmentName ?? "Toda a organização"}</b></div><div><span>Data e hora</span><b>{new Date(selected.createdAt).toLocaleString("pt-BR")}</b></div><div><span>Registro</span><b>{entityLabels[selected.entityType] ?? selected.entityType} · {selected.entityId}</b></div>{selected.ipAddress && <div><span>Endereço de rede</span><b>{selected.ipAddress}</b></div>}</div>{selected.reason && <div className="audit-reason"><span>Motivo ou contexto</span><p>{selected.reason}</p></div>}{selected.action === "TAB_CLOSE" && (selected.closedTab ? <ClosedTabDetails tab={selected.closedTab}/> : <section className="audit-closed-tab"><h3>Itens da comanda</h3><p>Os itens desta comanda não estão disponíveis no registro.</p></section>)}<JsonDetails title="Antes" value={selected.before}/><JsonDetails title="Depois" value={selected.after}/></aside></div>}
   </div>;
 }
