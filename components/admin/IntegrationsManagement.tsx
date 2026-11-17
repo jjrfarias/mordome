@@ -3,6 +3,7 @@ import { WhatsAppAutomations } from "./WhatsAppAutomations";
 import { useEffect, useState } from "react";
 import { CircleDollarSign, Printer, Scale } from "lucide-react";
 import { buildReceiptHtml } from "@/lib/integrations/print-client";
+import { buildKitchenPrinterInstaller } from "@/lib/kitchen-printer-installer";
 
 type DriverDefinition = { key: string; label: string; description: string; status: "available" | "planned"; configFields: { key: string; label: string; placeholder?: string; required?: boolean }[] };
 type Category = "PRINTER" | "PAYMENT" | "SCALE";
@@ -84,7 +85,61 @@ export function IntegrationsManagement({ activeEstablishmentId, onChanged }: { a
         </button>
       </section>;
     })}
+    <KitchenPrinterSetup activeEstablishmentId={activeEstablishmentId} />
     <PrintTemplateManagement activeEstablishmentId={activeEstablishmentId} />
+  </section>;
+}
+
+function KitchenPrinterSetup({ activeEstablishmentId }: { activeEstablishmentId: string }) {
+  const [agent, setAgent] = useState<{ name: string; lastSeenAt: string | null } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [ready, setReady] = useState(false);
+  const load = async () => {
+    const response = await fetch("/api/admin/kitchen-printer", { cache: "no-store" });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error ?? "Não foi possível consultar a impressora.");
+    setAgent(data.agent);
+  };
+  useEffect(() => { queueMicrotask(() => { setReady(false); load().then(() => setReady(true)).catch(cause => { setError(String(cause)); setReady(true); }); }); }, [activeEstablishmentId]);
+  const create = async () => {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/admin/kitchen-printer", { method: "POST" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível criar o serviço.");
+      const script = buildKitchenPrinterInstaller(data.url, data.token);
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([script], { type: "text/plain;charset=utf-8" }));
+      link.download = "Instalar-Impressora-Mordome.ps1";
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 60000);
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível criar o serviço."); }
+    finally { setBusy(false); }
+  };
+  const deactivate = async () => {
+    if (!window.confirm("Desativar esta impressora? Pedidos pendentes deixarão de ser enviados para este computador.")) return;
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/admin/kitchen-printer", { method: "DELETE" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível desativar.");
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível desativar."); }
+    finally { setBusy(false); }
+  };
+  return <section className="panel settings-shell">
+    <div className="settings-shell-header"><div><span className="section-kicker">Computador da cozinha</span><h2><Printer className="integration-title-icon" />Instalar impressora automática</h2></div></div>
+    {error && <div className="auth-error">{error}</div>}
+    {!ready ? <p>Consultando serviço…</p> : agent ? <>
+      <p>{agent.name} · {agent.lastSeenAt ? `Último contato: ${new Date(agent.lastSeenAt).toLocaleString("pt-BR")}` : "Aguardando primeiro contato do computador"}</p>
+      <button type="button" className="secondary" disabled={busy} onClick={() => void deactivate()}>Desativar impressora</button>
+    </> : <>
+      <p>Crie o serviço para esta unidade e baixe o instalador. No computador Windows conectado à impressora, execute o arquivo PowerShell, escolha a impressora e mantenha o usuário conectado.</p>
+      <button type="button" className="primary" disabled={busy} onClick={() => void create()}>{busy ? "Preparando…" : "Criar serviço e baixar instalador"}</button>
+      <p>O arquivo contém uma credencial exclusiva. Guarde-o em local seguro e apague-o após instalar. A impressão automática cobre as comandas da cozinha.</p>
+    </>}
   </section>;
 }
 
