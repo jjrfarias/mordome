@@ -41,6 +41,13 @@ cópia pendente. Não há troca automática entre transportes após falha.
 
 ## Entrega e recuperação
 
+O painel permite reconectar a impressora ativa: renova somente o token do mesmo
+agente, preservando `activatedAt` e os trabalhos existentes. O token antigo deixa
+de funcionar imediatamente. O instalador novo pode substituir a instalação local
+e interrompe o agente antigo deste usuário antes de iniciar o novo. Pedidos enviados
+de outros computadores logados na mesma unidade entram na mesma fila central;
+somente quem tem permissão de gerenciar integrações pode renovar a credencial.
+
 Pedidos confirmados desde `activatedAt` geram KitchenPrintJob único por agente/pedido.
 O agente recupera a fila após ficar offline. Pedidos antigos anteriores à ativação não
 são impressos. A fila inclui pedidos já preparados durante uma interrupção; conferir

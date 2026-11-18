@@ -34,6 +34,24 @@ export async function POST(request: Request) {
   return Response.json({ token, url: new URL(request.url).origin, agentId: result.id }, { status: 201, headers: { "Cache-Control": "no-store" } });
 }
 
+// Reconnect the same physical printer without replacing its job history. A new
+// credential invalidates the old PC immediately; pending jobs stay queued.
+export async function PATCH(request: Request) {
+  const session = await actor(request);
+  if (!session) return Response.json({ error: "Acesso negado." }, { status: 403 });
+  const token = randomBytes(32).toString("hex");
+  const agent = await db.$transaction(async tx => {
+    await tx.$queryRaw`SELECT "id" FROM "Establishment" WHERE "id" = ${session.establishment.id} FOR UPDATE`;
+    const current = await tx.kitchenPrintAgent.findFirst({ where: { establishmentId: session.establishment.id, active: true } });
+    if (!current) return null;
+    await tx.kitchenPrintAgent.update({ where: { id: current.id }, data: { tokenHash: printTokenHash(token), lastSeenAt: null } });
+    await tx.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "UPDATE", entityType: "KitchenPrintAgent", entityId: current.id, reason: "Credencial da impressora renovada pelo painel" } });
+    return current;
+  });
+  if (!agent) return Response.json({ error: "Nenhuma impressora ativa." }, { status: 404 });
+  return Response.json({ token, url: new URL(request.url).origin, agentId: agent.id }, { headers: { "Cache-Control": "no-store" } });
+}
+
 export async function DELETE(request: Request) {
   const session = await actor(request);
   if (!session) return Response.json({ error: "Acesso negado." }, { status: 403 });

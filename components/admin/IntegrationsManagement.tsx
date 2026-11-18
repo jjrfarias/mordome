@@ -102,12 +102,12 @@ function KitchenPrinterSetup({ activeEstablishmentId }: { activeEstablishmentId:
     setAgent(data.agent);
   };
   useEffect(() => { queueMicrotask(() => { setReady(false); load().then(() => setReady(true)).catch(cause => { setError(String(cause)); setReady(true); }); }); }, [activeEstablishmentId]);
-  const create = async () => {
+  const create = async (reconnect = false) => {
     setBusy(true); setError("");
     try {
-      const response = await fetch("/api/admin/kitchen-printer", { method: "POST" });
+      const response = await fetch("/api/admin/kitchen-printer", { method: reconnect ? "PATCH" : "POST" });
       const data = await response.json();
-      if (!response.ok) throw new Error(data.error ?? "Não foi possível criar o serviço.");
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível preparar a impressora.");
       const script = buildKitchenPrinterInstaller(data.url, data.token);
       const link = document.createElement("a");
       link.href = URL.createObjectURL(new Blob([script], { type: "text/plain;charset=utf-8" }));
@@ -134,6 +134,8 @@ function KitchenPrinterSetup({ activeEstablishmentId }: { activeEstablishmentId:
     {error && <div className="auth-error">{error}</div>}
     {!ready ? <p>Consultando serviço…</p> : agent ? <>
       <p>{agent.name} · {agent.lastSeenAt ? `Último contato: ${new Date(agent.lastSeenAt).toLocaleString("pt-BR")}` : "Aguardando primeiro contato do computador"}</p>
+      <p>Pedidos enviados de qualquer computador logado nesta unidade chegam a esta impressora. Para trocar o computador ou recuperar a conexão, baixe um novo instalador no PC conectado à impressora. Isso revoga a credencial anterior e preserva as comandas pendentes.</p>
+      <button type="button" className="primary" disabled={busy} onClick={() => void create(true)}>{busy ? "Preparando…" : "Reconectar e baixar instalador"}</button>
       <button type="button" className="secondary" disabled={busy} onClick={() => void deactivate()}>Desativar impressora</button>
     </> : <>
       <p>Crie o serviço para esta unidade e baixe o instalador. No computador Windows conectado à impressora, execute o arquivo PowerShell, escolha a impressora e mantenha o usuário conectado.</p>

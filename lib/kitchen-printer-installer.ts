@@ -4,6 +4,7 @@ export function buildKitchenPrinterInstaller(url: string, token: string) {
 $ErrorActionPreference = 'Stop'
 $base = Join-Path $env:LOCALAPPDATA 'Mordome\\ImpressoraCozinha'
 $taskName = 'Mordome - Impressora da Cozinha'
+$legacy = Join-Path $env:LOCALAPPDATA 'Mordome\\KitchenPrinter'
 Write-Host 'Impressoras disponíveis:'
 $printers = @(Get-Printer | Where-Object { $_.Name } | Sort-Object Name)
 if (-not $printers.Count) { Write-Host 'Nenhuma fila Windows encontrada. Você pode informar uma porta serial.' }
@@ -21,7 +22,21 @@ if ($choice) {
 }
 New-Item -ItemType Directory -Force -Path $base | Out-Null
 $existing = Join-Path $base 'config.json'
-if (Test-Path $existing) { throw "Já existe uma instalação em $base. Confira a configuração antes de substituir." }
+# Stop only Mordomê print agents for this Windows user. They share one mutex;
+# leaving the old process running would prevent the new agent from starting.
+foreach ($name in @($taskName, 'Mordome Kitchen Printer')) {
+  $task = Get-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue
+  if ($task) { Stop-ScheduledTask -TaskName $name -ErrorAction SilentlyContinue }
+}
+$paths = @((Join-Path $base 'kitchen-print-agent.ps1'), (Join-Path $legacy 'agent.ps1'))
+Get-CimInstance Win32_Process -Filter "Name = 'powershell.exe'" | Where-Object {
+  $command = $_.CommandLine
+  $command -and ($paths | Where-Object { $command.Contains($_) })
+} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }
+if (Test-Path (Join-Path $legacy 'journal')) {
+  $uncertain = @(Get-ChildItem (Join-Path $legacy 'journal') -File -ErrorAction SilentlyContinue)
+  if ($uncertain.Count) { Write-Warning 'Há registros antigos no diário de impressão. Confira-os antes de reimprimir comandas.' }
+}
 $source = '${url}/print-agent'
 foreach ($file in @('kitchen-print-agent.ps1', 'kitchen-print-windows.ps1')) {
   Invoke-WebRequest -Uri "$source/$file" -OutFile (Join-Path $base $file)
@@ -34,6 +49,7 @@ $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfi
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User ([Security.Principal.WindowsIdentity]::GetCurrent().Name)
 $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+if (Get-ScheduledTask -TaskName 'Mordome Kitchen Printer' -ErrorAction SilentlyContinue) { Disable-ScheduledTask -TaskName 'Mordome Kitchen Printer' | Out-Null }
 Start-ScheduledTask -TaskName $taskName
 Write-Host "Instalação concluída. Arquivos: $base"
 Write-Host 'Confira o último contato no painel do Mordomê. O Windows precisa permanecer ligado e com este usuário conectado.'
