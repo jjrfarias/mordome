@@ -48,7 +48,8 @@ $settings | ConvertTo-Json | Set-Content -LiteralPath $existing -Encoding UTF8
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument ('-NoProfile -WindowStyle Hidden -File "' + (Join-Path $base 'kitchen-print-agent.ps1') + '"')
 $trigger = New-ScheduledTaskTrigger -AtLogOn -User ([Security.Principal.WindowsIdentity]::GetCurrent().Name)
 $principal = New-ScheduledTaskPrincipal -UserId ([Security.Principal.WindowsIdentity]::GetCurrent().Name) -LogonType Interactive -RunLevel Limited
-Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Force | Out-Null
+$taskSettings = New-ScheduledTaskSettingsSet -RestartCount 3 -RestartInterval (New-TimeSpan -Minutes 1) -ExecutionTimeLimit (New-TimeSpan -Seconds 0) -StartWhenAvailable
+Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $trigger -Principal $principal -Settings $taskSettings -Force | Out-Null
 if (Get-ScheduledTask -TaskName 'Mordome Kitchen Printer' -ErrorAction SilentlyContinue) { Disable-ScheduledTask -TaskName 'Mordome Kitchen Printer' | Out-Null }
 Start-ScheduledTask -TaskName $taskName
 Write-Host "Instalação concluída. Arquivos: $base"
