@@ -91,7 +91,7 @@ export function IntegrationsManagement({ activeEstablishmentId, onChanged }: { a
 }
 
 function KitchenPrinterSetup({ activeEstablishmentId }: { activeEstablishmentId: string }) {
-  const [agent, setAgent] = useState<{ name: string; lastSeenAt: string | null } | null>(null);
+  const [agent, setAgent] = useState<{ name: string; lastSeenAt: string | null; receiptsActivatedAt: string | null } | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [ready, setReady] = useState(false);
@@ -129,12 +129,24 @@ function KitchenPrinterSetup({ activeEstablishmentId }: { activeEstablishmentId:
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível desativar."); }
     finally { setBusy(false); }
   };
+  const setAutomaticReceipts = async (enabled: boolean) => {
+    setBusy(true); setError("");
+    try {
+      const response = await fetch("/api/admin/kitchen-printer", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ automaticReceipts: enabled }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível salvar a impressão de comprovantes.");
+      await load();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível salvar a impressão de comprovantes."); }
+    finally { setBusy(false); }
+  };
   return <section className="panel settings-shell">
     <div className="settings-shell-header"><div><span className="section-kicker">Computador da cozinha</span><h2><Printer className="integration-title-icon" />Instalar impressora automática</h2></div></div>
     {error && <div className="auth-error">{error}</div>}
     {!ready ? <p>Consultando serviço…</p> : agent ? <>
       <p>{agent.name} · {agent.lastSeenAt ? `Último contato: ${new Date(agent.lastSeenAt).toLocaleString("pt-BR")}` : "Aguardando primeiro contato do computador"}</p>
       <p>Pedidos enviados de qualquer computador logado nesta unidade chegam a esta impressora. Para trocar o computador ou recuperar a conexão, baixe um novo instalador no PC conectado à impressora. Isso revoga a credencial anterior e preserva as comandas pendentes.</p>
+      <label className="field"><input type="checkbox" checked={!!agent.receiptsActivatedAt} disabled={busy} onChange={event => void setAutomaticReceipts(event.target.checked)} /> Imprimir comprovantes de venda automaticamente na POS80</label>
+      <p>Ligado: vendas novas do PDV e do salão saem em papel térmico sem abrir a impressão do navegador. Desligado: os comprovantes seguem a opção de impressão pelo navegador acima. Reimpressões continuam disponíveis no histórico.</p>
       <button type="button" className="primary" disabled={busy} onClick={() => void create(true)}>{busy ? "Preparando…" : "Reconectar e baixar instalador"}</button>
       <button type="button" className="secondary" disabled={busy} onClick={() => void deactivate()}>Desativar impressora</button>
     </> : <>

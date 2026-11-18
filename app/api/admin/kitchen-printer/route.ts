@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { isLocalAuthEnabled } from "@/lib/local-auth";
 import { printTokenHash } from "@/lib/kitchen-print";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 
@@ -15,8 +16,25 @@ async function actor(request: Request) {
 export async function GET(request: Request) {
   const session = await actor(request);
   if (!session) return Response.json({ error: "Acesso negado." }, { status: 403 });
-  const agent = await db.kitchenPrintAgent.findFirst({ where: { establishmentId: session.establishment.id, active: true }, select: { id: true, name: true, activatedAt: true, lastSeenAt: true } });
+  const agent = await db.kitchenPrintAgent.findFirst({ where: { establishmentId: session.establishment.id, active: true }, select: { id: true, name: true, activatedAt: true, lastSeenAt: true, receiptsActivatedAt: true } });
   return Response.json({ agent }, { headers: { "Cache-Control": "no-store" } });
+}
+
+const receiptSetting = z.object({ automaticReceipts: z.boolean() });
+
+export async function PUT(request: Request) {
+  const session = await actor(request);
+  if (!session) return Response.json({ error: "Acesso negado." }, { status: 403 });
+  const parsed = receiptSetting.safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return Response.json({ error: "Configuração inválida." }, { status: 400 });
+  const agent = await db.kitchenPrintAgent.findFirst({ where: { establishmentId: session.establishment.id, active: true } });
+  if (!agent) return Response.json({ error: "Instale a impressora automática primeiro." }, { status: 404 });
+  if (Boolean(agent.receiptsActivatedAt) === parsed.data.automaticReceipts) return Response.json({ automaticReceipts: parsed.data.automaticReceipts });
+  await db.$transaction([
+    db.kitchenPrintAgent.update({ where: { id: agent.id }, data: { receiptsActivatedAt: parsed.data.automaticReceipts ? new Date() : null } }),
+    db.auditEvent.create({ data: { organizationId: session.organization.id, establishmentId: session.establishment.id, actorId: session.user.id, action: "UPDATE", entityType: "KitchenPrintAgent", entityId: agent.id, reason: parsed.data.automaticReceipts ? "Comprovantes automáticos ativados" : "Comprovantes automáticos desativados" } }),
+  ]);
+  return Response.json({ automaticReceipts: parsed.data.automaticReceipts });
 }
 
 export async function POST(request: Request) {
