@@ -48,6 +48,11 @@ e interrompe o agente antigo deste usuário antes de iniciar o novo. Pedidos env
 de outros computadores logados na mesma unidade entram na mesma fila central;
 somente quem tem permissão de gerenciar integrações pode renovar a credencial.
 
+O painel também permite ativar comprovantes de venda automáticos na POS80.
+Ao ligar, `receiptsActivatedAt` começa no momento da ativação, sem imprimir
+vendas antigas; o agente busca as novas vendas e envia ESC/POS. Ao desligar,
+o navegador volta a cuidar dos comprovantes conforme a integração escolhida.
+
 Pedidos confirmados desde `activatedAt` geram KitchenPrintJob único por agente/pedido.
 O agente recupera a fila após ficar offline. Pedidos antigos anteriores à ativação não
 são impressos. A fila inclui pedidos já preparados durante uma interrupção; conferir
