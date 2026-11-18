@@ -108,7 +108,7 @@ function KitchenPrinterSetup({ activeEstablishmentId }: { activeEstablishmentId:
       const response = await fetch("/api/admin/kitchen-printer", { method: reconnect ? "PATCH" : "POST" });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error ?? "Não foi possível preparar a impressora.");
-      const script = buildKitchenPrinterInstaller(data.url, data.token);
+      const script = buildKitchenPrinterInstaller(window.location.origin, data.token);
       const link = document.createElement("a");
       link.href = URL.createObjectURL(new Blob([script], { type: "text/plain;charset=utf-8" }));
       link.download = "Instalar-Impressora-Mordome.ps1";
