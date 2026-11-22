@@ -258,3 +258,29 @@ export function manageLocalNamedTab(establishmentId: string, operatorId: string,
   }
   return found;
 }
+
+export function cancelLocalTab(input: { establishmentId: string; tabId: string; actorId: string; reason: string; canCancelSentItems: boolean }) {
+  const found = getLocalOpenTab(input.establishmentId, input.tabId);
+  if (!found) return "TAB_NOT_FOUND" as const;
+  const { table, tab } = found;
+  if (tab.saleId) return "TAB_ALREADY_PAID" as const;
+  const orderIds = new Set(tab.orders.map(order => order.id));
+  if (listLocalDeliveryOrders(input.establishmentId).some(order => order.kitchenOrderId && orderIds.has(order.kitchenOrderId))) return "LINKED_ORDER" as const;
+  const sent = tab.orders.some(order => order.items.some(item => item.quantity > item.cancellations.reduce((sum, cancellation) => sum + cancellation.quantity, 0)));
+  if (sent && !input.canCancelSentItems) return "CANCEL_PERMISSION_REQUIRED" as const;
+  const now = new Date().toISOString();
+  for (const order of tab.orders) {
+    for (const item of order.items) {
+      const remaining = item.quantity - item.cancellations.reduce((sum, cancellation) => sum + cancellation.quantity, 0);
+      if (remaining > 0) item.cancellations.push({ id: `local-order-item-cancellation-${randomUUID()}`, quantity: remaining, reason: input.reason, actorId: input.actorId, createdAt: now });
+    }
+    if (order.status !== "CANCELLED") {
+      order.status = "CANCELLED";
+      order.statusHistory.push({ status: "CANCELLED", actorId: input.actorId, createdAt: now });
+    }
+  }
+  for (const item of tab.items) { item.quantity = 0; item.sentQuantity = 0; item.active = false; }
+  tab.status = "CANCELLED";
+  tab.closedAt = now;
+  return { table, tab, sent, freedTable: !table.tabs.some(candidate => candidate.status === "OPEN") };
+}
