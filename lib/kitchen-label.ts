@@ -5,7 +5,7 @@ import { fulfillmentLabel, requiresDelivery } from "./order-fulfillment.ts";
 // `DeliveryOrder.kitchenOrderId` é o que diferencia um do outro.
 
 export type KitchenDeliverySource = { fulfillment?: "DELIVERY" | "PICKUP" | "DINE_IN"; status?: "RECEIVED" | "PREPARING" | "OUT_FOR_DELIVERY" | "DELIVERED" | "CANCELLED"; deliveryOrderId: string; origin: "ONLINE" | "INTERNAL" | "IFOOD" | "FOOD99"; customerName: string; externalNumber?: string };
-export type KitchenLabelInput = { isCounter?: boolean; tableNumber: number; tabName?: string; delivery?: KitchenDeliverySource | null };
+export type KitchenLabelInput = { isCounter?: boolean; tableNumber: number; tabName?: string; takeaway?: boolean; delivery?: KitchenDeliverySource | null };
 
 // Mesmo número curto mostrado ao cliente na confirmação do pedido online.
 export const deliveryShortNumber = (deliveryOrderId: string) => deliveryOrderId.slice(-6).toUpperCase();
@@ -25,9 +25,9 @@ export function kitchenOrderLabel(order: KitchenLabelInput) {
       ticket: `${mode} #${number}${customer ? ` · ${customer}` : ""}`,
     };
   }
-  if (order.isCounter) return { kicker: "PDV", title: "Balcão", detail: null, ticket: "Balcão" };
+  if (order.isCounter) return { kicker: "PDV", title: "Balcão", detail: order.takeaway ? "Pra levar" : null, ticket: order.takeaway ? "Balcão · PRA LEVAR" : "Balcão" };
   const table = String(order.tableNumber).padStart(2, "0");
-  return { kicker: "Mesa", title: table, detail: order.tabName || null, ticket: `Mesa ${table}${order.tabName ? ` · ${order.tabName}` : ""}` };
+  return { kicker: "Mesa", title: table, detail: [order.tabName, order.takeaway ? "Pra levar" : ""].filter(Boolean).join(" · ") || null, ticket: `Mesa ${table}${order.tabName ? ` · ${order.tabName}` : ""}${order.takeaway ? " · PRA LEVAR" : ""}` };
 }
 
 // Relatórios de tempo são exportados (planilha/PDF): o rótulo identifica a origem do pedido sem

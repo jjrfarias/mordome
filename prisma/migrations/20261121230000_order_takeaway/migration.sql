@@ -1,0 +1,1 @@
+ALTER TABLE "Order" ADD COLUMN "takeaway" BOOLEAN NOT NULL DEFAULT false;

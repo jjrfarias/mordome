@@ -34,7 +34,7 @@ import type { FiscalPaymentInput, FiscalSaleItemInput } from "@/lib/fiscal/types
 const optionSelectionSchema = z.object({ groupId: z.string().min(1), optionIds: z.array(z.string().min(1)).max(20) });
 const saleItemSchema = z.object({ productId: z.string().min(1), quantity: z.number().int().positive().max(999), discount: z.number().finite().min(0).optional(), selectedOptions: z.array(optionSelectionSchema).max(10).optional() });
 const paymentSchema = z.object({ method: z.string().min(2).max(40), amount: z.number().finite().positive(), receivedAmount: z.number().finite().positive().optional() });
-const completeSchema = z.object({ waiveService: z.boolean().default(false), printReceipt: z.boolean().default(true), action: z.literal("COMPLETE"), channel: z.enum(SaleChannel).refine(channel => channel === "POS" || channel === "FLOOR" || channel === "DELIVERY"), items: z.array(saleItemSchema).min(1), payments: z.array(paymentSchema).min(1).max(10), discount: z.number().finite().min(0).default(0), discountReason: z.string().trim().min(3).max(200).optional(), couponCode: z.string().trim().min(1).max(40).optional(), table: z.number().int().positive().optional(), tabId: z.string().min(1).optional(), deliveryOrderId: z.string().min(1).optional(), idempotencyKey: z.string().uuid() });
+const completeSchema = z.object({ waiveService: z.boolean().default(false), printReceipt: z.boolean().default(true), takeaway: z.boolean().default(false), action: z.literal("COMPLETE"), channel: z.enum(SaleChannel).refine(channel => channel === "POS" || channel === "FLOOR" || channel === "DELIVERY"), items: z.array(saleItemSchema).min(1), payments: z.array(paymentSchema).min(1).max(10), discount: z.number().finite().min(0).default(0), discountReason: z.string().trim().min(3).max(200).optional(), couponCode: z.string().trim().min(1).max(40).optional(), table: z.number().int().positive().optional(), tabId: z.string().min(1).optional(), deliveryOrderId: z.string().min(1).optional(), idempotencyKey: z.string().uuid() });
 const cancelSchema = z.object({ action: z.literal("CANCEL"), saleId: z.string().min(1), reason: z.string().trim().min(3).max(200), idempotencyKey: z.string().uuid() });
 const refundSchema = z.object({ action: z.literal("REFUND"), saleId: z.string().min(1), amount: z.number().finite().positive(), payments: z.array(paymentSchema).min(1).max(10), restoreStock: z.boolean().default(false), reason: z.string().trim().min(3).max(200), idempotencyKey: z.string().uuid() });
 const actionSchema = z.discriminatedUnion("action", [completeSchema, cancelSchema, refundSchema]);
@@ -229,7 +229,7 @@ export async function POST(request: Request) {
         // PDV envia para a cozinha (ADR 0044) — só para venda direta de balcão, nunca para
         // fechamento de mesa (que já envia pela ação SEND_ORDER do Salão) nem delivery.
         if (data.channel === "POS" && !localTab && !localDelivery) {
-          const created = createLocalCounterOrder({ establishmentId: session.establishment.id, operatorId: session.user.id, items: items.map(item => ({ productId: item.productId ?? "", productName: item.productName, quantity: item.quantity, selectedOptionsSnapshot: item.selectedOptionsSnapshot })) });
+          const created = createLocalCounterOrder({ establishmentId: session.establishment.id, operatorId: session.user.id, takeaway: data.takeaway, items: items.map(item => ({ productId: item.productId ?? "", productName: item.productName, quantity: item.quantity, selectedOptionsSnapshot: item.selectedOptionsSnapshot })) });
           kitchenTicket = created.kitchenTicket;
           recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "ORDER_SENT", entityType: "Order", entityId: created.order.id, reason: "Pedido enviado para a cozinha — Balcão (PDV)", after: { items: items.map(item => ({ productName: item.productName, quantity: item.quantity })) }, ...requestAuditMetadata(request) });
         }
@@ -406,12 +406,12 @@ export async function POST(request: Request) {
       // PDV envia para a cozinha (ADR 0044): reaproveita o mesmo pipeline Tab -> Order -> OrderItem
       // do Salão, através de uma mesa virtual "Balcão" (`isCounter: true`) — nunca fechada por
       // status (ver ADR), para que a cozinha continue podendo avançar o pedido depois do pagamento.
-      let kitchenTicket: { orderId: string; sentAt: string; tickets: { stationName: string; printerDriver: string; items: { name: string; quantity: number }[] }[] } | null = null;
+      let kitchenTicket: { orderId: string; sentAt: string; takeaway: boolean; tickets: { stationName: string; printerDriver: string; items: { name: string; quantity: number }[] }[] } | null = null;
       if (data.channel === "POS") {
         const counterTable = await getCounterTable(tx, actor.session.establishment.id);
         const counterTab = await tx.tab.create({ data: { establishmentId: actor.session.establishment.id, tableId: counterTable.id, openedById: actor.session.user.id, saleId: created.id } });
         const tabItems = await Promise.all(saleItems.map(item => tx.tabItem.create({ data: { tabId: counterTab.id, productId: item.productId, productName: item.productName, quantity: item.quantity, sentQuantity: item.quantity, unitPrice: item.unitPrice, selectedOptionsSnapshot: item.selectedOptionsSnapshot, addedById: actor.session.user.id } })));
-        const counterOrder = await tx.order.create({ data: { tabId: counterTab.id, sentById: actor.session.user.id, items: { create: tabItems.map((tabItem, index) => ({ tabItemId: tabItem.id, productName: saleItems[index].productName, quantity: saleItems[index].quantity })) }, statusHistory: { create: { status: "RECEIVED", actorId: actor.session.user.id } } } });
+        const counterOrder = await tx.order.create({ data: { tabId: counterTab.id, sentById: actor.session.user.id, takeaway: data.takeaway, items: { create: tabItems.map((tabItem, index) => ({ tabItemId: tabItem.id, productName: saleItems[index].productName, quantity: saleItems[index].quantity })) }, statusHistory: { create: { status: "RECEIVED", actorId: actor.session.user.id } } } });
         await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "ORDER_SENT", entityType: "Order", entityId: counterOrder.id, reason: "Pedido enviado para a cozinha — Balcão (PDV)", after: { tabId: counterTab.id, items: saleItems.map(item => ({ productName: item.productName, quantity: item.quantity })) }, ...requestAuditMetadata(request) } });
 
         const [links, stations] = await Promise.all([
@@ -427,7 +427,7 @@ export async function POST(request: Request) {
           if (!grouped.has(stationId)) grouped.set(stationId, { stationName: meta.name, printerDriver: meta.printerDriver, items: [] });
           grouped.get(stationId)!.items.push({ name: item.productName, quantity: item.quantity });
         }
-        kitchenTicket = { orderId: counterOrder.id, sentAt: counterOrder.sentAt.toISOString(), tickets: [...grouped.values()] };
+        kitchenTicket = { orderId: counterOrder.id, sentAt: counterOrder.sentAt.toISOString(), takeaway: counterOrder.takeaway, tickets: [...grouped.values()] };
       }
       return { sale: created, kitchenTicket, deliveryOrderId: deliveryOrder?.id ?? null, fiscalItems, fiscalPayments: payments.map(payment => ({ method: payment.method, amount: payment.amount }) as FiscalPaymentInput), cnpj: establishment.document };
     }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable });

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { kitchenOrderLabel, kitchenReportLabel } from "../lib/kitchen-label.ts";
 import { attachLocalDeliveryKitchenOrder, createLocalDeliveryOrder } from "../lib/local-delivery.ts";
-import { createLocalCounterOrder, getLocalFloor, listLocalOrderTimings } from "../lib/local-floor.ts";
+import { addLocalTabItem, createLocalCounterOrder, getLocalFloor, listLocalOrderTimings, sendLocalOrder } from "../lib/local-floor.ts";
 
 test("Cozinha: rótulo diferencia mesa, PDV e delivery", () => {
   assert.deepEqual(kitchenOrderLabel({ isCounter: false, tableNumber: 7 }), { kicker: "Mesa", title: "07", detail: null, ticket: "Mesa 07" });
@@ -10,6 +10,24 @@ test("Cozinha: rótulo diferencia mesa, PDV e delivery", () => {
   const online = kitchenOrderLabel({ isCounter: true, tableNumber: 0, delivery: { deliveryOrderId: "local-delivery-abc09f38c", origin: "ONLINE", customerName: "Maria Souza" } });
   assert.deepEqual(online, { kicker: "Delivery · Online", title: "#09F38C", detail: "Maria", ticket: "Delivery #09F38C · Maria" });
   assert.equal(kitchenOrderLabel({ isCounter: true, tableNumber: 0, delivery: { deliveryOrderId: "x123456", origin: "INTERNAL", customerName: "" } }).kicker, "Delivery");
+});
+
+test("Pra levar identifica o pedido no PDV e na rodada da mesa", () => {
+  const establishmentId = `takeaway-${Date.now()}`;
+  const items = [{ productId: "p1", productName: "Pastel", quantity: 1 }];
+  const pos = createLocalCounterOrder({ establishmentId, operatorId: "cashier", takeaway: true, items });
+  assert.equal(pos.kitchenTicket.takeaway, true);
+  assert.equal(kitchenOrderLabel(getLocalFloor(establishmentId).orders.find(order => order.id === pos.order.id)!).ticket, "Balcão · PRA LEVAR");
+
+  const table = getLocalFloor(establishmentId).tables[0];
+  const added = addLocalTabItem({ establishmentId, tableId: table.id, operatorId: "waiter", product: { id: "p1", name: "Pastel" }, unitPrice: 10 });
+  assert.notEqual(added, "TABLE_NOT_FOUND");
+  if (added === "TABLE_NOT_FOUND") return;
+  const sent = sendLocalOrder({ establishmentId, tabId: added.tab.id, operatorId: "waiter", takeaway: true });
+  assert.equal(typeof sent, "object");
+  if (typeof sent === "string") return;
+  assert.equal(sent.order.takeaway, true);
+  assert.equal(kitchenOrderLabel({ tableNumber: table.number, takeaway: sent.order.takeaway }).ticket, `Mesa ${String(table.number).padStart(2, "0")} · PRA LEVAR`);
 });
 
 test("Cozinha (modo local): pedido de delivery na fila aparece como delivery, não como PDV", () => {
