@@ -975,6 +975,7 @@ model Order {
   kitchenPrintJobs KitchenPrintJob[]
   id              String               @id @default(cuid())
   printKitchen    Boolean              @default(true)
+  takeaway        Boolean              @default(false)
   tabId           String
   status          OrderStatus          @default(RECEIVED)
   sentById        String

@@ -33,7 +33,8 @@ export async function POST(request: Request) {
     const items = order.items.map(item => ({ name: [item.productName, ...selectedOptionNames(item.tabItem.selectedOptionsSnapshot), ...(item.tabItem.notes ? [`OBS: ${item.tabItem.notes}`] : [])].join(" - "), quantity: Number(item.quantity) })).filter(item => item.quantity > 0);
     if (!items.length) return Response.json({ error: "Pedido sem itens para imprimir." }, { status: 409 });
     const delivery = await db.deliveryOrder.findFirst({ where: { establishmentId: session.establishment.id, OR: [{ kitchenOrderId: order.id }, { id: order.deliveryParentId ?? "" }] }, select: { customerName: true, fulfillment: true, origin: true, ifoodImport: true } });
-    const label = !order.tab.table.isCounter ? `Mesa ${order.tab.table.number}${order.tab.name ? ` - ${order.tab.name}` : ""}` : delivery && isMarketplaceOrder(delivery.origin) ? `${marketplaceLabel(delivery.origin)} #${ifoodMetadata(delivery.ifoodImport)?.displayId ?? ""} - ${delivery.customerName}` : delivery ? `${fulfillmentLabel(delivery)} - ${delivery.customerName}` : "Balcao";
+    let label = !order.tab.table.isCounter ? `Mesa ${order.tab.table.number}${order.tab.name ? ` - ${order.tab.name}` : ""}` : delivery && isMarketplaceOrder(delivery.origin) ? `${marketplaceLabel(delivery.origin)} #${ifoodMetadata(delivery.ifoodImport)?.displayId ?? ""} - ${delivery.customerName}` : delivery ? `${fulfillmentLabel(delivery)} - ${delivery.customerName}` : "Balcao";
+    if (order.takeaway) label += " - PRA LEVAR";
     const payload = kitchenEscpos({ establishment: session.establishment.name, label: order.deliveryParentId ? `COMPLEMENTO - ${label}` : label, orderId: order.id, sentAt: order.sentAt, items });
     const queued = await db.$transaction(async tx => {
       const job = await tx.kitchenPrintJob.upsert({ where: { agentId_orderId: { agentId: agent.id, orderId: order.id } }, create: { agentId: agent.id, orderId: order.id, payload }, update: {} });
