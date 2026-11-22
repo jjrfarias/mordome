@@ -119,11 +119,49 @@ export function CatalogManagement({ establishmentId, establishmentName }: { esta
     </section>
 
     {error && <div className="auth-error" role="alert">{error}</div>}
+    {!loading && products.length > 0 ? <AdditionalCatalog products={products} /> : null}
     {!loading && products.length > 0 ? <CategoryOrderPanel key={categories.map(item => item.id).join("|")} /> : null}
     {loading ? <div className="empty"><span>Carregando cardápio…</span></div> : null}
     {!loading && products.length === 0 ? <div className="big-empty"><PackagePlus /><h2>Cardápio vazio</h2><p>Cadastre o primeiro produto vendido nesta operação.</p></div> : null}
     {!loading && products.length > 0 ? <section className="catalog-list">{products.map(product => <CatalogRow key={product.id} product={product} categories={categories} onSaved={load} />)}</section> : null}
   </div>;
+}
+
+function AdditionalCatalog({ products }: { products: CatalogProduct[] }) {
+  const [name, setName] = useState("");
+  const [price, setPrice] = useState("0,00");
+  const [selected, setSelected] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  const eligible = products.filter(product => product.active && !product.isCombo);
+  const amount = parseMoney(price);
+  const valid = name.trim().length > 0 && Number.isFinite(amount) && amount >= 0 && selected.length > 0;
+  const save = async () => {
+    if (!valid || busy) return;
+    setBusy(true); setMessage("");
+    try {
+      const response = await fetch("/api/admin/catalog/additionals", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: name.trim(), priceDelta: amount, productIds: selected }) });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error ?? "Não foi possível cadastrar o adicional.");
+      setMessage(`Adicional cadastrado em ${data.count} produto(s).`);
+      setName(""); setPrice("0,00"); setSelected([]);
+    } catch (cause) { setMessage(cause instanceof Error ? cause.message : "Não foi possível cadastrar o adicional."); }
+    finally { setBusy(false); }
+  };
+  return <section className="panel settings-shell ingredient-groups-panel">
+    <div className="settings-shell-header"><div><span className="section-kicker">Personalização dos produtos</span><h2>Cadastrar adicional</h2></div></div>
+    <p>Cadastre o adicional uma vez e escolha os produtos em que ele poderá ser selecionado.</p>
+    <div className="ingredient-group-create">
+      <label className="field"><span>Nome do adicional</span><input value={name} maxLength={60} onChange={event => setName(event.target.value)} placeholder="Ex.: Catupiry extra" /></label>
+      <label className="field"><span>Preço em cada produto</span><div className="money-input compact"><span>R$</span><input inputMode="decimal" value={price} onChange={event => setPrice(event.target.value)} /></div></label>
+    </div>
+    <fieldset className="channel-field"><legend>Produtos que oferecem este adicional</legend>
+      <div className="channel-options"><button type="button" className={selected.length === eligible.length ? "active" : ""} onClick={() => setSelected(selected.length === eligible.length ? [] : eligible.map(product => product.id))}>Selecionar todos</button></div>
+      <div className="ingredient-product-picker">{eligible.map(product => <label className="check-line" key={product.id}><input type="checkbox" checked={selected.includes(product.id)} onChange={() => setSelected(current => current.includes(product.id) ? current.filter(id => id !== product.id) : [...current, product.id])} /><span>{product.name} <small>· {product.category}</small></span></label>)}</div>
+    </fieldset>
+    <button type="button" className="primary" disabled={!valid || busy} onClick={() => void save()}><Plus />{busy ? "Cadastrando…" : "Cadastrar adicional nos produtos selecionados"}</button>
+    {message && <p role="status">{message}</p>}
+  </section>;
 }
 
 function CatalogRow({ product, categories, onSaved }: { product: CatalogProduct; categories: CategoryItem[]; onSaved: () => Promise<void> }) {
