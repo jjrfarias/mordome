@@ -80,7 +80,7 @@ export function DeliveryManagement({ establishmentId, establishmentName, onFinis
   const outForDelivery = orders.filter(order => order.status === "OUT_FOR_DELIVERY").length;
 
   return <div className="page-content">
-    <div className="hero-row"><div><span className="section-kicker">Pedidos online e delivery</span><p>Entrega, retirada e consumo na loja, identificados por cliente.</p></div><div style={{ display: "flex", gap: 8 }}>{canManageDeliveryAreas && <button className="secondary" onClick={() => setManagingAreas(true)}><Settings /> Áreas de entrega</button>}<button className="primary" onClick={() => setCreating(true)}><Plus /> Novo pedido</button></div></div>
+    <div className="hero-row delivery-hero"><div><span className="section-kicker">Pedidos online e delivery</span><p>Entrega, retirada e consumo na loja, identificados por cliente.</p></div><div style={{ display: "flex", gap: 8 }}>{canManageDeliveryAreas && <button className="secondary" onClick={() => setManagingAreas(true)}><Settings /> Áreas de entrega</button>}<button className="primary" onClick={() => setCreating(true)}><Plus /> Novo pedido</button></div></div>
     {(error || syncError) && <div className="auth-error">{error || syncError}</div>}
     {paidOrder && <section className="ticket"><h2>Pagamento concluído — {paidOrder.customerName}</h2><p>O pedido já foi pago. A impressão não realiza outra cobrança.</p><DeliveryPrintButton orderId={paidOrder.id} mode="RECEIPT"/><button className="back" onClick={() => setPaidOrder(null)}>Fechar</button></section>}
     <div className="stats-row">
