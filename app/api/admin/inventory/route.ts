@@ -8,8 +8,10 @@ import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
 import { addLocalStockEntry, adjustLocalStock, applyLocalBulkPhysicalCount, configureLocalInventoryItem, createLocalInventoryItem, defaultConversions, listLocalInventory, transferLocalStock } from "@/lib/local-inventory";
 import { requestAuditMetadata } from "@/lib/audit";
 import { recordLocalAudit } from "@/lib/local-audit";
+import { listLocalCatalog } from "@/lib/local-catalog";
+import { createLocalRecipe, listLocalRecipes } from "@/lib/local-recipes";
 
-const createSchema = z.object({ action: z.literal("CREATE_ITEM"), name: z.string().trim().min(2).max(100), baseUnit: z.enum(InventoryUnit), trackingMode: z.enum(InventoryTrackingMode), minimumStock: z.number().finite().min(0), allowNegative: z.boolean() });
+const createSchema = z.object({ action: z.literal("CREATE_ITEM"), name: z.string().trim().min(2).max(100), baseUnit: z.enum(InventoryUnit), trackingMode: z.enum(InventoryTrackingMode), minimumStock: z.number().finite().min(0), allowNegative: z.boolean(), productId: z.string().min(1).optional() });
 const configureSchema = z.object({ action: z.literal("CONFIGURE_ITEM"), inventoryItemId: z.string().min(1) });
 const entrySchema = z.object({ action: z.literal("ENTRY"), establishmentItemId: z.string().min(1), quantity: z.number().finite().positive(), factorToBase: z.number().finite().positive(), totalCost: z.number().finite().min(0).optional(), idempotencyKey: z.string().uuid(), reason: z.string().trim().max(200).optional() });
 const transferSchema = z.object({ action: z.literal("TRANSFER"), establishmentItemId: z.string().min(1), destinationEstablishmentId: z.string().min(1), quantity: z.number().finite().positive(), factorToBase: z.number().finite().positive(), idempotencyKey: z.string().uuid(), reason: z.string().trim().min(2).max(200) });
@@ -34,21 +36,22 @@ export async function GET(request: Request) {
   if (isLocalAuthEnabled()) {
     const session = await getLocalSession();
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
-    return Response.json({ items: listLocalInventory(session.establishment.id), establishments: session.establishments.filter(item => item.id !== session.establishment.id) });
+    const linked = new Set(listLocalRecipes(session.establishment.id).map(recipe => recipe.productId));
+    return Response.json({ items: listLocalInventory(session.establishment.id), establishments: session.establishments.filter(item => item.id !== session.establishment.id), unlinkedProducts: listLocalCatalog(session.establishment.id).filter(product => !linked.has(product.id)).map(product => ({ id: product.id, name: product.name })) });
   }
   const actor = await resolveActor();
   if (!actor) return Response.json({ error: "Não autenticado." }, { status: 401 });
   if (!actor.session.canManageStock) return Response.json({ error: "Acesso negado ao estoque." }, { status: 403 });
 
-  const items = await db.inventoryItem.findMany({
+  const [items, products] = await Promise.all([db.inventoryItem.findMany({
     where: { organizationId: actor.session.organization.id },
     include: {
       conversions: true,
       establishments: { where: { establishmentId: actor.session.establishment.id }, include: { movements: { select: { quantity: true } } } },
     },
     orderBy: { name: "asc" },
-  });
-  return Response.json({ establishments: actor.session.establishments.filter(item => item.id !== actor.session.establishment.id), items: items.map(item => {
+  }), db.product.findMany({ where: { organizationId: actor.session.organization.id, active: true, variants: { some: { isDefault: true, offerings: { some: { establishmentId: actor.session.establishment.id, active: true } }, recipes: { none: { establishmentId: actor.session.establishment.id, kind: "SALE", active: true } } } } }, select: { id: true, name: true }, orderBy: { name: "asc" } })]);
+  return Response.json({ establishments: actor.session.establishments.filter(item => item.id !== actor.session.establishment.id), unlinkedProducts: products, items: items.map(item => {
     const configuration = item.establishments[0];
     return { id: item.id, establishmentItemId: configuration?.id ?? null, name: item.name, baseUnit: item.baseUnit, active: item.active, configured: Boolean(configuration), trackingMode: configuration?.trackingMode ?? "AUTOMATIC", minimumStock: Number(configuration?.minimumStock ?? 0), allowNegative: configuration?.allowNegative ?? true, balance: configuration?.movements.reduce((sum, movement) => sum + Number(movement.quantity), 0) ?? 0, conversions: item.conversions.map(conversion => ({ name: conversion.name, symbol: conversion.symbol, factorToBase: Number(conversion.factorToBase) })) };
   }) });
@@ -64,6 +67,18 @@ export async function POST(request: Request) {
     if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
     const data = parsed.data;
     const localBase = { organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, ...requestAuditMetadata(request) };
+    if (data.action === "CREATE_ITEM" && data.productId) {
+      if (!session.canManageRecipes) return Response.json({ error: "Acesso negado às fichas técnicas." }, { status: 403 });
+      if (data.baseUnit !== "UNIT" || data.trackingMode !== "AUTOMATIC") return Response.json({ error: "Para vincular ao cardápio, escolha unidade e controle automático." }, { status: 400 });
+      const product = listLocalCatalog(session.establishment.id).find(item => item.id === data.productId);
+      if (!product) return Response.json({ error: "Produto do cardápio não encontrado nesta unidade." }, { status: 404 });
+      if (listLocalRecipes(session.establishment.id).some(recipe => recipe.productId === product.id)) return Response.json({ error: "Este produto já possui ficha técnica nesta unidade." }, { status: 409 });
+      const item = createLocalInventoryItem(session.establishment.id, data);
+      if (!item) return Response.json({ error: "Já existe um item de estoque com esse nome." }, { status: 409 });
+      createLocalRecipe(session.establishment.id, { productId: product.id, productName: product.name, name: product.name, yieldQuantity: 1, components: [{ inventoryItemId: item.id, inventoryItemName: item.name, baseUnit: "UNIT", quantity: 1, wastePercent: 0 }] });
+      recordLocalAudit({ ...localBase, action: "CREATE", entityType: "InventoryItem", entityId: item.id, reason: "Cadastro de item de estoque vinculado ao cardápio", after: { ...data, productName: product.name } });
+      return Response.json({ item }, { status: 201 });
+    }
     if (data.action === "ADJUST") {
       if (!session.canAdjustStock) return Response.json({ error: "Você não tem permissão para ajustar o estoque." }, { status: 403 });
       const adjusted = adjustLocalStock({ ...data, establishmentId: session.establishment.id });
@@ -165,10 +180,15 @@ export async function POST(request: Request) {
 
   try {
     if (data.action === "CREATE_ITEM") {
+      if (data.productId && !actor.session.canManageRecipes) return Response.json({ error: "Acesso negado às fichas técnicas." }, { status: 403 });
+      if (data.productId && (data.baseUnit !== "UNIT" || data.trackingMode !== "AUTOMATIC")) return Response.json({ error: "Para vincular ao cardápio, escolha unidade e controle automático." }, { status: 400 });
       const item = await db.$transaction(async tx => {
+        const product = data.productId ? await tx.product.findFirst({ where: { id: data.productId, organizationId: actor.session.organization.id, active: true }, select: { id: true, name: true, variants: { where: { isDefault: true }, take: 1, select: { id: true, offerings: { where: { establishmentId: actor.session.establishment.id, active: true }, take: 1, select: { id: true } }, recipes: { where: { establishmentId: actor.session.establishment.id, kind: "SALE", active: true }, take: 1, select: { id: true } } } } } }) : null;
+        if (data.productId && (!product?.variants[0]?.offerings.length || product.variants[0].recipes.length)) throw new Error("PRODUCT_NOT_AVAILABLE");
         const created = await tx.inventoryItem.create({ data: { organizationId: actor.session.organization.id, name: data.name, slug: slugify(data.name), baseUnit: data.baseUnit, conversions: { create: defaultConversions(data.baseUnit) } } });
         await tx.establishmentInventoryItem.create({ data: { establishmentId: actor.session.establishment.id, inventoryItemId: created.id, trackingMode: data.trackingMode, minimumStock: data.minimumStock, allowNegative: data.allowNegative } });
-        await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "CREATE", entityType: "InventoryItem", entityId: created.id, reason: "Cadastro de item de estoque", after: { name: data.name, baseUnit: data.baseUnit, trackingMode: data.trackingMode } } });
+        if (product) await tx.recipe.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, variantId: product.variants[0].id, kind: "SALE", name: product.name, yieldQuantity: 1, components: { create: [{ inventoryItemId: created.id, quantity: 1, wastePercent: 0 }] } } });
+        await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "CREATE", entityType: "InventoryItem", entityId: created.id, reason: data.productId ? "Cadastro de item de estoque vinculado ao cardápio" : "Cadastro de item de estoque", after: { name: data.name, baseUnit: data.baseUnit, trackingMode: data.trackingMode, productId: data.productId ?? null } } });
         return created;
       });
       return Response.json({ item: { id: item.id } }, { status: 201 });
@@ -213,6 +233,7 @@ export async function POST(request: Request) {
     const movement = await db.$transaction(async tx => { const record = await tx.stockMovement.create({ data: { establishmentItemId: establishmentItem.id, type: "ENTRY", quantity: baseQuantity, unitCost, actorId: actor.session.user.id, reason: data.reason ?? "Entrada de estoque", sourceType: "MANUAL_ENTRY", idempotencyKey: data.idempotencyKey } }); await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "STOCK_ENTRY", entityType: "StockMovement", entityId: record.id, reason: data.reason ?? "Entrada de estoque", after: { inventoryItemId: establishmentItem.inventoryItemId, quantity: baseQuantity, unitCost, totalCost: data.totalCost }, ...requestAuditMetadata(request) } }); return record; });
     return Response.json({ movement: { id: movement.id, quantity: Number(movement.quantity) } }, { status: 201 });
   } catch (error) {
+      if (error instanceof Error && error.message === "PRODUCT_NOT_AVAILABLE") return Response.json({ error: "Produto do cardápio indisponível ou já vinculado nesta unidade." }, { status: 409 });
     if (error instanceof Error && error.message === "TRANSFER_INSUFFICIENT_STOCK") return Response.json({ error: "Saldo insuficiente para esta transferência." }, { status: 409 });
     if (error instanceof Error && error.message === "TRANSFER_ITEM_NOT_FOUND") return Response.json({ error: "Item de estoque não encontrado." }, { status: 404 });
     if (error instanceof Error && error.message === "TRANSFER_DESTINATION_NOT_FOUND") return Response.json({ error: "Unidade de destino não encontrada." }, { status: 404 });

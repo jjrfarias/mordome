@@ -28,6 +28,8 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
   const [section, setSection] = useState<InventorySection>("items");
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [establishments, setEstablishments] = useState<EstablishmentOption[]>([]);
+  const [unlinkedProducts, setUnlinkedProducts] = useState<{ id: string; name: string }[]>([]);
+  const [productId, setProductId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
@@ -45,6 +47,7 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
       if (!response.ok) throw new Error(data.error ?? "Não foi possível carregar o estoque.");
       setItems(data.items);
       setEstablishments(data.establishments ?? []);
+      setUnlinkedProducts(data.unlinkedProducts ?? []);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível carregar o estoque.");
     } finally { setLoading(false); }
@@ -62,10 +65,10 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
     if (name.trim().length < 2 || !Number.isFinite(minimum) || minimum < 0) return;
     setSaving(true); setError("");
     try {
-      const response = await fetch("/api/admin/inventory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "CREATE_ITEM", name: name.trim(), baseUnit, trackingMode, minimumStock: minimum, allowNegative: true }) });
+      const response = await fetch("/api/admin/inventory", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "CREATE_ITEM", name: name.trim(), baseUnit, trackingMode, minimumStock: minimum, allowNegative: true, productId: productId || undefined }) });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error ?? "Não foi possível cadastrar o item.");
-      setName(""); setMinimumStock("0"); await load();
+      setName(""); setMinimumStock("0"); setProductId(""); await load();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Não foi possível cadastrar o item.");
     } finally { setSaving(false); }
@@ -88,8 +91,10 @@ export function InventoryManagement({ establishmentId, establishmentName }: { es
       </nav>
       {section === "items" && <form className="inventory-create-form" onSubmit={create}>
         <label className="field"><span>Item</span><input value={name} onChange={event => setName(event.target.value)} placeholder="Ex.: Milho" /></label>
-        <label className="field"><span>Unidade-base</span><select value={baseUnit} onChange={event => setBaseUnit(event.target.value as BaseUnit)}><option value="GRAM">Grama (g)</option><option value="MILLILITER">Mililitro (ml)</option><option value="UNIT">Unidade (un)</option></select></label>
-        <label className="field"><span>Controle</span><select value={trackingMode} onChange={event => setTrackingMode(event.target.value as TrackingMode)}><option value="AUTOMATIC">Automático por venda</option><option value="MANUAL">Somente baixa manual</option><option value="NONE">Sem controle</option></select></label>
+        <label className="field"><span>Este item já está no cardápio?</span><select value={productId} onChange={event => { const id = event.target.value; setProductId(id); if (id) { setBaseUnit("UNIT"); setTrackingMode("AUTOMATIC"); const product = unlinkedProducts.find(candidate => candidate.id === id); if (product) setName(product.name); } }}><option value="">Não, cadastrar sem vínculo</option>{unlinkedProducts.map(product => <option key={product.id} value={product.id}>{product.name}</option>)}</select></label>
+        {productId && <p>Ao cadastrar, cada venda desse produto consumirá 1 unidade do estoque nesta loja.</p>}
+        <label className="field"><span>Unidade-base</span><select value={baseUnit} disabled={Boolean(productId)} onChange={event => setBaseUnit(event.target.value as BaseUnit)}><option value="GRAM">Grama (g)</option><option value="MILLILITER">Mililitro (ml)</option><option value="UNIT">Unidade (un)</option></select></label>
+        <label className="field"><span>Controle</span><select value={trackingMode} disabled={Boolean(productId)} onChange={event => setTrackingMode(event.target.value as TrackingMode)}><option value="AUTOMATIC">Automático por venda</option><option value="MANUAL">Somente baixa manual</option><option value="NONE">Sem controle</option></select></label>
         <label className="field"><span>Estoque mínimo</span><input inputMode="decimal" value={minimumStock} onChange={event => setMinimumStock(event.target.value)} /></label>
         <button className="primary" disabled={saving || name.trim().length < 2}><Plus />Cadastrar item</button>
       </form>}
