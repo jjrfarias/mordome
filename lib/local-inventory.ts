@@ -6,7 +6,7 @@ export type LocalBaseUnit = "GRAM" | "MILLILITER" | "UNIT";
 export type LocalTrackingMode = "AUTOMATIC" | "MANUAL" | "NONE";
 export type LocalStockMovementType = "ENTRY" | "CONSUMPTION" | "LOSS" | "ADJUSTMENT" | "TRANSFER_IN" | "TRANSFER_OUT" | "REVERSAL" | "PRODUCTION_IN" | "PRODUCTION_OUT";
 export type LocalStockMovement = { id: string; type: LocalStockMovementType; quantity: number; unitCost?: number | null; reason?: string | null; sourceType?: string | null; createdAt: string };
-type Configuration = { id: string; trackingMode: LocalTrackingMode; minimumStock: number; allowNegative: boolean; movements: LocalStockMovement[] };
+type Configuration = { id: string; trackingMode: LocalTrackingMode; minimumStock: number; allowNegative: boolean; movements: LocalStockMovement[]; active?: boolean };
 type InventoryRecord = { id: string; name: string; baseUnit: LocalBaseUnit; active: boolean; configurations: Map<string, Configuration> };
 
 function createMovement(type: LocalStockMovementType, quantity: number, reason?: string | null, sourceType?: string | null, unitCost?: number | null): LocalStockMovement {
@@ -24,7 +24,7 @@ export function defaultConversions(baseUnit: LocalBaseUnit) {
 }
 
 export function listLocalInventory(establishmentId: string) {
-  return items.map(item => {
+  return items.filter(item => item.active && item.configurations.get(establishmentId)?.active !== false).map(item => {
     const configuration = item.configurations.get(establishmentId);
     return {
       id: item.id,
@@ -55,7 +55,17 @@ export function configureLocalInventoryItem(establishmentId: string, inventoryIt
   const item = items.find(row => row.id === inventoryItemId);
   if (!item) return null;
   if (!item.configurations.has(establishmentId)) item.configurations.set(establishmentId, { id: `local-stock-${randomUUID()}`, trackingMode: "AUTOMATIC", minimumStock: 0, allowNegative: true, movements: [] });
+  else item.configurations.get(establishmentId)!.active = true;
   return listLocalInventory(establishmentId).find(row => row.id === inventoryItemId)!;
+}
+
+export function archiveLocalInventoryItem(establishmentId: string, inventoryItemId: string) {
+  const item = items.find(row => row.id === inventoryItemId);
+  const configuration = item?.configurations.get(establishmentId);
+  if (!item || !configuration || configuration.active === false) return "NOT_FOUND" as const;
+  if (stockBalance(configuration.movements) !== 0) return "HAS_BALANCE" as const;
+  configuration.active = false;
+  return "ARCHIVED" as const;
 }
 
 export function addLocalStockEntry(establishmentId: string, establishmentItemId: string, quantity: number, factorToBase: number, reason?: string, totalCost?: number) {

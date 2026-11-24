@@ -15,4 +15,11 @@ export function createLocalRecipe(establishmentId: string, input: Omit<Recipe, "
   recipesByEstablishment.set(establishmentId, recipes);
   return recipe;
 }
+
+export function archiveLocalSingleItemRecipes(establishmentId: string, inventoryItemId: string) {
+  const recipes = recipesByEstablishment.get(establishmentId) ?? [];
+  if (recipes.some(recipe => recipe.components.some(component => component.inventoryItemId === inventoryItemId) && recipe.components.length > 1)) return false;
+  recipesByEstablishment.set(establishmentId, recipes.filter(recipe => !recipe.components.some(component => component.inventoryItemId === inventoryItemId)));
+  return true;
+}
 import { randomUUID } from "node:crypto";
