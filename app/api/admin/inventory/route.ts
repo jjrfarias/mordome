@@ -5,11 +5,11 @@ import { getCurrentSession, isSameOrigin } from "@/lib/auth";
 import { slugify } from "@/lib/auth-validation";
 import { convertToBaseUnit, resolvePhysicalCountAdjustment } from "@/lib/inventory-domain";
 import { getLocalSession, isLocalAuthEnabled } from "@/lib/local-auth";
-import { addLocalStockEntry, adjustLocalStock, applyLocalBulkPhysicalCount, configureLocalInventoryItem, createLocalInventoryItem, defaultConversions, listLocalInventory, transferLocalStock } from "@/lib/local-inventory";
+import { addLocalStockEntry, adjustLocalStock, applyLocalBulkPhysicalCount, archiveLocalInventoryItem, configureLocalInventoryItem, createLocalInventoryItem, defaultConversions, listLocalInventory, transferLocalStock } from "@/lib/local-inventory";
 import { requestAuditMetadata } from "@/lib/audit";
 import { recordLocalAudit } from "@/lib/local-audit";
 import { listLocalCatalog } from "@/lib/local-catalog";
-import { createLocalRecipe, listLocalRecipes } from "@/lib/local-recipes";
+import { archiveLocalSingleItemRecipes, createLocalRecipe, listLocalRecipes } from "@/lib/local-recipes";
 
 const createSchema = z.object({ action: z.literal("CREATE_ITEM"), name: z.string().trim().min(2).max(100), baseUnit: z.enum(InventoryUnit), trackingMode: z.enum(InventoryTrackingMode), minimumStock: z.number().finite().min(0), allowNegative: z.boolean(), productId: z.string().min(1).optional() });
 const configureSchema = z.object({ action: z.literal("CONFIGURE_ITEM"), inventoryItemId: z.string().min(1) });
@@ -44,7 +44,7 @@ export async function GET(request: Request) {
   if (!actor.session.canManageStock) return Response.json({ error: "Acesso negado ao estoque." }, { status: 403 });
 
   const [items, products] = await Promise.all([db.inventoryItem.findMany({
-    where: { organizationId: actor.session.organization.id },
+    where: { organizationId: actor.session.organization.id, active: true, establishments: { none: { establishmentId: actor.session.establishment.id, active: false } } },
     include: {
       conversions: true,
       establishments: { where: { establishmentId: actor.session.establishment.id }, include: { movements: { select: { quantity: true } } } },
@@ -55,6 +55,45 @@ export async function GET(request: Request) {
     const configuration = item.establishments[0];
     return { id: item.id, establishmentItemId: configuration?.id ?? null, name: item.name, baseUnit: item.baseUnit, active: item.active, configured: Boolean(configuration), trackingMode: configuration?.trackingMode ?? "AUTOMATIC", minimumStock: Number(configuration?.minimumStock ?? 0), allowNegative: configuration?.allowNegative ?? true, balance: configuration?.movements.reduce((sum, movement) => sum + Number(movement.quantity), 0) ?? 0, conversions: item.conversions.map(conversion => ({ name: conversion.name, symbol: conversion.symbol, factorToBase: Number(conversion.factorToBase) })) };
   }) });
+}
+
+export async function DELETE(request: Request) {
+  if (!isSameOrigin(request)) return Response.json({ error: "Origem inválida." }, { status: 403 });
+  const parsed = z.object({ inventoryItemId: z.string().min(1) }).safeParse(await request.json().catch(() => null));
+  if (!parsed.success) return Response.json({ error: "Item inválido." }, { status: 400 });
+  if (isLocalAuthEnabled()) {
+    const session = await getLocalSession();
+    if (!session) return Response.json({ error: "Não autenticado." }, { status: 401 });
+    if (!session.canManageStock || !session.canManageRecipes) return Response.json({ error: "Acesso negado." }, { status: 403 });
+    if (listLocalRecipes(session.establishment.id).some(recipe => recipe.components.some(component => component.inventoryItemId === parsed.data.inventoryItemId) && recipe.components.length > 1)) return Response.json({ error: "Este item faz parte de uma ficha com outros ingredientes. Revise a ficha antes de excluir." }, { status: 409 });
+    const result = archiveLocalInventoryItem(session.establishment.id, parsed.data.inventoryItemId);
+    if (result === "NOT_FOUND") return Response.json({ error: "Item não encontrado nesta unidade." }, { status: 404 });
+    if (result === "HAS_BALANCE") return Response.json({ error: "Zere o saldo por contagem física antes de excluir." }, { status: 409 });
+    archiveLocalSingleItemRecipes(session.establishment.id, parsed.data.inventoryItemId);
+    recordLocalAudit({ organizationId: session.organization.id, establishmentId: session.establishment.id, establishmentName: session.establishment.name, actorId: session.user.id, actorName: session.user.name, actorUsername: session.user.username, action: "DELETE", entityType: "InventoryItem", entityId: parsed.data.inventoryItemId, reason: "Exclusão do item de estoque nesta unidade", ...requestAuditMetadata(request) });
+    return Response.json({ ok: true });
+  }
+  const actor = await resolveActor();
+  if (!actor) return Response.json({ error: "Não autenticado." }, { status: 401 });
+  if (!actor.session.canManageStock || !actor.session.canManageRecipes) return Response.json({ error: "Acesso negado." }, { status: 403 });
+  try {
+    await db.$transaction(async tx => {
+      const item = await tx.establishmentInventoryItem.findFirst({ where: { establishmentId: actor.session.establishment.id, inventoryItemId: parsed.data.inventoryItemId, active: true, inventoryItem: { organizationId: actor.session.organization.id } }, include: { movements: { select: { quantity: true } } } });
+      if (!item) throw new Error("NOT_FOUND");
+      if (item.movements.reduce((total, movement) => total + Number(movement.quantity), 0) !== 0) throw new Error("HAS_BALANCE");
+      const recipes = await tx.recipe.findMany({ where: { establishmentId: actor.session.establishment.id, active: true, components: { some: { inventoryItemId: parsed.data.inventoryItemId } } }, select: { id: true, components: { select: { id: true } } } });
+      if (recipes.some(recipe => recipe.components.length > 1)) throw new Error("MULTI_RECIPE");
+      await tx.recipe.updateMany({ where: { id: { in: recipes.map(recipe => recipe.id) } }, data: { active: false } });
+      await tx.establishmentInventoryItem.update({ where: { id: item.id }, data: { active: false } });
+      await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "DELETE", entityType: "InventoryItem", entityId: parsed.data.inventoryItemId, reason: "Exclusão do item de estoque nesta unidade", after: { archivedEstablishmentItemId: item.id, archivedRecipeIds: recipes.map(recipe => recipe.id) }, ...requestAuditMetadata(request) } });
+    });
+    return Response.json({ ok: true });
+  } catch (error) {
+    if (error instanceof Error && error.message === "NOT_FOUND") return Response.json({ error: "Item não encontrado nesta unidade." }, { status: 404 });
+    if (error instanceof Error && error.message === "HAS_BALANCE") return Response.json({ error: "Zere o saldo por contagem física antes de excluir." }, { status: 409 });
+    if (error instanceof Error && error.message === "MULTI_RECIPE") return Response.json({ error: "Este item faz parte de uma ficha com outros ingredientes. Revise a ficha antes de excluir." }, { status: 409 });
+    return Response.json({ error: "Não foi possível excluir o item." }, { status: 500 });
+  }
 }
 
 export async function POST(request: Request) {
@@ -183,11 +222,15 @@ export async function POST(request: Request) {
       if (data.productId && !actor.session.canManageRecipes) return Response.json({ error: "Acesso negado às fichas técnicas." }, { status: 403 });
       if (data.productId && (data.baseUnit !== "UNIT" || data.trackingMode !== "AUTOMATIC")) return Response.json({ error: "Para vincular ao cardápio, escolha unidade e controle automático." }, { status: 400 });
       const item = await db.$transaction(async tx => {
-        const product = data.productId ? await tx.product.findFirst({ where: { id: data.productId, organizationId: actor.session.organization.id, active: true }, select: { id: true, name: true, variants: { where: { isDefault: true }, take: 1, select: { id: true, offerings: { where: { establishmentId: actor.session.establishment.id, active: true }, take: 1, select: { id: true } }, recipes: { where: { establishmentId: actor.session.establishment.id, kind: "SALE", active: true }, take: 1, select: { id: true } } } } } }) : null;
-        if (data.productId && (!product?.variants[0]?.offerings.length || product.variants[0].recipes.length)) throw new Error("PRODUCT_NOT_AVAILABLE");
+        const product = data.productId ? await tx.product.findFirst({ where: { id: data.productId, organizationId: actor.session.organization.id, active: true }, select: { id: true, name: true, variants: { where: { isDefault: true }, take: 1, select: { id: true, offerings: { where: { establishmentId: actor.session.establishment.id, active: true }, take: 1, select: { id: true } }, recipes: { where: { establishmentId: actor.session.establishment.id, kind: "SALE" }, take: 1, select: { id: true, active: true } } } } } }) : null;
+        if (data.productId && (!product?.variants[0]?.offerings.length || product.variants[0].recipes.some(recipe => recipe.active))) throw new Error("PRODUCT_NOT_AVAILABLE");
         const created = await tx.inventoryItem.create({ data: { organizationId: actor.session.organization.id, name: data.name, slug: slugify(data.name), baseUnit: data.baseUnit, conversions: { create: defaultConversions(data.baseUnit) } } });
         await tx.establishmentInventoryItem.create({ data: { establishmentId: actor.session.establishment.id, inventoryItemId: created.id, trackingMode: data.trackingMode, minimumStock: data.minimumStock, allowNegative: data.allowNegative } });
-        if (product) await tx.recipe.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, variantId: product.variants[0].id, kind: "SALE", name: product.name, yieldQuantity: 1, components: { create: [{ inventoryItemId: created.id, quantity: 1, wastePercent: 0 }] } } });
+        if (product) {
+          const oldRecipe = product.variants[0].recipes[0];
+          if (oldRecipe) await tx.recipe.update({ where: { id: oldRecipe.id }, data: { active: true, name: product.name, yieldQuantity: 1, components: { deleteMany: {}, create: [{ inventoryItemId: created.id, quantity: 1, wastePercent: 0 }] } } });
+          else await tx.recipe.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, variantId: product.variants[0].id, kind: "SALE", name: product.name, yieldQuantity: 1, components: { create: [{ inventoryItemId: created.id, quantity: 1, wastePercent: 0 }] } } });
+        }
         await tx.auditEvent.create({ data: { organizationId: actor.session.organization.id, establishmentId: actor.session.establishment.id, actorId: actor.session.user.id, action: "CREATE", entityType: "InventoryItem", entityId: created.id, reason: data.productId ? "Cadastro de item de estoque vinculado ao cardápio" : "Cadastro de item de estoque", after: { name: data.name, baseUnit: data.baseUnit, trackingMode: data.trackingMode, productId: data.productId ?? null } } });
         return created;
       });
