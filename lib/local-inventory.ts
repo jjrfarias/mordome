@@ -43,7 +43,18 @@ export function listLocalInventory(establishmentId: string) {
 }
 
 export function createLocalInventoryItem(establishmentId: string, input: { name: string; baseUnit: LocalBaseUnit; trackingMode: LocalTrackingMode; minimumStock: number; allowNegative: boolean }) {
-  if (items.some(item => item.name.toLocaleLowerCase("pt-BR") === input.name.toLocaleLowerCase("pt-BR"))) return null;
+  const existing = items.find(item => item.name.toLocaleLowerCase("pt-BR") === input.name.toLocaleLowerCase("pt-BR"));
+  if (existing) {
+    const configuration = existing.configurations.get(establishmentId);
+    if (existing.baseUnit !== input.baseUnit || (configuration && configuration.active !== false)) return null;
+    if (configuration) {
+      configuration.active = true;
+      configuration.trackingMode = input.trackingMode;
+      configuration.minimumStock = input.minimumStock;
+      configuration.allowNegative = input.allowNegative;
+    } else existing.configurations.set(establishmentId, { id: `local-stock-${randomUUID()}`, trackingMode: input.trackingMode, minimumStock: input.minimumStock, allowNegative: input.allowNegative, movements: [] });
+    return listLocalInventory(establishmentId).find(row => row.id === existing.id)!;
+  }
   const id = `local-inventory-${randomUUID()}`;
   const establishmentItemId = `local-stock-${randomUUID()}`;
   const item: InventoryRecord = { id, name: input.name, baseUnit: input.baseUnit, active: true, configurations: new Map([[establishmentId, { id: establishmentItemId, trackingMode: input.trackingMode, minimumStock: input.minimumStock, allowNegative: input.allowNegative, movements: [] }]]) };
